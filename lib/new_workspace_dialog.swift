@@ -1,13 +1,10 @@
 import Cocoa
 
 // New Workspace dialog for ws2.
-// Workflow:
-//   1. User picks a directory (path)
-//   2. If it's a git repo with worktrees, show a list to choose from (+ create new)
-//   3. User names the workspace
-//   4. Writes result to /tmp/ws2-new-workspace as tab-separated:
-//        name\tpath\troot_repo\tworkspace_id
-//      or "cancel" if cancelled.
+// Keyboard-first: every action reachable via keyboard, also clickable with mouse.
+// Writes result to /tmp/ws2-new-workspace as tab-separated:
+//   name\tpath\troot_repo\tworkspace_id
+// or "cancel" if cancelled.
 
 let resultPath = "/tmp/ws2-new-workspace"
 let app = NSApplication.shared
@@ -18,12 +15,12 @@ let sf = screen.frame
 
 // --- Colors (matching ws2 palette) ---
 let bgColor = NSColor(white: 0.08, alpha: 0.93)
-let itemBg = NSColor(red: 0.21, green: 0.22, blue: 0.27, alpha: 1) // 0xff363944
-let itemBg2 = NSColor(red: 0.25, green: 0.27, blue: 0.31, alpha: 1) // 0xff414550
+let itemBg = NSColor(red: 0.21, green: 0.22, blue: 0.27, alpha: 1)
+let itemBg2 = NSColor(red: 0.25, green: 0.27, blue: 0.31, alpha: 1)
 let textWhite = NSColor(red: 0.89, green: 0.89, blue: 0.89, alpha: 1)
 let dimWhite = NSColor(white: 1, alpha: 0.45)
 let accentBlue = NSColor(red: 0.20, green: 0.45, blue: 0.85, alpha: 1)
-let green = NSColor(red: 0.62, green: 0.82, blue: 0.45, alpha: 1)
+let greenColor = NSColor(red: 0.62, green: 0.82, blue: 0.45, alpha: 1)
 
 // --- Window ---
 class KeyableWindow: NSWindow {
@@ -159,11 +156,35 @@ func makeBtn(label: String, bg: NSColor, fg: NSColor, bold: Bool = false) -> NSB
     b.layer?.cornerRadius = 8
     b.alignment = .center
     let weight: NSFont.Weight = bold ? .semibold : .medium
+    let style = NSMutableParagraphStyle()
+    style.alignment = .center
     b.attributedTitle = NSAttributedString(string: label, attributes: [
         .foregroundColor: fg,
-        .font: NSFont.systemFont(ofSize: 12, weight: weight)
+        .font: NSFont.systemFont(ofSize: 12, weight: weight),
+        .paragraphStyle: style,
     ])
     return b
+}
+
+func showFilePicker() -> String? {
+    let panel = NSOpenPanel()
+    panel.canChooseFiles = false
+    panel.canChooseDirectories = true
+    panel.allowsMultipleSelection = false
+    panel.prompt = "Select"
+    let savedWinLevel = win.level
+    let savedBackdropLevel = backdrop.level
+    win.level = .normal
+    backdrop.level = .normal
+    backdrop.alphaValue = 0
+    let result = panel.runModal()
+    win.level = savedWinLevel
+    backdrop.level = savedBackdropLevel
+    backdrop.alphaValue = 1
+    win.makeKeyAndOrderFront(nil)
+    app.activate(ignoringOtherApps: true)
+    guard result == .OK, let url = panel.url else { return nil }
+    return url.path
 }
 
 // --- Git helpers ---
@@ -237,7 +258,6 @@ func listWorktrees(_ path: String) -> [Worktree] {
 }
 
 func createWorktree(repoRoot: String, name: String) -> String? {
-    // Check if branch exists
     let checkBranch = Process()
     checkBranch.executableURL = URL(fileURLWithPath: "/usr/bin/git")
     checkBranch.arguments = ["-C", repoRoot, "rev-parse", "--verify", "refs/heads/\(name)"]
@@ -267,9 +287,7 @@ func lastPathComponent(_ path: String) -> String {
     (path as NSString).lastPathComponent
 }
 
-// --- Find next available workspace ID ---
 func nextWorkspaceID() -> String {
-    // Read existing workspaces.json to find used IDs
     let wsFile = NSString(string: "~/.config/ws2/workspaces.json").expandingTildeInPath
     var usedIDs: Set<String> = []
     if let data = FileManager.default.contents(atPath: wsFile),
@@ -290,20 +308,14 @@ func nextWorkspaceID() -> String {
 // STATE MACHINE
 // ============================================================================
 
-enum DialogState {
-    case pickPath
-    case pickWorktree(repoRoot: String, worktrees: [Worktree])
-    case createWorktree(repoRoot: String)
-    case namingWorkspace(path: String, repoRoot: String)
-}
-
-var state: DialogState = .pickPath
 var allSubviews: [NSView] = []
+var currentKeyHandler: Any?
 
 func clearContent() {
     for v in allSubviews { v.removeFromSuperview() }
     allSubviews.removeAll()
     cv.removeConstraints(cv.constraints)
+    if let h = currentKeyHandler { NSEvent.removeMonitor(h); currentKeyHandler = nil }
 }
 
 func addView(_ v: NSView) {
@@ -328,7 +340,6 @@ func relayout() {
 // STEP 1: Pick Path
 // ============================================================================
 func showPickPath() {
-    state = .pickPath
     clearContent()
 
     let titleLabel = NSTextField(labelWithString: "New Workspace")
@@ -337,59 +348,107 @@ func showPickPath() {
     titleLabel.textColor = dimWhite
     addView(titleLabel)
 
-    let subtitleLabel = NSTextField(labelWithString: "Choose a directory (typically a git repo)")
-    subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-    subtitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
-    subtitleLabel.textColor = NSColor(white: 1, alpha: 0.3)
-    addView(subtitleLabel)
+    let pathLabel = makeLabel("PATH (enter path or browse)")
+    addView(pathLabel)
+    let pathField = makeField(placeholder: "/path/to/repo")
+    addView(pathField)
 
-    let browseBtn = makeBtn(label: "  BROWSE…  ", bg: accentBlue, fg: .white, bold: true)
+    let browseBtn = makeBtn(label: "BROWSE", bg: NSColor(white: 0.22, alpha: 1), fg: NSColor(white: 1, alpha: 0.75))
     addView(browseBtn)
 
-    let cancelBtn = makeBtn(label: "  CANCEL  ", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let errorLabel = NSTextField(labelWithString: "")
+    errorLabel.translatesAutoresizingMaskIntoConstraints = false
+    errorLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+    errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
+    addView(errorLabel)
+
+    let nextBtn = makeBtn(label: "NEXT", bg: accentBlue, fg: .white, bold: true)
+    addView(nextBtn)
+    let cancelBtn = makeBtn(label: "CANCEL", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
 
     NSLayoutConstraint.activate([
         titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
         titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
-        subtitleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        browseBtn.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 20),
-        browseBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        browseBtn.heightAnchor.constraint(equalToConstant: 34),
-        cancelBtn.topAnchor.constraint(equalTo: browseBtn.topAnchor),
+        pathLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 18),
+        pathLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        pathField.topAnchor.constraint(equalTo: pathLabel.bottomAnchor, constant: 6),
+        pathField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        pathField.trailingAnchor.constraint(equalTo: browseBtn.leadingAnchor, constant: -10),
+        pathField.heightAnchor.constraint(equalToConstant: 36),
+        browseBtn.centerYAnchor.constraint(equalTo: pathField.centerYAnchor),
+        browseBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        browseBtn.heightAnchor.constraint(equalToConstant: 36),
+        browseBtn.widthAnchor.constraint(equalToConstant: 80),
+        errorLabel.topAnchor.constraint(equalTo: pathField.bottomAnchor, constant: 6),
+        errorLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        errorLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        nextBtn.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
+        nextBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
+        nextBtn.heightAnchor.constraint(equalToConstant: 34),
+        nextBtn.widthAnchor.constraint(equalToConstant: 80),
+        cancelBtn.topAnchor.constraint(equalTo: nextBtn.topAnchor),
         cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
+        cancelBtn.widthAnchor.constraint(equalToConstant: 80),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
     ])
 
+    relayout()
+    win.makeFirstResponder(pathField)
+
     class BrowseAction: NSObject {
+        let field: NSTextField
+        init(_ f: NSTextField) { field = f }
         @objc func browse(_ sender: Any) {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.prompt = "Select"
-            let savedLevel = win.level
-            win.level = .normal
-            let result = panel.runModal()
-            win.level = savedLevel
-            win.makeKeyAndOrderFront(nil)
-            guard result == .OK, let url = panel.url else { return }
-            handlePathSelected(url.path)
+            if let path = showFilePicker() { field.stringValue = path }
+        }
+    }
+    class NextAction: NSObject {
+        let field: NSTextField
+        let errLabel: NSTextField
+        init(_ f: NSTextField, _ e: NSTextField) { field = f; errLabel = e }
+        @objc func next(_ sender: Any) { doNext() }
+        func doNext() {
+            let path = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let expanded = NSString(string: path).expandingTildeInPath
+            guard !expanded.isEmpty else { errLabel.stringValue = "Enter a path"; return }
+            guard FileManager.default.fileExists(atPath: expanded) else {
+                errLabel.stringValue = "Directory does not exist"
+                return
+            }
+            handlePathSelected(expanded)
         }
     }
     class CancelAction: NSObject {
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
     }
-    let browseAction = BrowseAction()
+
+    let browseAction = BrowseAction(pathField)
+    let nextAction = NextAction(pathField, errorLabel)
     let cancelAction = CancelAction()
     browseBtn.target = browseAction; browseBtn.action = #selector(BrowseAction.browse(_:))
+    nextBtn.target = nextAction; nextBtn.action = #selector(NextAction.next(_:))
     cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
     objc_setAssociatedObject(browseBtn, "a", browseAction, .OBJC_ASSOCIATION_RETAIN)
+    objc_setAssociatedObject(nextBtn, "a", nextAction, .OBJC_ASSOCIATION_RETAIN)
     objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
 
-    relayout()
+    currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if event.keyCode == 36 { nextAction.doNext(); return nil }
+        if event.keyCode == 48 { // Tab
+            let cur = win.firstResponder
+            let isField = (cur is NSTextView && pathField.currentEditor() === cur)
+            if isField {
+                win.makeFirstResponder(browseBtn)
+            } else {
+                win.makeFirstResponder(pathField)
+            }
+            return nil
+        }
+        return event
+    }
 }
 
 func handlePathSelected(_ path: String) {
@@ -410,7 +469,6 @@ func handlePathSelected(_ path: String) {
 // STEP 2: Pick Worktree
 // ============================================================================
 func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
-    state = .pickWorktree(repoRoot: repoRoot, worktrees: worktrees)
     clearContent()
 
     let titleLabel = NSTextField(labelWithString: "Select Worktree")
@@ -419,23 +477,21 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
     titleLabel.textColor = dimWhite
     addView(titleLabel)
 
-    let subtitleLabel = NSTextField(labelWithString: "This repo has \(worktrees.count) worktrees")
+    let subtitleLabel = NSTextField(labelWithString: "This repo has \(worktrees.count) worktrees — press a number to select")
     subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
     subtitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
     subtitleLabel.textColor = NSColor(white: 1, alpha: 0.3)
     addView(subtitleLabel)
 
-    class WorTreeAction: NSObject {
+    class WtAction: NSObject {
         let path: String
         let root: String
         init(_ p: String, _ r: String) { path = p; root = r }
-        @objc func pick(_ sender: Any) {
-            showNamingWorkspace(path: path, repoRoot: root)
-        }
+        @objc func pick(_ sender: Any) { showNamingWorkspace(path: path, repoRoot: root) }
     }
 
     var prevAnchor: NSLayoutYAxisAnchor = subtitleLabel.bottomAnchor
-    var actions: [WorTreeAction] = []
+    var actions: [WtAction] = []
 
     for (i, wt) in worktrees.enumerated() {
         let isRoot = (wt.path == repoRoot)
@@ -461,9 +517,9 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
         ]))
         btn.attributedTitle = attr
 
-        let action = WorTreeAction(wt.path, repoRoot)
+        let action = WtAction(wt.path, repoRoot)
         actions.append(action)
-        btn.target = action; btn.action = #selector(WorTreeAction.pick(_:))
+        btn.target = action; btn.action = #selector(WtAction.pick(_:))
         objc_setAssociatedObject(btn, "a\(i)", action, .OBJC_ASSOCIATION_RETAIN)
 
         addView(btn)
@@ -476,8 +532,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
         prevAnchor = btn.bottomAnchor
     }
 
-    // "Create New Worktree" button
-    let newWtBtn = makeBtn(label: "  + CREATE NEW WORKTREE  ", bg: NSColor(white: 0.22, alpha: 1), fg: green)
+    let newWtBtn = makeBtn(label: "+ NEW WORKTREE", bg: NSColor(white: 0.22, alpha: 1), fg: greenColor)
     addView(newWtBtn)
 
     class NewWtAction: NSObject {
@@ -489,7 +544,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
     newWtBtn.target = newWtAction; newWtBtn.action = #selector(NewWtAction.create(_:))
     objc_setAssociatedObject(newWtBtn, "a", newWtAction, .OBJC_ASSOCIATION_RETAIN)
 
-    let cancelBtn = makeBtn(label: "  CANCEL  ", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
     class CancelAction: NSObject {
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
@@ -506,21 +561,26 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
         newWtBtn.topAnchor.constraint(equalTo: prevAnchor, constant: 14),
         newWtBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         newWtBtn.heightAnchor.constraint(equalToConstant: 34),
+        newWtBtn.widthAnchor.constraint(equalToConstant: 160),
         cancelBtn.topAnchor.constraint(equalTo: newWtBtn.topAnchor),
         cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
+        cancelBtn.widthAnchor.constraint(equalToConstant: 80),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
     ])
 
     relayout()
 
-    // Key handler: digits to pick, Esc to cancel
-    NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+    currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
         if let chars = event.charactersIgnoringModifiers, let digit = Int(chars),
            digit >= 1, digit <= worktrees.count {
             let wt = worktrees[digit - 1]
             showNamingWorkspace(path: wt.path, repoRoot: repoRoot)
+            return nil
+        }
+        if event.charactersIgnoringModifiers == "n" {
+            showCreateWorktree(repoRoot: repoRoot)
             return nil
         }
         return event
@@ -531,7 +591,6 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
 // STEP 2b: Create New Worktree
 // ============================================================================
 func showCreateWorktree(repoRoot: String) {
-    state = .createWorktree(repoRoot: repoRoot)
     clearContent()
 
     let titleLabel = NSTextField(labelWithString: "Create New Worktree")
@@ -551,9 +610,9 @@ func showCreateWorktree(repoRoot: String) {
     errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
     addView(errorLabel)
 
-    let createBtn = makeBtn(label: "  CREATE  ", bg: accentBlue, fg: .white, bold: true)
+    let createBtn = makeBtn(label: "CREATE", bg: accentBlue, fg: .white, bold: true)
     addView(createBtn)
-    let cancelBtn = makeBtn(label: "  CANCEL  ", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
 
     NSLayoutConstraint.activate([
@@ -571,9 +630,11 @@ func showCreateWorktree(repoRoot: String) {
         createBtn.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
         createBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
         createBtn.heightAnchor.constraint(equalToConstant: 34),
+        createBtn.widthAnchor.constraint(equalToConstant: 80),
         cancelBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
         cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
+        cancelBtn.widthAnchor.constraint(equalToConstant: 80),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
     ])
 
@@ -588,11 +649,7 @@ func showCreateWorktree(repoRoot: String) {
         @objc func create(_ sender: Any) { doCreate() }
         func doCreate() {
             let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else {
-                errLabel.stringValue = "Name cannot be empty"
-                return
-            }
-            // Check if worktree already exists with this name
+            guard !name.isEmpty else { errLabel.stringValue = "Name cannot be empty"; return }
             let existing = listWorktrees(root)
             if let match = existing.first(where: { lastPathComponent($0.path) == name }) {
                 showNamingWorkspace(path: match.path, repoRoot: root)
@@ -615,7 +672,7 @@ func showCreateWorktree(repoRoot: String) {
     objc_setAssociatedObject(createBtn, "a", createAction, .OBJC_ASSOCIATION_RETAIN)
     objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
 
-    NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+    currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
         if event.keyCode == 36 { createAction.doCreate(); return nil }
         return event
@@ -626,7 +683,6 @@ func showCreateWorktree(repoRoot: String) {
 // STEP 3: Name Workspace
 // ============================================================================
 func showNamingWorkspace(path: String, repoRoot: String) {
-    state = .namingWorkspace(path: path, repoRoot: repoRoot)
     clearContent()
 
     let wsID = nextWorkspaceID()
@@ -641,7 +697,7 @@ func showNamingWorkspace(path: String, repoRoot: String) {
     let idLabel = NSTextField(labelWithString: "Workspace \(wsID)")
     idLabel.translatesAutoresizingMaskIntoConstraints = false
     idLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-    idLabel.textColor = green
+    idLabel.textColor = greenColor
     addView(idLabel)
 
     let pathDisplayLabel = makeLabel("PATH")
@@ -658,9 +714,9 @@ func showNamingWorkspace(path: String, repoRoot: String) {
     let nameField = makeField(placeholder: "workspace name", value: defaultName)
     addView(nameField)
 
-    let createBtn = makeBtn(label: "  CREATE WORKSPACE  ", bg: accentBlue, fg: .white, bold: true)
+    let createBtn = makeBtn(label: "CREATE WORKSPACE", bg: accentBlue, fg: .white, bold: true)
     addView(createBtn)
-    let cancelBtn = makeBtn(label: "  CANCEL  ", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
 
     NSLayoutConstraint.activate([
@@ -682,9 +738,11 @@ func showNamingWorkspace(path: String, repoRoot: String) {
         createBtn.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 20),
         createBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
         createBtn.heightAnchor.constraint(equalToConstant: 34),
+        createBtn.widthAnchor.constraint(equalToConstant: 160),
         cancelBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
         cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
+        cancelBtn.widthAnchor.constraint(equalToConstant: 80),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
     ])
 
@@ -715,7 +773,7 @@ func showNamingWorkspace(path: String, repoRoot: String) {
     objc_setAssociatedObject(createBtn, "a", submitAction, .OBJC_ASSOCIATION_RETAIN)
     objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
 
-    NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+    currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
         if event.keyCode == 36 { submitAction.doSubmit(); return nil }
         return event
