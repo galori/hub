@@ -3,23 +3,28 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+LIB_DIR="$REPO_DIR/lib"
 CONFIG_DIR="$REPO_DIR/config"
 AEROSPACE_CONFIG="$HOME/.aerospace.toml"
+OVERLAY_SRC="$LIB_DIR/overlay.swift"
+OVERLAY_BIN="$HOME/.config/ws2/overlay"
+APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
 # Colors
 bold='\033[1m'
 green='\033[32m'
 yellow='\033[33m'
 red='\033[31m'
+blue='\033[34m'
 reset='\033[0m'
 
 print_usage() {
     echo -e "${bold}Usage:${reset} ws2 <command>"
     echo
     echo -e "${bold}Commands:${reset}"
-    echo "  install    Install ws2 alias, check dependencies, and deploy configs"
-    echo "  up         Start AeroSpace, SketchyBar, JankyBorders, and hide the Dock"
-    echo "  down       Stop everything and restore the Dock"
+    echo "  install    Install ws2 alias, check dependencies, compile overlay, and deploy configs"
+    echo "  up         Start AeroSpace, SketchyBar, JankyBorders, hide the Dock and menu bar"
+    echo "  down       Stop everything, restore the Dock and menu bar"
     echo "  help       Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
@@ -31,6 +36,58 @@ print_usage() {
 success() { echo -e "  ${green}✓${reset} $1"; }
 warn()    { echo -e "  ${yellow}!${reset} $1"; }
 fail()    { echo -e "  ${red}✗${reset} $1"; }
+info()    { echo -e "  ${blue}→${reset} $1"; }
+
+# --- Overlay helpers ---
+
+OVERLAY_PID=""
+
+start_overlay() {
+    local title="${1:-ws2}"
+    if [[ -x "$OVERLAY_BIN" ]]; then
+        coproc OVERLAY { "$OVERLAY_BIN" "$title"; }
+        OVERLAY_PID=$OVERLAY_PID
+    fi
+}
+
+update_overlay() {
+    local text="$1"
+    if [[ -n "${OVERLAY_PID:-}" ]] && kill -0 "$OVERLAY_PID" 2>/dev/null; then
+        echo "$text" >&"${OVERLAY[1]}"
+    fi
+}
+
+stop_overlay() {
+    if [[ -n "${OVERLAY_PID:-}" ]] && kill -0 "$OVERLAY_PID" 2>/dev/null; then
+        echo "QUIT" >&"${OVERLAY[1]}"
+        wait "$OVERLAY_PID" 2>/dev/null || true
+    fi
+    OVERLAY_PID=""
+}
+
+# --- Menu bar toggle (AppleScript, non-blocking) ---
+
+MENU_BAR_PID=""
+
+toggle_menu_bar() {
+    local hidden="$1"
+    if [[ "$hidden" == "true" ]]; then
+        osascript "$APPLESCRIPT" "Always" &>/dev/null &
+    else
+        osascript "$APPLESCRIPT" "Never" &>/dev/null &
+    fi
+    MENU_BAR_PID=$!
+}
+
+wait_for_menu_bar() {
+    if [[ -n "${MENU_BAR_PID:-}" ]]; then
+        wait "$MENU_BAR_PID" 2>/dev/null || true
+        killall "System Settings" 2>/dev/null || true
+        MENU_BAR_PID=""
+    fi
+}
+
+# --- Brew helpers ---
 
 check_brew_package() {
     local pkg="$1"
@@ -51,6 +108,30 @@ install_brew_package() {
         brew install "$pkg"
     fi
 }
+
+# --- Compile overlay ---
+
+compile_overlay() {
+    echo -e "${bold}Compiling overlay...${reset}"
+    if [[ ! -f "$OVERLAY_SRC" ]]; then
+        warn "overlay.swift not found — skipping"
+        return
+    fi
+
+    if [[ -f "$OVERLAY_BIN" ]] && [[ "$OVERLAY_BIN" -nt "$OVERLAY_SRC" ]]; then
+        info "up to date"
+        return
+    fi
+
+    mkdir -p "$(dirname "$OVERLAY_BIN")"
+    if swiftc -O -o "$OVERLAY_BIN" -framework Cocoa "$OVERLAY_SRC" 2>/dev/null; then
+        success "compiled: $OVERLAY_BIN"
+    else
+        warn "compilation failed — overlay disabled"
+    fi
+}
+
+# --- Commands ---
 
 cmd_install() {
     echo -e "${bold}Installing ws2...${reset}\n"
@@ -112,6 +193,10 @@ cmd_install() {
     fi
     cp "$CONFIG_DIR/aerospace.toml" "$AEROSPACE_CONFIG"
     success "aerospace.toml deployed to $AEROSPACE_CONFIG"
+
+    # --- Compile overlay ---
+    echo
+    compile_overlay
 
     # --- Install shell alias ---
     echo
@@ -178,6 +263,21 @@ cmd_install() {
 cmd_up() {
     echo -e "${bold}Starting ws2 environment...${reset}\n"
 
+    # Show overlay while configuring system settings
+    start_overlay "Configuring System Settings"
+    update_overlay "Hiding dock and menu bar…\\nSystem Settings will open briefly."
+
+    # Hide menu bar (non-blocking — runs in background)
+    toggle_menu_bar true
+    info "Setting menu bar auto-hide to ON (System Settings will open briefly)..."
+
+    # Hide the Dock
+    defaults write com.apple.dock autohide -bool true
+    defaults write com.apple.dock autohide-delay -float 1000
+    defaults write com.apple.dock autohide-time-modifier -float 0
+    killall Dock
+    success "Dock hidden"
+
     # Start or re-enable AeroSpace
     if pgrep -q AeroSpace; then
         aerospace enable on
@@ -188,7 +288,7 @@ cmd_up() {
         success "AeroSpace started"
     fi
 
-    # Ensure sketchybar and borders are running (in case aerospace didn't launch them)
+    # Ensure sketchybar and borders are running
     if ! pgrep -q sketchybar; then
         sketchybar &>/dev/null &
         disown
@@ -205,12 +305,13 @@ cmd_up() {
         success "JankyBorders already running"
     fi
 
-    # Hide the Dock
-    defaults write com.apple.dock autohide -bool true
-    defaults write com.apple.dock autohide-delay -float 1000
-    defaults write com.apple.dock autohide-time-modifier -float 0
-    killall Dock
-    success "Dock hidden"
+    # Wait for menu bar AppleScript to finish
+    wait_for_menu_bar
+    success "Menu bar hidden"
+
+    update_overlay "✓  Done"
+    sleep 0.8
+    stop_overlay
 
     echo
     echo -e "${green}${bold}ws2 is up!${reset}"
@@ -243,12 +344,28 @@ cmd_down() {
         warn "AeroSpace was not running"
     fi
 
+    # Show overlay while restoring system settings
+    start_overlay "Restoring System Settings"
+    update_overlay "Unhiding dock and menu bar…\\nSystem Settings will open briefly."
+
+    # Unhide menu bar (non-blocking)
+    toggle_menu_bar false
+    info "Setting menu bar auto-hide to OFF (System Settings will open briefly)..."
+
     # Restore the Dock
     defaults write com.apple.dock autohide -bool false
     defaults delete com.apple.dock autohide-delay 2>/dev/null || true
     defaults delete com.apple.dock autohide-time-modifier 2>/dev/null || true
     killall Dock
     success "Dock restored"
+
+    # Wait for menu bar AppleScript to finish
+    wait_for_menu_bar
+    success "Menu bar restored"
+
+    update_overlay "✓  Done"
+    sleep 0.8
+    stop_overlay
 
     echo
     echo -e "${green}${bold}ws2 is down.${reset}"
