@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONFIG_DIR="$REPO_DIR/config"
+AEROSPACE_CONFIG="$HOME/.aerospace.toml"
+
+# Colors
+bold='\033[1m'
+green='\033[32m'
+yellow='\033[33m'
+red='\033[31m'
+reset='\033[0m'
+
+print_usage() {
+    echo -e "${bold}Usage:${reset} ws2 <command>"
+    echo
+    echo -e "${bold}Commands:${reset}"
+    echo "  install    Install ws2 alias, check dependencies, and deploy configs"
+    echo "  up         Start AeroSpace, SketchyBar, JankyBorders, and hide the Dock"
+    echo "  down       Stop everything and restore the Dock"
+    echo "  help       Show this help"
+    echo
+    echo -e "${bold}Examples:${reset}"
+    echo "  ws2 install    # install shell alias and dependencies"
+    echo "  ws2 up         # start the workspace environment"
+    echo "  ws2 down       # tear down the workspace environment"
+}
+
+success() { echo -e "  ${green}✓${reset} $1"; }
+warn()    { echo -e "  ${yellow}!${reset} $1"; }
+fail()    { echo -e "  ${red}✗${reset} $1"; }
+
+check_brew_package() {
+    local pkg="$1"
+    local cask="$2"
+    if [[ "$cask" == "true" ]]; then
+        brew list --cask "$pkg" &>/dev/null
+    else
+        brew list "$pkg" &>/dev/null
+    fi
+}
+
+install_brew_package() {
+    local pkg="$1"
+    local cask="$2"
+    if [[ "$cask" == "true" ]]; then
+        brew install --cask "$pkg"
+    else
+        brew install "$pkg"
+    fi
+}
+
+cmd_install() {
+    echo -e "${bold}Installing ws2...${reset}\n"
+
+    # --- Check dependencies ---
+    echo -e "${bold}Checking dependencies...${reset}"
+    local missing=()
+    local missing_cask=()
+
+    if check_brew_package aerospace true; then
+        success "aerospace is installed"
+    else
+        fail "aerospace is not installed"
+        missing+=(aerospace)
+        missing_cask+=(true)
+    fi
+
+    if check_brew_package sketchybar false; then
+        success "sketchybar is installed"
+    else
+        fail "sketchybar is not installed"
+        missing+=(sketchybar)
+        missing_cask+=(false)
+    fi
+
+    if check_brew_package borders false; then
+        success "borders (JankyBorders) is installed"
+    else
+        fail "borders (JankyBorders) is not installed"
+        missing+=(borders)
+        missing_cask+=(false)
+    fi
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo
+        echo -e "Missing packages: ${bold}${missing[*]}${reset}"
+        read -rp "Install them now? [y/N] " answer
+        if [[ "$answer" =~ ^[Yy]$ ]]; then
+            for i in "${!missing[@]}"; do
+                echo -e "\nInstalling ${bold}${missing[$i]}${reset}..."
+                install_brew_package "${missing[$i]}" "${missing_cask[$i]}"
+                success "${missing[$i]} installed"
+            done
+        else
+            echo "Skipping package installation. Some features may not work."
+        fi
+    fi
+
+    # --- Deploy aerospace config ---
+    echo
+    echo -e "${bold}Deploying configs...${reset}"
+    if [[ -f "$AEROSPACE_CONFIG" ]]; then
+        if grep -q "# AeroSpace config managed by ws2" "$AEROSPACE_CONFIG" 2>/dev/null; then
+            success "aerospace.toml already managed by ws2, updating"
+        else
+            warn "existing aerospace.toml found, backing up to ${AEROSPACE_CONFIG}.bak"
+            cp "$AEROSPACE_CONFIG" "${AEROSPACE_CONFIG}.bak"
+        fi
+    fi
+    cp "$CONFIG_DIR/aerospace.toml" "$AEROSPACE_CONFIG"
+    success "aerospace.toml deployed to $AEROSPACE_CONFIG"
+
+    # --- Install shell alias ---
+    echo
+    echo -e "${bold}Installing shell alias...${reset}"
+
+    local shell_name
+    case "$SHELL" in
+        */zsh)  shell_name=zsh ;;
+        */bash) shell_name=bash ;;
+        */fish) shell_name=fish ;;
+        *)
+            fail "Unsupported shell: $SHELL"
+            echo "Add this alias manually: alias ws2='$REPO_DIR/scripts/ws2'"
+            return
+            ;;
+    esac
+    success "Detected shell: $shell_name"
+
+    local snippet_path="$REPO_DIR/.ws2-shell-integration"
+    local script_path
+    script_path="$(printf '%q' "$REPO_DIR/scripts/ws2")"
+
+    if [[ "$shell_name" == "fish" ]]; then
+        echo "alias ws2 $script_path" > "$snippet_path"
+    else
+        echo "alias ws2=$script_path" > "$snippet_path"
+    fi
+    success "Created $snippet_path"
+
+    local config_file
+    case "$shell_name" in
+        zsh)  config_file="$HOME/.zshrc" ;;
+        bash)
+            if [[ "$(uname)" == "Darwin" ]]; then
+                config_file="$HOME/.bash_profile"
+            else
+                config_file="$HOME/.bashrc"
+            fi
+            ;;
+        fish) config_file="$HOME/.config/fish/config.fish" ;;
+    esac
+
+    if [[ -f "$config_file" ]] && grep -q '.ws2-shell-integration' "$config_file" 2>/dev/null; then
+        warn "Already installed in $config_file"
+    else
+        if [[ "$shell_name" == "fish" ]]; then
+            mkdir -p "$(dirname "$config_file")"
+            printf '\n# ws2 workspace integration\nsource %s\n' "'$snippet_path'" >> "$config_file"
+        else
+            printf '\n# ws2 workspace integration\nsource %s\n' "$snippet_path" >> "$config_file"
+        fi
+        success "Added to $config_file"
+    fi
+
+    echo
+    echo -e "${green}${bold}Installation complete!${reset}"
+    echo
+    echo "To activate, run:"
+    echo "  source $config_file"
+    echo
+    echo "Or open a new terminal."
+}
+
+cmd_up() {
+    echo -e "${bold}Starting ws2 environment...${reset}\n"
+
+    # Reload aerospace config (which triggers sketchybar + borders via after-startup-command)
+    if pgrep -q AeroSpace; then
+        aerospace reload-config
+        success "AeroSpace config reloaded"
+    else
+        echo -e "  Starting AeroSpace..."
+        open -a AeroSpace
+        success "AeroSpace started"
+    fi
+
+    # Ensure sketchybar and borders are running (in case aerospace didn't launch them)
+    if ! pgrep -q sketchybar; then
+        sketchybar &>/dev/null &
+        disown
+        success "SketchyBar started"
+    else
+        success "SketchyBar already running"
+    fi
+
+    if ! pgrep -q borders; then
+        borders active_color=0xff00ff00 width=10.0 style=round &>/dev/null &
+        disown
+        success "JankyBorders started"
+    else
+        success "JankyBorders already running"
+    fi
+
+    # Hide the Dock
+    defaults write com.apple.dock autohide -bool true
+    defaults write com.apple.dock autohide-delay -float 1000
+    defaults write com.apple.dock autohide-time-modifier -float 0
+    killall Dock
+    success "Dock hidden"
+
+    echo
+    echo -e "${green}${bold}ws2 is up!${reset}"
+}
+
+cmd_down() {
+    echo -e "${bold}Shutting down ws2 environment...${reset}\n"
+
+    # Stop borders
+    if pgrep -q borders; then
+        killall borders 2>/dev/null || true
+        success "JankyBorders stopped"
+    else
+        warn "JankyBorders was not running"
+    fi
+
+    # Stop sketchybar
+    if pgrep -q sketchybar; then
+        killall sketchybar 2>/dev/null || true
+        success "SketchyBar stopped"
+    else
+        warn "SketchyBar was not running"
+    fi
+
+    # Restore the Dock
+    defaults write com.apple.dock autohide -bool false
+    defaults delete com.apple.dock autohide-delay 2>/dev/null || true
+    defaults delete com.apple.dock autohide-time-modifier 2>/dev/null || true
+    killall Dock
+    success "Dock restored"
+
+    echo
+    echo -e "${green}${bold}ws2 is down.${reset}"
+}
+
+# --- Main ---
+command="${1:-}"
+
+case "$command" in
+    install)  cmd_install ;;
+    up)       cmd_up ;;
+    down)     cmd_down ;;
+    help|-h|--help) print_usage ;;
+    '')
+        print_usage
+        ;;
+    *)
+        fail "Unknown command: $command"
+        echo
+        print_usage
+        exit 1
+        ;;
+esac
