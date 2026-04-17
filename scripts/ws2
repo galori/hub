@@ -178,12 +178,12 @@ cmd_install() {
 cmd_up() {
     echo -e "${bold}Starting ws2 environment...${reset}\n"
 
-    # Reload aerospace config (which triggers sketchybar + borders via after-startup-command)
+    # Start or re-enable AeroSpace
     if pgrep -q AeroSpace; then
+        aerospace enable on
         aerospace reload-config
-        success "AeroSpace config reloaded"
+        success "AeroSpace enabled and config reloaded"
     else
-        echo -e "  Starting AeroSpace..."
         open -a AeroSpace
         success "AeroSpace started"
     fi
@@ -233,6 +233,14 @@ cmd_down() {
         success "SketchyBar stopped"
     else
         warn "SketchyBar was not running"
+    fi
+
+    # Stop AeroSpace
+    if pgrep -q AeroSpace; then
+        aerospace enable off
+        success "AeroSpace disabled"
+    else
+        warn "AeroSpace was not running"
     fi
 
     # Restore the Dock
