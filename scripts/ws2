@@ -482,7 +482,7 @@ cmd_down() {
     stop_overlay
 
     echo
-    echo -e "${green}${bold}ws2 is down.${reset}"
+    echo -e "${green}${bold}ws2 shut down complete.${reset}"
 }
 
 # --- Main ---
