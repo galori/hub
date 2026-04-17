@@ -6,6 +6,7 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$REPO_DIR/lib"
 CONFIG_DIR="$REPO_DIR/config"
 AEROSPACE_CONFIG="$HOME/.aerospace.toml"
+SKETCHYBAR_CONFIG_DIR="$HOME/.config/sketchybar"
 OVERLAY_SRC="$LIB_DIR/overlay.swift"
 OVERLAY_BIN="$HOME/.config/ws2/overlay"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
@@ -193,6 +194,17 @@ cmd_install() {
     fi
     cp "$CONFIG_DIR/aerospace.toml" "$AEROSPACE_CONFIG"
     success "aerospace.toml deployed to $AEROSPACE_CONFIG"
+
+    # --- Deploy sketchybar config ---
+    if [[ -d "$SKETCHYBAR_CONFIG_DIR" ]]; then
+        rm -rf "$SKETCHYBAR_CONFIG_DIR"
+        info "removed existing sketchybar config"
+    fi
+    mkdir -p "$SKETCHYBAR_CONFIG_DIR/plugins"
+    cp "$CONFIG_DIR/sketchybar/sketchybarrc" "$SKETCHYBAR_CONFIG_DIR/sketchybarrc"
+    cp "$CONFIG_DIR/sketchybar/plugins/"*.sh "$SKETCHYBAR_CONFIG_DIR/plugins/"
+    chmod +x "$SKETCHYBAR_CONFIG_DIR/sketchybarrc" "$SKETCHYBAR_CONFIG_DIR/plugins/"*.sh
+    success "sketchybar config deployed to $SKETCHYBAR_CONFIG_DIR"
 
     # --- Compile overlay ---
     echo
