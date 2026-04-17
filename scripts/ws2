@@ -309,6 +309,18 @@ cmd_install() {
         success "Added to $config_file"
     fi
 
+    # --- Reload running services ---
+    echo
+    echo -e "${bold}Reloading services...${reset}"
+    if pgrep -q sketchybar; then
+        sketchybar --reload 2>/dev/null
+        success "SketchyBar reloaded"
+    fi
+    if pgrep -q AeroSpace; then
+        aerospace reload-config 2>/dev/null
+        success "AeroSpace config reloaded"
+    fi
+
     echo
     echo -e "${green}${bold}Installation complete!${reset}"
     echo
@@ -577,13 +589,14 @@ cmd_up() {
         success "AeroSpace started"
     fi
 
-    # Ensure sketchybar and borders are running
+    # Ensure sketchybar is running and reload config
     if ! pgrep -q sketchybar; then
         sketchybar &>/dev/null &
         disown
         success "SketchyBar started"
     else
-        success "SketchyBar already running"
+        sketchybar --reload 2>/dev/null
+        success "SketchyBar reloaded"
     fi
 
     if ! pgrep -q borders; then
