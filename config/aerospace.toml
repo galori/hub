@@ -12,6 +12,10 @@ after-startup-command = [
 # ws2: start at login
 start-at-login = true
 
+# ws2: update sketchybar workspace labels on focus change
+exec-on-workspace-change = ['/bin/bash', '-c',
+    '$HOME/.config/sketchybar/plugins/aerospace.sh']
+
 # Normalizations. See: https://nikitabobko.github.io/AeroSpace/guide#normalization
 enable-normalization-flatten-containers = true
 enable-normalization-opposite-orientation-for-nested-containers = true
@@ -156,6 +160,9 @@ on-mode-changed = []
 
     # See: https://nikitabobko.github.io/AeroSpace/commands#mode
     alt-shift-semicolon = 'mode service'
+
+    # ws2: create new workspace
+    ctrl-alt-n = 'exec-and-forget __WS2_SCRIPT__ new'
 
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes

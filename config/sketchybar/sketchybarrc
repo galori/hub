@@ -150,5 +150,64 @@ sketchybar --add bracket wifi_bracket wifi \
                               background.border_width=2 \
                               background.border_color=$ITEM_BG2
 
+##### AeroSpace Workspace Labels #####
+
+default=(
+  icon.font="Hack Nerd Font:Bold:16.0"
+  label.font="Hack Nerd Font:Bold:13.0"
+  icon.color=$WHITE
+  label.color=$WHITE
+  icon.padding_left=8
+  icon.padding_right=2
+  label.padding_left=2
+  label.padding_right=8
+  label.align=center
+  background.drawing=on
+  background.color=$ITEM_BG
+  background.border_color=$ITEM_BG2
+  background.border_width=2
+  background.corner_radius=9
+  background.height=28
+)
+sketchybar --default "${default[@]}"
+
+# Read workspace labels from workspaces.json
+WS_LABELS_FILE="/tmp/ws2_sketchybar_labels"
+: > "$WS_LABELS_FILE"
+
+if [ -f "$HOME/.config/ws2/workspaces.json" ]; then
+    python3 -c "
+import json, sys
+try:
+    ws = json.load(open(sys.argv[1]))
+    for w in ws:
+        print(w['workspace_id'] + ':' + w['name'])
+except: pass
+" "$HOME/.config/ws2/workspaces.json" > "$WS_LABELS_FILE" 2>/dev/null
+fi
+
+ws_label() {
+    local n="$1"
+    local match
+    match=$(grep "^${n}:" "$WS_LABELS_FILE" 2>/dev/null | cut -d: -f2-)
+    [ -n "$match" ] && echo "$n $match" || echo "$n"
+}
+
+for WORKSPACE in 1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U V W X Y Z; do
+    LABEL=$(ws_label "$WORKSPACE")
+    sketchybar --add item "space.$WORKSPACE" left \
+               --set "space.$WORKSPACE" \
+               drawing=off \
+               "label=$LABEL" \
+               label.align=center \
+               label.width=dynamic \
+               icon.padding_left=2 \
+               icon.padding_right=2 \
+               click_script="aerospace workspace $WORKSPACE"
+done
+
+# Run initial workspace state
+"$CONFIG_DIR/plugins/aerospace.sh"
+
 ##### Force all scripts to run the first time (never do this in a script) #####
 sketchybar --update

@@ -9,6 +9,9 @@ AEROSPACE_CONFIG="$HOME/.aerospace.toml"
 SKETCHYBAR_CONFIG_DIR="$HOME/.config/sketchybar"
 OVERLAY_SRC="$LIB_DIR/overlay.swift"
 OVERLAY_BIN="$HOME/.config/ws2/overlay"
+DIALOG_SRC="$LIB_DIR/new_workspace_dialog.swift"
+DIALOG_BIN="$HOME/.config/ws2/new_workspace_dialog"
+WORKSPACES_FILE="$HOME/.config/ws2/workspaces.json"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
 # Colors
@@ -23,15 +26,17 @@ print_usage() {
     echo -e "${bold}Usage:${reset} ws2 <command>"
     echo
     echo -e "${bold}Commands:${reset}"
-    echo "  install    Install ws2 alias, check dependencies, compile overlay, and deploy configs"
+    echo "  install    Install ws2 alias, check dependencies, compile binaries, and deploy configs"
     echo "  up         Start AeroSpace, SketchyBar, JankyBorders, hide the Dock and menu bar"
     echo "  down       Stop everything, restore the Dock and menu bar"
+    echo "  new        Create a new workspace (opens dialog)"
     echo "  help       Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
     echo "  ws2 install    # install shell alias and dependencies"
     echo "  ws2 up         # start the workspace environment"
     echo "  ws2 down       # tear down the workspace environment"
+    echo "  ws2 new        # create a new workspace"
 }
 
 success() { echo -e "  ${green}✓${reset} $1"; }
@@ -112,24 +117,33 @@ install_brew_package() {
 
 # --- Compile overlay ---
 
-compile_overlay() {
-    echo -e "${bold}Compiling overlay...${reset}"
-    if [[ ! -f "$OVERLAY_SRC" ]]; then
-        warn "overlay.swift not found — skipping"
+compile_swift() {
+    local name="$1"
+    local src="$2"
+    local bin="$3"
+
+    if [[ ! -f "$src" ]]; then
+        warn "$name source not found — skipping"
         return
     fi
 
-    if [[ -f "$OVERLAY_BIN" ]] && [[ "$OVERLAY_BIN" -nt "$OVERLAY_SRC" ]]; then
-        info "up to date"
+    if [[ -f "$bin" ]] && [[ "$bin" -nt "$src" ]]; then
+        info "$name up to date"
         return
     fi
 
-    mkdir -p "$(dirname "$OVERLAY_BIN")"
-    if swiftc -O -o "$OVERLAY_BIN" -framework Cocoa "$OVERLAY_SRC" 2>/dev/null; then
-        success "compiled: $OVERLAY_BIN"
+    mkdir -p "$(dirname "$bin")"
+    if swiftc -O -o "$bin" -framework Cocoa "$src" 2>/dev/null; then
+        success "$name compiled: $bin"
     else
-        warn "compilation failed — overlay disabled"
+        warn "$name compilation failed"
     fi
+}
+
+compile_all() {
+    echo -e "${bold}Compiling Swift binaries...${reset}"
+    compile_swift "overlay" "$OVERLAY_SRC" "$OVERLAY_BIN"
+    compile_swift "new_workspace_dialog" "$DIALOG_SRC" "$DIALOG_BIN"
 }
 
 # --- Commands ---
@@ -192,7 +206,7 @@ cmd_install() {
             cp "$AEROSPACE_CONFIG" "${AEROSPACE_CONFIG}.bak"
         fi
     fi
-    cp "$CONFIG_DIR/aerospace.toml" "$AEROSPACE_CONFIG"
+    sed "s|__WS2_SCRIPT__|$REPO_DIR/scripts/ws2|g" "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
     success "aerospace.toml deployed to $AEROSPACE_CONFIG"
 
     # --- Deploy sketchybar config ---
@@ -206,9 +220,9 @@ cmd_install() {
     chmod +x "$SKETCHYBAR_CONFIG_DIR/sketchybarrc" "$SKETCHYBAR_CONFIG_DIR/plugins/"*.sh
     success "sketchybar config deployed to $SKETCHYBAR_CONFIG_DIR"
 
-    # --- Compile overlay ---
+    # --- Compile Swift binaries ---
     echo
-    compile_overlay
+    compile_all
 
     # --- Install shell alias ---
     echo
@@ -270,6 +284,94 @@ cmd_install() {
     echo "  source $config_file"
     echo
     echo "Or open a new terminal."
+}
+
+cmd_new() {
+    if [[ ! -x "$DIALOG_BIN" ]]; then
+        fail "new_workspace_dialog not compiled. Run: ws2 install"
+        exit 1
+    fi
+
+    # Clean up any stale result
+    rm -f /tmp/ws2-new-workspace
+
+    # Launch the dialog and wait
+    "$DIALOG_BIN"
+
+    # Read result
+    local result
+    result="$(cat /tmp/ws2-new-workspace 2>/dev/null || echo "cancel")"
+    rm -f /tmp/ws2-new-workspace
+
+    if [[ "$result" == "cancel" || -z "$result" ]]; then
+        echo "Cancelled."
+        return
+    fi
+
+    # Parse: name\tpath\troot_repo\tworkspace_id
+    local ws_name ws_path ws_root ws_id
+    IFS=$'\t' read -r ws_name ws_path ws_root ws_id <<< "$result"
+
+    if [[ -z "$ws_name" || -z "$ws_path" || -z "$ws_id" ]]; then
+        fail "Invalid dialog result"
+        return
+    fi
+
+    success "Creating workspace: $ws_name (workspace $ws_id)"
+    info "Path: $ws_path"
+
+    # Save to workspaces.json
+    mkdir -p "$(dirname "$WORKSPACES_FILE")"
+    local existing="[]"
+    if [[ -f "$WORKSPACES_FILE" ]]; then
+        existing="$(cat "$WORKSPACES_FILE")"
+    fi
+
+    # Use python3 to safely manipulate JSON (available on macOS)
+    local updated
+    updated="$(python3 -c "
+import json, sys
+ws = json.loads(sys.argv[1])
+ws.append({
+    'name': sys.argv[2],
+    'path': sys.argv[3],
+    'root_repo': sys.argv[4],
+    'workspace_id': sys.argv[5]
+})
+print(json.dumps(ws, indent=2))
+" "$existing" "$ws_name" "$ws_path" "$ws_root" "$ws_id")"
+
+    echo "$updated" > "$WORKSPACES_FILE"
+    success "Saved to $WORKSPACES_FILE"
+
+    # Update sketchybar label
+    update_sketchybar_label "$ws_id" "$ws_name"
+
+    # Switch to the workspace
+    aerospace workspace "$ws_id"
+    success "Switched to workspace $ws_id"
+
+    # Open iTerm and cd to path
+    osascript <<APPLESCRIPT
+tell application "iTerm"
+    activate
+    set newWindow to (create window with default profile)
+    tell current session of newWindow
+        write text "cd $(printf '%q' "$ws_path")"
+    end tell
+end tell
+APPLESCRIPT
+    success "Opened iTerm at $ws_path"
+
+    echo
+    echo -e "${green}${bold}Workspace '$ws_name' created on workspace $ws_id!${reset}"
+}
+
+update_sketchybar_label() {
+    local ws_id="$1"
+    local ws_name="$2"
+    local label="$ws_id $ws_name"
+    sketchybar --set "space.$ws_id" "label=$label" drawing=on 2>/dev/null || true
 }
 
 cmd_up() {
@@ -388,6 +490,7 @@ command="${1:-}"
 
 case "$command" in
     install)  cmd_install ;;
+    new)      cmd_new ;;
     up)       cmd_up ;;
     down)     cmd_down ;;
     help|-h|--help) print_usage ;;
