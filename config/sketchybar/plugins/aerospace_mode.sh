@@ -6,8 +6,8 @@ STATE=/tmp/aerospace_in_service_mode
 
 if [ -f "$STATE" ]; then
     rm "$STATE"
-    "$SKETCHYBAR" --set aerospace_mode drawing=off
+    "$SKETCHYBAR" --set aerospace_mode label="" background.drawing=off
 else
     touch "$STATE"
-    "$SKETCHYBAR" --set aerospace_mode drawing=on label=S
+    "$SKETCHYBAR" --set aerospace_mode label=S background.drawing=on
 fi
