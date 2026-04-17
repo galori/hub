@@ -146,7 +146,7 @@ func makeField(placeholder: String, value: String = "") -> NSTextField {
     return f
 }
 
-func makeBtn(label: String, bg: NSColor, fg: NSColor, bold: Bool = false) -> NSButton {
+func makeBtn(label: String, shortcut: String? = nil, bg: NSColor, fg: NSColor, bold: Bool = false) -> NSButton {
     let b = NSButton()
     b.translatesAutoresizingMaskIntoConstraints = false
     b.bezelStyle = .rounded
@@ -158,11 +158,20 @@ func makeBtn(label: String, bg: NSColor, fg: NSColor, bold: Bool = false) -> NSB
     let weight: NSFont.Weight = bold ? .semibold : .medium
     let style = NSMutableParagraphStyle()
     style.alignment = .center
-    b.attributedTitle = NSAttributedString(string: label, attributes: [
+    let attr = NSMutableAttributedString()
+    attr.append(NSAttributedString(string: label, attributes: [
         .foregroundColor: fg,
         .font: NSFont.systemFont(ofSize: 12, weight: weight),
         .paragraphStyle: style,
-    ])
+    ]))
+    if let key = shortcut {
+        attr.append(NSAttributedString(string: "  \(key)", attributes: [
+            .foregroundColor: fg.withAlphaComponent(0.4),
+            .font: NSFont.systemFont(ofSize: 9, weight: .medium),
+            .paragraphStyle: style,
+        ]))
+    }
+    b.attributedTitle = attr
     return b
 }
 
@@ -267,7 +276,9 @@ func createWorktree(repoRoot: String, name: String) -> String? {
     checkBranch.waitUntilExit()
     let branchExists = checkBranch.terminationStatus == 0
 
-    let worktreePath = (repoRoot as NSString).deletingLastPathComponent + "/\(name)"
+    let worktreesDir = (repoRoot as NSString).appendingPathComponent("worktrees")
+    try? FileManager.default.createDirectory(atPath: worktreesDir, withIntermediateDirectories: true)
+    let worktreePath = (worktreesDir as NSString).appendingPathComponent(name)
 
     let p = Process()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -353,7 +364,7 @@ func showPickPath() {
     let pathField = makeField(placeholder: "/path/to/repo")
     addView(pathField)
 
-    let browseBtn = makeBtn(label: "BROWSE", bg: NSColor(white: 0.22, alpha: 1), fg: NSColor(white: 1, alpha: 0.75))
+    let browseBtn = makeBtn(label: "BROWSE", shortcut: "tab", bg: NSColor(white: 0.22, alpha: 1), fg: NSColor(white: 1, alpha: 0.75))
     addView(browseBtn)
 
     let errorLabel = NSTextField(labelWithString: "")
@@ -362,9 +373,9 @@ func showPickPath() {
     errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
     addView(errorLabel)
 
-    let nextBtn = makeBtn(label: "NEXT", bg: accentBlue, fg: .white, bold: true)
+    let nextBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
     addView(nextBtn)
-    let cancelBtn = makeBtn(label: "CANCEL", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
 
     NSLayoutConstraint.activate([
@@ -379,18 +390,18 @@ func showPickPath() {
         browseBtn.centerYAnchor.constraint(equalTo: pathField.centerYAnchor),
         browseBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         browseBtn.heightAnchor.constraint(equalToConstant: 36),
-        browseBtn.widthAnchor.constraint(equalToConstant: 80),
+        browseBtn.widthAnchor.constraint(equalToConstant: 100),
         errorLabel.topAnchor.constraint(equalTo: pathField.bottomAnchor, constant: 6),
         errorLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         errorLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         nextBtn.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
         nextBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
         nextBtn.heightAnchor.constraint(equalToConstant: 34),
-        nextBtn.widthAnchor.constraint(equalToConstant: 80),
+        nextBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.topAnchor.constraint(equalTo: nextBtn.topAnchor),
         cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
-        cancelBtn.widthAnchor.constraint(equalToConstant: 80),
+        cancelBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
     ])
 
@@ -458,11 +469,7 @@ func handlePathSelected(_ path: String) {
     }
     let root = gitRepoRoot(path) ?? path
     let worktrees = listWorktrees(root)
-    if worktrees.count > 1 {
-        showPickWorktree(repoRoot: root, worktrees: worktrees)
-    } else {
-        showNamingWorkspace(path: root, repoRoot: root)
-    }
+    showPickWorktree(repoRoot: root, worktrees: worktrees)
 }
 
 // ============================================================================
@@ -477,7 +484,13 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
     titleLabel.textColor = dimWhite
     addView(titleLabel)
 
-    let subtitleLabel = NSTextField(labelWithString: "This repo has \(worktrees.count) worktrees — press a number to select")
+    let subtitle: String
+    if worktrees.count <= 1 {
+        subtitle = "Git repo — use as-is or create a worktree"
+    } else {
+        subtitle = "This repo has \(worktrees.count) worktrees — press a number to select"
+    }
+    let subtitleLabel = NSTextField(labelWithString: subtitle)
     subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
     subtitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
     subtitleLabel.textColor = NSColor(white: 1, alpha: 0.3)
@@ -532,7 +545,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
         prevAnchor = btn.bottomAnchor
     }
 
-    let newWtBtn = makeBtn(label: "+ NEW WORKTREE", bg: NSColor(white: 0.22, alpha: 1), fg: greenColor)
+    let newWtBtn = makeBtn(label: "+ NEW WORKTREE", shortcut: "n", bg: NSColor(white: 0.22, alpha: 1), fg: greenColor)
     addView(newWtBtn)
 
     class NewWtAction: NSObject {
@@ -544,7 +557,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
     newWtBtn.target = newWtAction; newWtBtn.action = #selector(NewWtAction.create(_:))
     objc_setAssociatedObject(newWtBtn, "a", newWtAction, .OBJC_ASSOCIATION_RETAIN)
 
-    let cancelBtn = makeBtn(label: "CANCEL", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
     class CancelAction: NSObject {
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
@@ -561,11 +574,11 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
         newWtBtn.topAnchor.constraint(equalTo: prevAnchor, constant: 14),
         newWtBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         newWtBtn.heightAnchor.constraint(equalToConstant: 34),
-        newWtBtn.widthAnchor.constraint(equalToConstant: 160),
+        newWtBtn.widthAnchor.constraint(equalToConstant: 170),
         cancelBtn.topAnchor.constraint(equalTo: newWtBtn.topAnchor),
         cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
-        cancelBtn.widthAnchor.constraint(equalToConstant: 80),
+        cancelBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
     ])
 
@@ -610,9 +623,9 @@ func showCreateWorktree(repoRoot: String) {
     errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
     addView(errorLabel)
 
-    let createBtn = makeBtn(label: "CREATE", bg: accentBlue, fg: .white, bold: true)
+    let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
     addView(createBtn)
-    let cancelBtn = makeBtn(label: "CANCEL", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
 
     NSLayoutConstraint.activate([
@@ -630,11 +643,11 @@ func showCreateWorktree(repoRoot: String) {
         createBtn.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
         createBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
         createBtn.heightAnchor.constraint(equalToConstant: 34),
-        createBtn.widthAnchor.constraint(equalToConstant: 80),
+        createBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
         cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
-        cancelBtn.widthAnchor.constraint(equalToConstant: 80),
+        cancelBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
     ])
 
@@ -714,9 +727,9 @@ func showNamingWorkspace(path: String, repoRoot: String) {
     let nameField = makeField(placeholder: "workspace name", value: defaultName)
     addView(nameField)
 
-    let createBtn = makeBtn(label: "CREATE WORKSPACE", bg: accentBlue, fg: .white, bold: true)
+    let createBtn = makeBtn(label: "CREATE WORKSPACE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
     addView(createBtn)
-    let cancelBtn = makeBtn(label: "CANCEL", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
 
     NSLayoutConstraint.activate([
@@ -738,11 +751,11 @@ func showNamingWorkspace(path: String, repoRoot: String) {
         createBtn.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 20),
         createBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
         createBtn.heightAnchor.constraint(equalToConstant: 34),
-        createBtn.widthAnchor.constraint(equalToConstant: 160),
+        createBtn.widthAnchor.constraint(equalToConstant: 190),
         cancelBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
         cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
-        cancelBtn.widthAnchor.constraint(equalToConstant: 80),
+        cancelBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
     ])
 

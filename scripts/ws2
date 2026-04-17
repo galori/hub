@@ -11,6 +11,8 @@ OVERLAY_SRC="$LIB_DIR/overlay.swift"
 OVERLAY_BIN="$HOME/.config/ws2/overlay"
 DIALOG_SRC="$LIB_DIR/new_workspace_dialog.swift"
 DIALOG_BIN="$HOME/.config/ws2/new_workspace_dialog"
+CONFIRM_SRC="$LIB_DIR/confirm_dialog.swift"
+CONFIRM_BIN="$HOME/.config/ws2/confirm_dialog"
 WORKSPACES_FILE="$HOME/.config/ws2/workspaces.json"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
@@ -150,6 +152,7 @@ compile_all() {
     echo -e "${bold}Compiling Swift binaries...${reset}"
     compile_swift "overlay" "$OVERLAY_SRC" "$OVERLAY_BIN"
     compile_swift "new_workspace_dialog" "$DIALOG_SRC" "$DIALOG_BIN"
+    compile_swift "confirm_dialog" "$CONFIRM_SRC" "$CONFIRM_BIN"
 }
 
 # --- Commands ---
@@ -225,6 +228,29 @@ cmd_install() {
     cp "$CONFIG_DIR/sketchybar/plugins/"*.sh "$SKETCHYBAR_CONFIG_DIR/plugins/"
     chmod +x "$SKETCHYBAR_CONFIG_DIR/sketchybarrc" "$SKETCHYBAR_CONFIG_DIR/plugins/"*.sh
     success "sketchybar config deployed to $SKETCHYBAR_CONFIG_DIR"
+
+    # --- Global gitignore for worktrees/ ---
+    echo
+    echo -e "${bold}Configuring global gitignore...${reset}"
+    local global_gitignore
+    global_gitignore="$(git config --global core.excludesFile 2>/dev/null || echo "")"
+    if [[ -z "$global_gitignore" ]]; then
+        global_gitignore="$HOME/.gitignore_global"
+        git config --global core.excludesFile "$global_gitignore"
+        success "Set core.excludesFile to $global_gitignore"
+    else
+        global_gitignore="${global_gitignore/#\~/$HOME}"
+        success "Using existing core.excludesFile: $global_gitignore"
+    fi
+    if [[ ! -f "$global_gitignore" ]]; then
+        touch "$global_gitignore"
+    fi
+    if ! grep -q '^worktrees/$' "$global_gitignore" 2>/dev/null; then
+        echo "worktrees/" >> "$global_gitignore"
+        success "Added worktrees/ to $global_gitignore"
+    else
+        info "worktrees/ already in $global_gitignore"
+    fi
 
     # --- Compile Swift binaries ---
     echo
@@ -458,21 +484,40 @@ sys.exit(1)
     local ws_name ws_path
     IFS=$'\t' read -r ws_name ws_path <<< "$ws_info"
 
-    # Confirm unless -y
+    # Count windows
+    local windows
+    windows="$(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || echo "")"
+    local window_count=0
+    if [[ -n "$windows" ]]; then
+        window_count="$(echo "$windows" | wc -l | tr -d ' ')"
+    fi
+
+    local confirm_msg="Remove workspace '$ws_name' (ID: $ws_id)"
+    if [[ "$window_count" -gt 0 ]]; then
+        confirm_msg="$confirm_msg and close $window_count active window(s)?"
+    else
+        confirm_msg="$confirm_msg?"
+    fi
+
+    # Confirm
     if [[ "$auto_yes" != "true" ]]; then
-        echo -e "Remove workspace ${bold}$ws_name${reset} (ID: $ws_id)?"
-        echo -e "  Path: $ws_path"
-        read -rp "Confirm? [y/N] " answer
-        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+        if [[ -t 0 ]]; then
+            echo -e "$confirm_msg"
+            echo -e "  Path: $ws_path"
+            read -rp "Confirm? [y/N] " answer
+            if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+                echo "Cancelled."
+                return
+            fi
+        else
+            fail "Cannot prompt for confirmation (not a terminal). Use -y to skip."
+            exit 1
+        fi
+    elif [[ -x "$CONFIRM_BIN" ]]; then
+        if ! "$CONFIRM_BIN" "Remove Workspace" "$confirm_msg"; then
             echo "Cancelled."
             return
         fi
-    fi
-
-    # Show overlay when invoked via keybinding
-    if [[ "$auto_yes" == "true" ]]; then
-        start_overlay "Remove Workspace"
-        update_overlay "Removing workspace $ws_id ($ws_name)…"
     fi
 
     # Remove from workspaces.json
@@ -490,20 +535,12 @@ print(json.dumps(ws, indent=2))
     remove_sketchybar_label "$ws_id"
     success "Sketchybar label cleared for workspace $ws_id"
 
-    # Move any windows on this workspace to workspace 1
-    local windows
-    windows="$(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || echo "")"
+    # Close all windows on this workspace
     if [[ -n "$windows" ]]; then
         while IFS= read -r wid; do
-            aerospace move-node-to-workspace 1 --window-id "$wid" 2>/dev/null || true
+            aerospace close --window-id "$wid" 2>/dev/null || true
         done <<< "$windows"
-        success "Moved windows from workspace $ws_id to workspace 1"
-    fi
-
-    if [[ "$auto_yes" == "true" ]]; then
-        update_overlay "✓  Workspace $ws_id ($ws_name) removed"
-        sleep 0.8
-        stop_overlay
+        success "Closed $window_count window(s) from workspace $ws_id"
     fi
 
     echo

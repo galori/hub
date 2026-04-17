@@ -7,6 +7,7 @@
 - `config/sketchybar/` - SketchyBar config and plugin scripts
 - `lib/overlay.swift` - Status overlay HUD (compiled to ~/.config/ws2/overlay)
 - `lib/new_workspace_dialog.swift` - Workspace creation dialog (compiled to ~/.config/ws2/new_workspace_dialog)
+- `lib/confirm_dialog.swift` - Confirmation dialog (compiled to ~/.config/ws2/confirm_dialog)
 - `lib/hide_menu_bar.applescript` - Menu bar toggle via System Settings UI automation
 
 ## Principles
