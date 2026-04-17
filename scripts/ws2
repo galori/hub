@@ -499,21 +499,12 @@ sys.exit(1)
         confirm_msg="$confirm_msg?"
     fi
 
-    # Confirm
+    # Confirm: show GUI dialog unless -y
     if [[ "$auto_yes" != "true" ]]; then
-        if [[ -t 0 ]]; then
-            echo -e "$confirm_msg"
-            echo -e "  Path: $ws_path"
-            read -rp "Confirm? [y/N] " answer
-            if [[ ! "$answer" =~ ^[Yy]$ ]]; then
-                echo "Cancelled."
-                return
-            fi
-        else
-            fail "Cannot prompt for confirmation (not a terminal). Use -y to skip."
+        if [[ ! -x "$CONFIRM_BIN" ]]; then
+            fail "confirm_dialog not compiled. Run: ws2 install"
             exit 1
         fi
-    elif [[ -x "$CONFIRM_BIN" ]]; then
         if ! "$CONFIRM_BIN" "Remove Workspace" "$confirm_msg"; then
             echo "Cancelled."
             return
@@ -542,6 +533,17 @@ print(json.dumps(ws, indent=2))
         done <<< "$windows"
         success "Closed $window_count window(s) from workspace $ws_id"
     fi
+
+    # Switch to another workspace
+    local next_ws
+    next_ws="$(python3 -c "
+import json, sys
+ws = json.load(open(sys.argv[1]))
+ids = sorted([w['workspace_id'] for w in ws])
+print(ids[0] if ids else '1')
+" "$WORKSPACES_FILE" 2>/dev/null || echo "1")"
+    aerospace workspace "$next_ws" 2>/dev/null || true
+    success "Switched to workspace $next_ws"
 
     echo
     echo -e "${green}${bold}Workspace '$ws_name' (ID: $ws_id) removed.${reset}"

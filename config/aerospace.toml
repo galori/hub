@@ -48,7 +48,7 @@ persistent-workspaces = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B",
                          "R", "S", "T", "U", "V", "W", "X", "Y", "Z"]
 
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
-on-mode-changed = []
+on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/aerospace_mode.sh']
 
 # See https://nikitabobko.github.io/AeroSpace/guide#key-mapping
 [key-mapping]
