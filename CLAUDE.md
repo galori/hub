@@ -12,6 +12,7 @@
 ## Principles
 
 - **Keyboard-first**: All UI must be fully navigable with keyboard alone. Mouse support is secondary. Dialogs should have tab navigation, enter to submit, escape to cancel, and keyboard shortcuts for actions.
+- **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command (e.g., `ws2 new` has both a dialog and could accept CLI args; `ws2 remove` works from both keybinding and terminal).
 - **Single-binary Swift UIs**: GUI elements are standalone Swift files compiled with `swiftc -O -framework Cocoa`. No Xcode project, no storyboards.
 - **Config is deployed, not symlinked**: `ws2 install` copies configs to their destinations. The aerospace.toml uses `__WS2_SCRIPT__` placeholder substituted via sed.
 

@@ -45,6 +45,26 @@ Opens a dialog to create a named workspace. Supports picking a git repo (with op
 
 Keyboard shortcut: `Ctrl+Alt+N` (from anywhere, via AeroSpace keybinding).
 
+### List workspaces
+
+```sh
+ws2 list
+```
+
+Shows a table of all defined workspaces with their ID, name, path, and root repo.
+
+### Remove a workspace
+
+```sh
+ws2 remove        # remove the current workspace (prompts for confirmation)
+ws2 remove A      # remove workspace A
+ws2 remove A -y   # remove without confirmation
+```
+
+Removes a workspace from the configuration, clears its sketchybar label, and moves any windows to workspace 1.
+
+Keyboard shortcut: `Ctrl+Alt+D` (removes current workspace without confirmation).
+
 ## Keybindings
 
 All keybindings use `Alt` as the modifier (AeroSpace default):
@@ -61,11 +81,13 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 | `Alt + Tab` | Switch to previous workspace |
 | `Alt + Shift + Tab` | Move workspace to next monitor |
 | `Ctrl + Alt + N` | Create new workspace |
+| `Ctrl + Alt + D` | Remove current workspace |
 | `Alt + Shift + ;` | Enter service mode |
 
 ## Guiding Principles
 
 - **Keyboard-first**: Everything should be keyboard-only accessible, similar to how AeroSpace is designed for keyboard use, but also usable with the mouse.
+- **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command.
 - **Minimal chrome**: Hide the Dock and menu bar. SketchyBar provides only what's needed.
 - **Single command**: `ws2 up` to start, `ws2 down` to stop. No manual config needed after install.
 

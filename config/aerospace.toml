@@ -164,6 +164,9 @@ on-mode-changed = []
     # ws2: create new workspace
     ctrl-alt-n = 'exec-and-forget __WS2_SCRIPT__ new'
 
+    # ws2: remove current workspace
+    ctrl-alt-d = 'exec-and-forget __WS2_SCRIPT__ remove -y'
+
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
 [mode.service.binding]

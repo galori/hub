@@ -15,17 +15,27 @@ if [ -f "$WS_LABELS_FILE" ]; then
     done <"$WS_LABELS_FILE"
 fi
 
+SLOT_COLORS=(
+    "0xff1A73E8" "0xff00D1FF" "0xff00A396" "0xff00C853" "0xffAEEA00"
+    "0xff8E76D1" "0xff7889B3" "0xfff39660" "0xffE05297" "0xff5C8AE6"
+    "0xff26C6DA" "0xff66BB6A" "0xffD4E157" "0xffAB47BC" "0xff42A5F5"
+    "0xffFF7043" "0xffEC407A" "0xff29B6F6" "0xff9CCC65" "0xffFFCA28"
+    "0xff7E57C2" "0xff26A69A" "0xffEF5350" "0xff5C6BC0" "0xff78909C"
+    "0xffFFA726" "0xff8D6E63" "0xff00897B" "0xffC62828" "0xff1565C0"
+    "0xff4527A0" "0xff2E7D32" "0xffF9A825" "0xff6A1B9A" "0xff00838F"
+)
+
 slot_color() {
-    case "$1" in
-    1) echo "0xff1A73E8" ;;
-    2) echo "0xff00D1FF" ;;
-    3) echo "0xff00A396" ;;
-    4) echo "0xff00C853" ;;
-    5) echo "0xffAEEA00" ;;
-    6) echo "0xff8E76D1" ;;
-    7) echo "0xff7889B3" ;;
-    *) echo "0xfff39660" ;;
-    esac
+    local keys="1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U V W X Y Z"
+    local i=0
+    for k in $keys; do
+        if [ "$k" = "$1" ]; then
+            echo "${SLOT_COLORS[$((i % ${#SLOT_COLORS[@]}))]}"
+            return
+        fi
+        ((i++))
+    done
+    echo "${SLOT_COLORS[0]}"
 }
 
 label_color() {

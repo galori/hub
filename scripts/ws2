@@ -30,13 +30,19 @@ print_usage() {
     echo "  up         Start AeroSpace, SketchyBar, JankyBorders, hide the Dock and menu bar"
     echo "  down       Stop everything, restore the Dock and menu bar"
     echo "  new        Create a new workspace (opens dialog)"
+    echo "  list       List all defined workspaces"
+    echo "  remove     Remove a workspace (current or by ID)"
     echo "  help       Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
-    echo "  ws2 install    # install shell alias and dependencies"
-    echo "  ws2 up         # start the workspace environment"
-    echo "  ws2 down       # tear down the workspace environment"
-    echo "  ws2 new        # create a new workspace"
+    echo "  ws2 install        # install shell alias and dependencies"
+    echo "  ws2 up             # start the workspace environment"
+    echo "  ws2 down           # tear down the workspace environment"
+    echo "  ws2 new            # create a new workspace"
+    echo "  ws2 list           # list all workspaces"
+    echo "  ws2 remove         # remove the current workspace"
+    echo "  ws2 remove A       # remove workspace A"
+    echo "  ws2 remove A -y    # remove workspace A without confirmation"
 }
 
 success() { echo -e "  ${green}✓${reset} $1"; }
@@ -374,6 +380,136 @@ update_sketchybar_label() {
     sketchybar --set "space.$ws_id" "label=$label" drawing=on 2>/dev/null || true
 }
 
+remove_sketchybar_label() {
+    local ws_id="$1"
+    sketchybar --set "space.$ws_id" "label=$ws_id" drawing=off 2>/dev/null || true
+}
+
+cmd_list() {
+    if [[ ! -f "$WORKSPACES_FILE" ]]; then
+        echo "No workspaces defined."
+        return
+    fi
+
+    local count
+    count="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))))" "$WORKSPACES_FILE" 2>/dev/null || echo 0)"
+
+    if [[ "$count" == "0" ]]; then
+        echo "No workspaces defined."
+        return
+    fi
+
+    printf "${bold}%-4s  %-20s  %-40s  %s${reset}\n" "ID" "NAME" "PATH" "ROOT REPO"
+    printf "%-4s  %-20s  %-40s  %s\n" "----" "--------------------" "----------------------------------------" "----------"
+
+    python3 -c "
+import json, sys
+ws = json.load(open(sys.argv[1]))
+for w in sorted(ws, key=lambda x: x['workspace_id']):
+    print('{}\t{}\t{}\t{}'.format(
+        w['workspace_id'], w['name'], w['path'], w.get('root_repo', '')))
+" "$WORKSPACES_FILE" | while IFS=$'\t' read -r ws_id ws_name ws_path ws_root; do
+        printf "%-4s  %-20s  %-40s  %s\n" "$ws_id" "$ws_name" "$ws_path" "$ws_root"
+    done
+}
+
+cmd_remove() {
+    local ws_id="${1:-}"
+    local auto_yes=false
+
+    # Parse flags
+    for arg in "$@"; do
+        if [[ "$arg" == "-y" ]]; then
+            auto_yes=true
+        fi
+    done
+
+    # If no ID given, use the currently focused workspace
+    if [[ -z "$ws_id" || "$ws_id" == "-y" ]]; then
+        ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+        if [[ -z "$ws_id" ]]; then
+            fail "Could not determine current workspace"
+            exit 1
+        fi
+    fi
+
+    if [[ ! -f "$WORKSPACES_FILE" ]]; then
+        fail "No workspaces defined"
+        exit 1
+    fi
+
+    # Look up workspace info
+    local ws_info
+    ws_info="$(python3 -c "
+import json, sys
+ws = json.load(open(sys.argv[1]))
+for w in ws:
+    if w['workspace_id'] == sys.argv[2]:
+        print(w['name'] + '\t' + w['path'])
+        sys.exit(0)
+sys.exit(1)
+" "$WORKSPACES_FILE" "$ws_id" 2>/dev/null)" || true
+
+    if [[ -z "$ws_info" ]]; then
+        fail "Workspace '$ws_id' not found in workspaces.json"
+        exit 1
+    fi
+
+    local ws_name ws_path
+    IFS=$'\t' read -r ws_name ws_path <<< "$ws_info"
+
+    # Confirm unless -y
+    if [[ "$auto_yes" != "true" ]]; then
+        echo -e "Remove workspace ${bold}$ws_name${reset} (ID: $ws_id)?"
+        echo -e "  Path: $ws_path"
+        read -rp "Confirm? [y/N] " answer
+        if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+            echo "Cancelled."
+            return
+        fi
+    fi
+
+    # Show overlay when invoked via keybinding
+    if [[ "$auto_yes" == "true" ]]; then
+        start_overlay "Remove Workspace"
+        update_overlay "Removing workspace $ws_id ($ws_name)…"
+    fi
+
+    # Remove from workspaces.json
+    local updated
+    updated="$(python3 -c "
+import json, sys
+ws = json.load(open(sys.argv[1]))
+ws = [w for w in ws if w['workspace_id'] != sys.argv[2]]
+print(json.dumps(ws, indent=2))
+" "$WORKSPACES_FILE" "$ws_id")"
+    echo "$updated" > "$WORKSPACES_FILE"
+    success "Removed from $WORKSPACES_FILE"
+
+    # Update sketchybar
+    remove_sketchybar_label "$ws_id"
+    success "Sketchybar label cleared for workspace $ws_id"
+
+    # Move any windows on this workspace to workspace 1
+    local windows
+    windows="$(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || echo "")"
+    if [[ -n "$windows" ]]; then
+        while IFS= read -r wid; do
+            aerospace move-node-to-workspace 1 --window-id "$wid" 2>/dev/null || true
+        done <<< "$windows"
+        success "Moved windows from workspace $ws_id to workspace 1"
+    fi
+
+    if [[ "$auto_yes" == "true" ]]; then
+        update_overlay "✓  Workspace $ws_id ($ws_name) removed"
+        sleep 0.8
+        stop_overlay
+    fi
+
+    echo
+    echo -e "${green}${bold}Workspace '$ws_name' (ID: $ws_id) removed.${reset}"
+}
+
 cmd_up() {
     echo -e "${bold}Starting ws2 environment...${reset}\n"
 
@@ -488,9 +624,12 @@ cmd_down() {
 # --- Main ---
 command="${1:-}"
 
+shift || true
 case "$command" in
     install)  cmd_install ;;
     new)      cmd_new ;;
+    list)     cmd_list ;;
+    remove)   cmd_remove "$@" ;;
     up)       cmd_up ;;
     down)     cmd_down ;;
     help|-h|--help) print_usage ;;
