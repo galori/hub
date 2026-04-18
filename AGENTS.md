@@ -22,3 +22,5 @@
 ## Workflow
 
 After changing any file in `config/` or `lib/`, run `ws2 install` to deploy and recompile.
+
+Create a git commit after every completed set of changes.
