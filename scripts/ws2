@@ -49,6 +49,11 @@ print_usage() {
     echo "  ws2 remove A -y    # remove workspace A without confirmation"
     echo "  ws2 open           # open all configured apps"
     echo "  ws2 open 1         # open just the first configured app"
+    echo
+    echo -e "${bold}App launcher config:${reset}"
+    echo "  Edit ~/.config/ws2/apps.json to configure up to 5 app slots."
+    echo "  Each entry: { \"name\": \"App Name\", \"launch\": \"<shell cmd>\", \"icon\": \"App Name\" }"
+    echo "  Use {path} and {workspace} in launch commands as substitution variables."
 }
 
 success() { echo -e "  ${green}✓${reset} $1"; }
@@ -259,7 +264,8 @@ cmd_install() {
 APPS_EOF
         success "Created default $APPS_FILE"
     else
-        info "apps.json already exists"
+        info "apps.json already exists — edit it to customize your app slots:"
+        info "  $APPS_FILE"
     fi
 
     # --- Global gitignore for worktrees/ ---
@@ -361,6 +367,9 @@ APPS_EOF
     echo "  source $config_file"
     echo
     echo "Or open a new terminal."
+    echo
+    echo "  Tip: edit ${bold}~/.config/ws2/apps.json${reset} to configure your app launcher slots."
+    echo "  Then use ${bold}Ctrl+Alt+O${reset} or ${bold}ws2 open${reset} to launch apps into the current workspace."
 }
 
 cmd_new() {
@@ -763,6 +772,9 @@ cmd_up() {
 
     echo
     echo -e "${green}${bold}ws2 is up!${reset}"
+    echo
+    echo "  Tip: use ${bold}Ctrl+Alt+O${reset} to open configured apps, or ${bold}ws2 open${reset} from the CLI."
+    echo "  Edit ${bold}~/.config/ws2/apps.json${reset} to customize your app slots."
 }
 
 cmd_down() {
