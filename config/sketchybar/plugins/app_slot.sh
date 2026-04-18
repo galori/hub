@@ -5,7 +5,7 @@ SKETCHYBAR=/opt/homebrew/bin/sketchybar
 [ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
 
 HOVER_BG=0x22ffffff
-CLICK_BG=0x55ffffff
+CLICK_BG=0xcc76cce0
 
 NORMAL_SCALE=0.80
 HOVER_SCALE=1.05

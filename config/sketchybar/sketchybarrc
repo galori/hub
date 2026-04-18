@@ -178,6 +178,7 @@ if [ -f "$APPS_FILE" ]; then
                    drawing=$DRAW \
                    width=34 \
                    icon.drawing=off \
+                   icon.align=center \
                    label.drawing=off \
                    background.drawing=on \
                    background.color=0x00000000 \

@@ -23,15 +23,16 @@ for ((i=1; i<=5; i++)); do
     if [ "$IDX" -lt "${#APP_NAMES[@]}" ]; then
         if echo "$WS_APPS" | grep -qxF "${APP_NAMES[$IDX]}"; then
             ARGS+=(--set "app_slot.$i"
-                label="●"
-                label.drawing=on
-                label.font="Hack Nerd Font:Bold:6.0"
-                label.color=0xfffc5d7c
-                label.y_offset=-12
-                label.padding_left=0
-                label.padding_right=0)
+                icon="●"
+                icon.drawing=on
+                icon.font="Hack Nerd Font:Bold:6.0"
+                icon.color=0xfffc5d7c
+                icon.align=center
+                icon.y_offset=-12
+                icon.padding_left=0
+                icon.padding_right=0)
         else
-            ARGS+=(--set "app_slot.$i" label.drawing=off)
+            ARGS+=(--set "app_slot.$i" icon.drawing=off)
         fi
     fi
 done
