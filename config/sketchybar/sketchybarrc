@@ -164,7 +164,7 @@ if [ -f "$APPS_FILE" ]; then
                label.drawing=off \
                width=2
 
-    for ((i=1; i<=5; i++)); do
+    for ((i=5; i>=1; i--)); do
         IDX=$((i-1))
         APP_ICON=""
         DRAW=off
