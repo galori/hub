@@ -198,6 +198,14 @@ cmd_install() {
         missing_cask+=(false)
     fi
 
+    if command -v jq &>/dev/null; then
+        success "jq is installed"
+    else
+        fail "jq is not installed"
+        missing+=(jq)
+        missing_cask+=(false)
+    fi
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo
         echo -e "Missing packages: ${bold}${missing[*]}${reset}"
@@ -252,7 +260,7 @@ cmd_install() {
   },
   {
     "name": "Google Chrome",
-    "launch": "/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --new-window --profile-directory=ws2",
+    "launch": "open -na 'Google Chrome' --args --new-window --profile-directory=ws2",
     "icon": "Google Chrome"
   },
   {
@@ -413,19 +421,10 @@ cmd_new() {
         existing="$(cat "$WORKSPACES_FILE")"
     fi
 
-    # Use python3 to safely manipulate JSON (available on macOS)
     local updated
-    updated="$(python3 -c "
-import json, sys
-ws = json.loads(sys.argv[1])
-ws.append({
-    'name': sys.argv[2],
-    'path': sys.argv[3],
-    'root_repo': sys.argv[4],
-    'workspace_id': sys.argv[5]
-})
-print(json.dumps(ws, indent=2))
-" "$existing" "$ws_name" "$ws_path" "$ws_root" "$ws_id")"
+    updated="$(echo "$existing" | jq --arg name "$ws_name" --arg path "$ws_path" \
+        --arg root "$ws_root" --arg id "$ws_id" \
+        '. + [{name: $name, path: $path, root_repo: $root, workspace_id: $id}]')"
 
     echo "$updated" > "$WORKSPACES_FILE"
     success "Saved to $WORKSPACES_FILE"
@@ -472,7 +471,7 @@ cmd_list() {
     fi
 
     local count
-    count="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))))" "$WORKSPACES_FILE" 2>/dev/null || echo 0)"
+    count="$(jq 'length' "$WORKSPACES_FILE" 2>/dev/null || echo 0)"
 
     if [[ "$count" == "0" ]]; then
         echo "No workspaces defined."
@@ -482,13 +481,8 @@ cmd_list() {
     printf "${bold}%-4s  %-20s  %-40s  %s${reset}\n" "ID" "NAME" "PATH" "ROOT REPO"
     printf "%-4s  %-20s  %-40s  %s\n" "----" "--------------------" "----------------------------------------" "----------"
 
-    python3 -c "
-import json, sys
-ws = json.load(open(sys.argv[1]))
-for w in sorted(ws, key=lambda x: x['workspace_id']):
-    print('{}\t{}\t{}\t{}'.format(
-        w['workspace_id'], w['name'], w['path'], w.get('root_repo', '')))
-" "$WORKSPACES_FILE" | while IFS=$'\t' read -r ws_id ws_name ws_path ws_root; do
+    jq -r 'sort_by(.workspace_id)[] | [.workspace_id, .name, .path, (.root_repo // "")] | @tsv' \
+        "$WORKSPACES_FILE" | while IFS=$'\t' read -r ws_id ws_name ws_path ws_root; do
         printf "%-4s  %-20s  %-40s  %s\n" "$ws_id" "$ws_name" "$ws_path" "$ws_root"
     done
 }
@@ -520,15 +514,9 @@ cmd_remove() {
 
     # Look up workspace info
     local ws_info
-    ws_info="$(python3 -c "
-import json, sys
-ws = json.load(open(sys.argv[1]))
-for w in ws:
-    if w['workspace_id'] == sys.argv[2]:
-        print(w['name'] + '\t' + w['path'])
-        sys.exit(0)
-sys.exit(1)
-" "$WORKSPACES_FILE" "$ws_id" 2>/dev/null)" || true
+    ws_info="$(jq -r --arg id "$ws_id" \
+        '.[] | select(.workspace_id == $id) | [.name, .path] | @tsv' \
+        "$WORKSPACES_FILE" 2>/dev/null)" || true
 
     if [[ -z "$ws_info" ]]; then
         fail "Workspace '$ws_id' not found in workspaces.json"
@@ -567,12 +555,7 @@ sys.exit(1)
 
     # Remove from workspaces.json
     local updated
-    updated="$(python3 -c "
-import json, sys
-ws = json.load(open(sys.argv[1]))
-ws = [w for w in ws if w['workspace_id'] != sys.argv[2]]
-print(json.dumps(ws, indent=2))
-" "$WORKSPACES_FILE" "$ws_id")"
+    updated="$(jq --arg id "$ws_id" '[.[] | select(.workspace_id != $id)]' "$WORKSPACES_FILE")"
     echo "$updated" > "$WORKSPACES_FILE"
     success "Removed from $WORKSPACES_FILE"
 
@@ -590,12 +573,7 @@ print(json.dumps(ws, indent=2))
 
     # Switch to another workspace
     local next_ws
-    next_ws="$(python3 -c "
-import json, sys
-ws = json.load(open(sys.argv[1]))
-ids = sorted([w['workspace_id'] for w in ws])
-print(ids[0] if ids else '1')
-" "$WORKSPACES_FILE" 2>/dev/null || echo "1")"
+    next_ws="$(jq -r '[.[].workspace_id] | sort | first // "1"' "$WORKSPACES_FILE" 2>/dev/null || echo "1")"
     aerospace workspace "$next_ws" 2>/dev/null || true
     success "Switched to workspace $next_ws"
 
@@ -606,15 +584,8 @@ print(ids[0] if ids else '1')
 get_workspace_path() {
     local ws_id="$1"
     if [[ -f "$WORKSPACES_FILE" ]]; then
-        python3 -c "
-import json, sys
-ws = json.load(open(sys.argv[1]))
-for w in ws:
-    if w['workspace_id'] == sys.argv[2]:
-        print(w['path'])
-        sys.exit(0)
-print('')
-" "$WORKSPACES_FILE" "$ws_id" 2>/dev/null
+        jq -r --arg id "$ws_id" '.[] | select(.workspace_id == $id) | .path // empty' \
+            "$WORKSPACES_FILE" 2>/dev/null
     fi
 }
 
@@ -625,14 +596,9 @@ open_app_slot() {
     local verbose="${4:-false}"  # true = print status lines
 
     local app_info
-    app_info="$(python3 -c "
-import json, sys
-apps = json.load(open(sys.argv[1]))
-i = int(sys.argv[2]) - 1
-if 0 <= i < len(apps):
-    a = apps[i]
-    print(a['name'] + '\t' + a['launch'] + '\t' + a.get('icon', a['name']))
-" "$APPS_FILE" "$slot" 2>/dev/null)" || return 0
+    app_info="$(jq -r --argjson i "$((slot - 1))" \
+        'if $i >= 0 and $i < length then .[$i] | [.name, .launch, (.icon // .name)] | @tsv else empty end' \
+        "$APPS_FILE" 2>/dev/null)" || return 0
 
     [[ -z "$app_info" ]] && return 0
 
@@ -658,7 +624,7 @@ if 0 <= i < len(apps):
     launch_cmd="${launch_cmd//\{workspace\}/$ws_id}"
 
     # Launch the app
-    bash -c "$launch_cmd" &>/dev/null &
+    bash -c "$launch_cmd" >/dev/null 2>/tmp/ws2_open_err &
 
     # Poll for new window (up to 8 seconds)
     local new_wid=""
@@ -721,12 +687,7 @@ cmd_open() {
     local app_names=()
     while IFS= read -r line; do
         [[ -n "$line" ]] && app_names+=("$line")
-    done < <(python3 -c "
-import json, sys
-apps = json.load(open(sys.argv[1]))
-for a in apps:
-    print(a['name'])
-" "$APPS_FILE" 2>/dev/null)
+    done < <(jq -r '.[].name' "$APPS_FILE" 2>/dev/null)
 
     local app_count="${#app_names[@]}"
 
