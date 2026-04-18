@@ -161,7 +161,21 @@ sketchybar --add item aerospace_mode right \
 APPS_FILE="$HOME/.config/ws2/apps.json"
 if [ -f "$APPS_FILE" ]; then
     APP_COUNT=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))))" "$APPS_FILE" 2>/dev/null || echo 0)
-    APP_SLOT_NAMES=()
+
+    # Separator line between app icons and system widgets
+    sketchybar --add item app_launcher_sep right \
+               --set app_launcher_sep \
+               drawing=on \
+               width=1 \
+               background.drawing=on \
+               background.color=$ITEM_BG2 \
+               background.height=20 \
+               background.width=1 \
+               padding_left=4 \
+               padding_right=4 \
+               icon.drawing=off \
+               label.drawing=off
+
     for ((i=1; i<=5; i++)); do
         IDX=$((i-1))
         APP_ICON=""
@@ -185,26 +199,19 @@ print(a.get('icon', a['name']))
                    background.drawing=on \
                    background.color=0x00000000 \
                    background.image="app.$APP_ICON" \
-                   background.image.scale=0.5 \
-                   background.image.padding_left=2 \
-                   background.image.padding_right=2 \
+                   background.image.scale=0.65 \
+                   background.image.padding_left=1 \
+                   background.image.padding_right=1 \
                    background.height=28 \
-                   padding_left=1 \
-                   padding_right=1 \
-                   click_script="__WS2_SCRIPT__ open $i"
-        [ "$DRAW" = "on" ] && APP_SLOT_NAMES+=("app_slot.$i")
+                   background.corner_radius=6 \
+                   padding_left=2 \
+                   padding_right=2 \
+                   click_script="__WS2_SCRIPT__ open $i" \
+                   script="$PLUGIN_DIR/app_slot.sh" \
+                   --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
     done
 
-    if [ ${#APP_SLOT_NAMES[@]} -gt 0 ]; then
-        sketchybar --add bracket app_launcher_bracket "${APP_SLOT_NAMES[@]}" \
-                   --set app_launcher_bracket background.color=$ITEM_BG \
-                                              background.corner_radius=9 \
-                                              background.height=28 \
-                                              background.border_width=2 \
-                                              background.border_color=$ITEM_BG2
-    fi
-
-    sketchybar --add item pad_r5 right --set pad_r5 width=5 drawing=off
+    sketchybar --add item pad_r5 right --set pad_r5 width=3 drawing=off
 fi
 
 ##### AeroSpace Workspace Labels #####

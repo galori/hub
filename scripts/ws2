@@ -252,13 +252,13 @@ cmd_install() {
   },
   {
     "name": "Google Chrome",
-    "launch": "/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --new-window",
+    "launch": "/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --new-window --profile-directory=ws2",
     "icon": "Google Chrome"
   },
   {
     "name": "Code",
     "launch": "code --new-window {path}",
-    "icon": "Visual Studio Code"
+    "icon": "Code"
   }
 ]
 APPS_EOF
