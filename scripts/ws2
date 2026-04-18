@@ -14,6 +14,7 @@ DIALOG_BIN="$HOME/.config/ws2/new_workspace_dialog"
 CONFIRM_SRC="$LIB_DIR/confirm_dialog.swift"
 CONFIRM_BIN="$HOME/.config/ws2/confirm_dialog"
 WORKSPACES_FILE="$HOME/.config/ws2/workspaces.json"
+APPS_FILE="$HOME/.config/ws2/apps.json"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
 # Colors
@@ -34,6 +35,7 @@ print_usage() {
     echo "  new        Create a new workspace (opens dialog)"
     echo "  list       List all defined workspaces"
     echo "  remove     Remove a workspace (current or by ID)"
+    echo "  open       Open configured apps in current workspace"
     echo "  help       Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
@@ -45,6 +47,8 @@ print_usage() {
     echo "  ws2 remove         # remove the current workspace"
     echo "  ws2 remove A       # remove workspace A"
     echo "  ws2 remove A -y    # remove workspace A without confirmation"
+    echo "  ws2 open           # open all configured apps"
+    echo "  ws2 open 1         # open just the first configured app"
 }
 
 success() { echo -e "  ${green}✓${reset} $1"; }
@@ -224,10 +228,39 @@ cmd_install() {
         info "removed existing sketchybar config"
     fi
     mkdir -p "$SKETCHYBAR_CONFIG_DIR/plugins"
-    cp "$CONFIG_DIR/sketchybar/sketchybarrc" "$SKETCHYBAR_CONFIG_DIR/sketchybarrc"
-    cp "$CONFIG_DIR/sketchybar/plugins/"*.sh "$SKETCHYBAR_CONFIG_DIR/plugins/"
+    sed "s|__WS2_SCRIPT__|$REPO_DIR/scripts/ws2|g" "$CONFIG_DIR/sketchybar/sketchybarrc" > "$SKETCHYBAR_CONFIG_DIR/sketchybarrc"
+    for f in "$CONFIG_DIR/sketchybar/plugins/"*.sh; do
+        sed "s|__WS2_SCRIPT__|$REPO_DIR/scripts/ws2|g" "$f" > "$SKETCHYBAR_CONFIG_DIR/plugins/$(basename "$f")"
+    done
     chmod +x "$SKETCHYBAR_CONFIG_DIR/sketchybarrc" "$SKETCHYBAR_CONFIG_DIR/plugins/"*.sh
     success "sketchybar config deployed to $SKETCHYBAR_CONFIG_DIR"
+
+    # --- Write default apps.json ---
+    mkdir -p "$(dirname "$APPS_FILE")"
+    if [[ ! -f "$APPS_FILE" ]]; then
+        cat > "$APPS_FILE" << 'APPS_EOF'
+[
+  {
+    "name": "iTerm2",
+    "launch": "osascript -e 'tell application \"iTerm2\"' -e 'activate' -e 'set w to (create window with default profile)' -e 'tell current session of w' -e 'write text \"cd {path}\"' -e 'end tell' -e 'end tell'",
+    "icon": "iTerm2"
+  },
+  {
+    "name": "Google Chrome",
+    "launch": "/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --new-window",
+    "icon": "Google Chrome"
+  },
+  {
+    "name": "Code",
+    "launch": "code --new-window {path}",
+    "icon": "Visual Studio Code"
+  }
+]
+APPS_EOF
+        success "Created default $APPS_FILE"
+    else
+        info "apps.json already exists"
+    fi
 
     # --- Global gitignore for worktrees/ ---
     echo
@@ -561,6 +594,119 @@ print(ids[0] if ids else '1')
     echo -e "${green}${bold}Workspace '$ws_name' (ID: $ws_id) removed.${reset}"
 }
 
+get_workspace_path() {
+    local ws_id="$1"
+    if [[ -f "$WORKSPACES_FILE" ]]; then
+        python3 -c "
+import json, sys
+ws = json.load(open(sys.argv[1]))
+for w in ws:
+    if w['workspace_id'] == sys.argv[2]:
+        print(w['path'])
+        sys.exit(0)
+print('')
+" "$WORKSPACES_FILE" "$ws_id" 2>/dev/null
+    fi
+}
+
+open_app_slot() {
+    local slot="$1"
+    local ws_id="$2"
+    local ws_path="$3"
+
+    local app_info
+    app_info="$(python3 -c "
+import json, sys
+apps = json.load(open(sys.argv[1]))
+i = int(sys.argv[2]) - 1
+if 0 <= i < len(apps):
+    a = apps[i]
+    print(a['name'] + '\t' + a['launch'] + '\t' + a.get('icon', a['name']))
+" "$APPS_FILE" "$slot" 2>/dev/null)" || return 0
+
+    [[ -z "$app_info" ]] && return 0
+
+    local app_name launch_cmd app_icon
+    IFS=$'\t' read -r app_name launch_cmd app_icon <<< "$app_info"
+
+    # Check if already open on this workspace
+    local ws_apps
+    ws_apps="$(aerospace list-windows --workspace "$ws_id" --format '%{app-name}' 2>/dev/null || echo "")"
+    if echo "$ws_apps" | grep -qxF "$app_name"; then
+        return 0
+    fi
+
+    # Snapshot existing window IDs for this app
+    local before_ids
+    before_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
+
+    # Substitute {path} and {workspace} in launch command
+    launch_cmd="${launch_cmd//\{path\}/$ws_path}"
+    launch_cmd="${launch_cmd//\{workspace\}/$ws_id}"
+
+    # Launch the app
+    bash -c "$launch_cmd" &>/dev/null &
+
+    # Poll for new window (up to 8 seconds)
+    local new_wid=""
+    for _ in $(seq 1 32); do
+        sleep 0.25
+        local after_ids
+        after_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
+
+        while IFS= read -r wid; do
+            [[ -z "$wid" ]] && continue
+            if ! echo "$before_ids" | grep -qxF "$wid"; then
+                new_wid="$wid"
+                break 2
+            fi
+        done <<< "$after_ids"
+    done
+
+    # Move to correct workspace if needed
+    if [[ -n "$new_wid" ]]; then
+        local win_ws
+        win_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${new_wid}|" | cut -d'|' -f2 || echo "")"
+        if [[ "$win_ws" != "$ws_id" ]]; then
+            aerospace focus --window-id "$new_wid" 2>/dev/null || true
+            aerospace move-node-to-workspace "$ws_id" 2>/dev/null || true
+        fi
+    fi
+}
+
+cmd_open() {
+    local slot="${1:-}"
+
+    if [[ ! -f "$APPS_FILE" ]]; then
+        fail "No apps.json found. Run: ws2 install"
+        exit 1
+    fi
+
+    local ws_id
+    ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+    if [[ -z "$ws_id" ]]; then
+        fail "Could not determine current workspace"
+        exit 1
+    fi
+
+    local ws_path
+    ws_path="$(get_workspace_path "$ws_id")"
+    [[ -z "$ws_path" ]] && ws_path="$HOME"
+
+    if [[ -n "$slot" ]]; then
+        open_app_slot "$slot" "$ws_id" "$ws_path"
+    else
+        local app_count
+        app_count="$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))))" "$APPS_FILE" 2>/dev/null || echo 0)"
+        for ((i=1; i<=app_count; i++)); do
+            open_app_slot "$i" "$ws_id" "$ws_path"
+        done
+    fi
+
+    # Refocus target workspace
+    aerospace workspace "$ws_id" 2>/dev/null || true
+}
+
 cmd_up() {
     echo -e "${bold}Starting ws2 environment...${reset}\n"
 
@@ -682,6 +828,7 @@ case "$command" in
     new)      cmd_new ;;
     list)     cmd_list ;;
     remove)   cmd_remove "$@" ;;
+    open)     cmd_open "$@" ;;
     up)       cmd_up ;;
     down)     cmd_down ;;
     help|-h|--help) print_usage ;;

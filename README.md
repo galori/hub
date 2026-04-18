@@ -65,6 +65,22 @@ Removes a workspace from the configuration, clears its sketchybar label, and mov
 
 Keyboard shortcut: `Ctrl+Alt+D` (removes current workspace without confirmation).
 
+### Open apps in a workspace
+
+```sh
+ws2 open           # open all configured apps in current workspace
+ws2 open 1         # open just the first configured app (e.g., iTerm)
+ws2 open 2         # open just the second configured app (e.g., Chrome)
+```
+
+Opens the apps defined in `~/.config/ws2/apps.json` in the current workspace. Skips apps already open on the workspace. New windows are automatically moved to the correct workspace.
+
+Default apps: iTerm2, Google Chrome, VS Code. Edit `~/.config/ws2/apps.json` to customize (up to 5 slots).
+
+Keyboard shortcuts: `Ctrl+Alt+O` (all apps), `Ctrl+Alt+1-5` (individual slots).
+
+SketchyBar shows clickable app icons on the right side — full-size when open on the current workspace, dimmed when not.
+
 ## Keybindings
 
 All keybindings use `Alt` as the modifier (AeroSpace default):
@@ -82,6 +98,8 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 | `Alt + Shift + Tab` | Move workspace to next monitor |
 | `Ctrl + Alt + N` | Create new workspace |
 | `Ctrl + Alt + D` | Remove current workspace |
+| `Ctrl + Alt + O` | Open all configured apps |
+| `Ctrl + Alt + 1-5` | Open specific app slot |
 | `Alt + Shift + ;` | Enter service mode |
 
 ## Guiding Principles

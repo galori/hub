@@ -167,6 +167,14 @@ on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/a
     # ws2: remove current workspace
     ctrl-alt-d = 'exec-and-forget __WS2_SCRIPT__ remove'
 
+    # ws2: open apps in current workspace
+    ctrl-alt-o = 'exec-and-forget __WS2_SCRIPT__ open'
+    ctrl-alt-1 = 'exec-and-forget __WS2_SCRIPT__ open 1'
+    ctrl-alt-2 = 'exec-and-forget __WS2_SCRIPT__ open 2'
+    ctrl-alt-3 = 'exec-and-forget __WS2_SCRIPT__ open 3'
+    ctrl-alt-4 = 'exec-and-forget __WS2_SCRIPT__ open 4'
+    ctrl-alt-5 = 'exec-and-forget __WS2_SCRIPT__ open 5'
+
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
 [mode.service.binding]

@@ -156,6 +156,57 @@ sketchybar --add item aerospace_mode right \
                                 padding_right=0 \
                                 width=30
 
+##### App Launcher Icons #####
+
+APPS_FILE="$HOME/.config/ws2/apps.json"
+if [ -f "$APPS_FILE" ]; then
+    APP_COUNT=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))))" "$APPS_FILE" 2>/dev/null || echo 0)
+    APP_SLOT_NAMES=()
+    for ((i=1; i<=5; i++)); do
+        IDX=$((i-1))
+        APP_ICON=""
+        DRAW=off
+        if [ "$IDX" -lt "$APP_COUNT" ]; then
+            APP_ICON=$(python3 -c "
+import json, sys
+apps = json.load(open(sys.argv[1]))
+i = int(sys.argv[2])
+a = apps[i]
+print(a.get('icon', a['name']))
+" "$APPS_FILE" "$IDX" 2>/dev/null || echo "")
+            DRAW=on
+        fi
+
+        sketchybar --add item "app_slot.$i" right \
+                   --set "app_slot.$i" \
+                   drawing=$DRAW \
+                   icon.drawing=off \
+                   label.drawing=off \
+                   background.drawing=on \
+                   background.color=0x00000000 \
+                   background.image="app.$APP_ICON" \
+                   background.image.scale=0.5 \
+                   background.image.padding_left=2 \
+                   background.image.padding_right=2 \
+                   background.height=28 \
+                   padding_left=1 \
+                   padding_right=1 \
+                   click_script="__WS2_SCRIPT__ open $i"
+        [ "$DRAW" = "on" ] && APP_SLOT_NAMES+=("app_slot.$i")
+    done
+
+    if [ ${#APP_SLOT_NAMES[@]} -gt 0 ]; then
+        sketchybar --add bracket app_launcher_bracket "${APP_SLOT_NAMES[@]}" \
+                   --set app_launcher_bracket background.color=$ITEM_BG \
+                                              background.corner_radius=9 \
+                                              background.height=28 \
+                                              background.border_width=2 \
+                                              background.border_color=$ITEM_BG2
+    fi
+
+    sketchybar --add item pad_r5 right --set pad_r5 width=5 drawing=off
+fi
+
 ##### AeroSpace Workspace Labels #####
 
 default=(
