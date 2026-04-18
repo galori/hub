@@ -155,14 +155,14 @@ if [ -f "$APPS_FILE" ]; then
                --set app_launcher_sep \
                drawing=on \
                background.drawing=on \
-               background.color=$ITEM_BG2 \
+               background.color=0x80ffffff \
                background.height=20 \
-               background.width=1 \
-               padding_left=6 \
-               padding_right=6 \
+               background.width=2 \
+               padding_left=8 \
+               padding_right=0 \
                icon.drawing=off \
                label.drawing=off \
-               width=1
+               width=2
 
     for ((i=1; i<=5; i++)); do
         IDX=$((i-1))
@@ -181,9 +181,9 @@ if [ -f "$APPS_FILE" ]; then
                    icon.drawing=off \
                    icon.align=center \
                    icon.width=34 \
-                   icon.font="Hack Nerd Font:Bold:9.0" \
+                   icon.font="Hack Nerd Font:Bold:6.0" \
                    icon.color=0xff9ed072 \
-                   icon.y_offset=-12 \
+                   icon.y_offset=-13 \
                    icon.padding_left=0 \
                    icon.padding_right=0 \
                    label.drawing=off \
@@ -193,11 +193,12 @@ if [ -f "$APPS_FILE" ]; then
                    background.drawing=on \
                    background.color=0x00000000 \
                    background.image="app.$APP_ICON" \
-                   background.image.scale=0.85 \
+                   background.image.scale=0.78 \
                    background.image.padding_left=3 \
                    background.image.padding_right=0 \
                    background.width=34 \
-                   background.height=30 \
+                   background.height=40 \
+                   background.y_offset=2 \
                    background.corner_radius=6 \
                    padding_left=0 \
                    padding_right=0 \
@@ -205,6 +206,13 @@ if [ -f "$APPS_FILE" ]; then
                    --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
 
     done
+
+    # Hidden trigger: update running-app dots when focus changes (app open/close)
+    sketchybar --add item app_refresh_trigger right \
+               --set app_refresh_trigger \
+               drawing=off \
+               script="$PLUGIN_DIR/app_launcher.sh" \
+               --subscribe app_refresh_trigger front_app_switched
 
     sketchybar --add item pad_r5 right \
                --set pad_r5 width=8 icon.drawing=off label.drawing=off background.drawing=off
