@@ -622,6 +622,7 @@ open_app_slot() {
     local slot="$1"
     local ws_id="$2"
     local ws_path="$3"
+    local verbose="${4:-false}"  # true = print status lines
 
     local app_info
     app_info="$(python3 -c "
@@ -642,8 +643,11 @@ if 0 <= i < len(apps):
     local ws_apps
     ws_apps="$(aerospace list-windows --workspace "$ws_id" --format '%{app-name}' 2>/dev/null || echo "")"
     if echo "$ws_apps" | grep -qxF "$app_name"; then
+        [[ "$verbose" == "true" ]] && info "$app_name is already open on workspace $ws_id"
         return 0
     fi
+
+    [[ "$verbose" == "true" ]] && info "Opening $app_name..."
 
     # Snapshot existing window IDs for this app
     local before_ids
@@ -680,11 +684,22 @@ if 0 <= i < len(apps):
             aerospace focus --window-id "$new_wid" 2>/dev/null || true
             aerospace move-node-to-workspace "$ws_id" 2>/dev/null || true
         fi
+        [[ "$verbose" == "true" ]] && success "$app_name opened"
+    else
+        [[ "$verbose" == "true" ]] && warn "$app_name: window did not appear in time"
     fi
 }
 
 cmd_open() {
-    local slot="${1:-}"
+    local slot=""
+    local open_all=false
+
+    for arg in "$@"; do
+        case "$arg" in
+            --all) open_all=true ;;
+            [1-5]) slot="$arg" ;;
+        esac
+    done
 
     if [[ ! -f "$APPS_FILE" ]]; then
         fail "No apps.json found. Run: ws2 install"
@@ -702,17 +717,75 @@ cmd_open() {
     ws_path="$(get_workspace_path "$ws_id")"
     [[ -z "$ws_path" ]] && ws_path="$HOME"
 
-    if [[ -n "$slot" ]]; then
-        open_app_slot "$slot" "$ws_id" "$ws_path"
-    else
-        local app_count
-        app_count="$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))))" "$APPS_FILE" 2>/dev/null || echo 0)"
-        for ((i=1; i<=app_count; i++)); do
-            open_app_slot "$i" "$ws_id" "$ws_path"
-        done
+    # Load app list
+    local app_names=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && app_names+=("$line")
+    done < <(python3 -c "
+import json, sys
+apps = json.load(open(sys.argv[1]))
+for a in apps:
+    print(a['name'])
+" "$APPS_FILE" 2>/dev/null)
+
+    local app_count="${#app_names[@]}"
+
+    # If called from a keybinding (no terminal), just run silently with overlay
+    if [[ ! -t 0 && ! -t 1 ]]; then
+        local overlay_lines="Workspace $ws_id"
+        if [[ -n "$slot" ]]; then
+            start_overlay "Opening App"
+            update_overlay "Opening ${app_names[$((slot-1))]}…"
+            open_app_slot "$slot" "$ws_id" "$ws_path" false
+        else
+            start_overlay "Opening Apps"
+            for ((i=1; i<=app_count; i++)); do
+                update_overlay "Opening ${app_names[$((i-1))]}…"
+                open_app_slot "$i" "$ws_id" "$ws_path" false
+            done
+        fi
+        update_overlay "✓  Done"
+        sleep 0.6
+        stop_overlay
+        aerospace workspace "$ws_id" 2>/dev/null || true
+        return
     fi
 
-    # Refocus target workspace
+    # Terminal: show list and prompt if no slot/--all given
+    if [[ -z "$slot" && "$open_all" == "false" ]]; then
+        local ws_apps
+        ws_apps="$(aerospace list-windows --workspace "$ws_id" --format '%{app-name}' 2>/dev/null || echo "")"
+
+        echo -e "${bold}Apps for workspace $ws_id:${reset}"
+        for ((i=1; i<=app_count; i++)); do
+            local name="${app_names[$((i-1))]}"
+            if echo "$ws_apps" | grep -qxF "$name"; then
+                echo -e "  ${green}$i${reset}  $name ${green}(open)${reset}"
+            else
+                echo -e "  ${blue}$i${reset}  $name"
+            fi
+        done
+        echo
+        echo -e "  ${bold}a${reset}  Open all"
+        echo -e "  ${bold}q${reset}  Quit"
+        echo
+        read -rp "Open which app? [1-${app_count}/a/q] " choice
+
+        case "$choice" in
+            [1-5]) slot="$choice" ;;
+            a|A|--all) open_all=true ;;
+            *) echo "Cancelled."; return ;;
+        esac
+    fi
+
+    if [[ "$open_all" == "true" ]]; then
+        for ((i=1; i<=app_count; i++)); do
+            open_app_slot "$i" "$ws_id" "$ws_path" true
+        done
+    else
+        open_app_slot "$slot" "$ws_id" "$ws_path" true
+    fi
+
     aerospace workspace "$ws_id" 2>/dev/null || true
 }
 

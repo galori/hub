@@ -2,12 +2,9 @@
 
 SKETCHYBAR=/opt/homebrew/bin/sketchybar
 [ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
-STATE=/tmp/aerospace_in_service_mode
 
-if [ -f "$STATE" ]; then
-    rm "$STATE"
-    "$SKETCHYBAR" --set aerospace_mode label="" background.drawing=off
+if [ "$AEROSPACE_MODE" = "service" ]; then
+    "$SKETCHYBAR" --set aerospace_mode drawing=on label=S background.drawing=on
 else
-    touch "$STATE"
-    "$SKETCHYBAR" --set aerospace_mode label=S background.drawing=on
+    "$SKETCHYBAR" --set aerospace_mode drawing=off
 fi

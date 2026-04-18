@@ -41,6 +41,8 @@ default=(
 sketchybar --default "${default[@]}"
 
 ##### Right Items #####
+# Items are added right-to-left. Rightmost item is added first.
+# Spacers use width= with background.drawing=off to occupy real space.
 
 # Calendar / Clock (rightmost)
 sketchybar --add item clock right \
@@ -59,7 +61,8 @@ sketchybar --add bracket clock_bracket clock \
                                background.border_width=2 \
                                background.border_color=$ITEM_BG2
 
-sketchybar --add item pad_r1 right --set pad_r1 width=5 drawing=off
+sketchybar --add item pad_r1 right \
+           --set pad_r1 width=8 icon.drawing=off label.drawing=off background.drawing=off
 
 # Volume (with popup slider)
 sketchybar --add item volume right \
@@ -96,7 +99,8 @@ sketchybar --add bracket volume_bracket volume \
                                 background.border_width=2 \
                                 background.border_color=$ITEM_BG2
 
-sketchybar --add item pad_r2 right --set pad_r2 width=5 drawing=off
+sketchybar --add item pad_r2 right \
+           --set pad_r2 width=8 icon.drawing=off label.drawing=off background.drawing=off
 
 # Battery
 sketchybar --add item battery right \
@@ -115,7 +119,8 @@ sketchybar --add bracket battery_bracket battery \
                                  background.border_width=2 \
                                  background.border_color=$ITEM_BG2
 
-sketchybar --add item pad_r3 right --set pad_r3 width=5 drawing=off
+sketchybar --add item pad_r3 right \
+           --set pad_r3 width=8 icon.drawing=off label.drawing=off background.drawing=off
 
 # Wifi
 sketchybar --add item wifi right \
@@ -136,25 +141,8 @@ sketchybar --add bracket wifi_bracket wifi \
                               background.border_width=2 \
                               background.border_color=$ITEM_BG2
 
-sketchybar --add item pad_r4 right --set pad_r4 width=5 drawing=off
-
-# AeroSpace binding mode indicator — always reserves space, toggles label/bg visibility
-sketchybar --add item aerospace_mode right \
-           --set aerospace_mode icon.drawing=off \
-                                label="" \
-                                label.align=center \
-                                label.font="Hack Nerd Font:Bold:13.0" \
-                                label.padding_left=0 \
-                                label.padding_right=0 \
-                                label.color=0xffffffff \
-                                label.width=30 \
-                                background.drawing=off \
-                                background.color=0xffC91B00 \
-                                background.corner_radius=9 \
-                                background.height=28 \
-                                padding_left=0 \
-                                padding_right=0 \
-                                width=30
+sketchybar --add item pad_r4 right \
+           --set pad_r4 width=8 icon.drawing=off label.drawing=off background.drawing=off
 
 ##### App Launcher Icons #####
 
@@ -166,15 +154,15 @@ if [ -f "$APPS_FILE" ]; then
     sketchybar --add item app_launcher_sep right \
                --set app_launcher_sep \
                drawing=on \
-               width=1 \
                background.drawing=on \
                background.color=$ITEM_BG2 \
                background.height=20 \
                background.width=1 \
-               padding_left=4 \
-               padding_right=4 \
+               padding_left=6 \
+               padding_right=6 \
                icon.drawing=off \
-               label.drawing=off
+               label.drawing=off \
+               width=1
 
     for ((i=1; i<=5; i++)); do
         IDX=$((i-1))
@@ -199,20 +187,41 @@ print(a.get('icon', a['name']))
                    background.drawing=on \
                    background.color=0x00000000 \
                    background.image="app.$APP_ICON" \
-                   background.image.scale=0.65 \
-                   background.image.padding_left=1 \
-                   background.image.padding_right=1 \
-                   background.height=28 \
+                   background.image.scale=0.8 \
+                   background.image.padding_left=0 \
+                   background.image.padding_right=0 \
+                   background.height=32 \
                    background.corner_radius=6 \
-                   padding_left=2 \
-                   padding_right=2 \
+                   padding_left=3 \
+                   padding_right=3 \
                    click_script="__WS2_SCRIPT__ open $i" \
                    script="$PLUGIN_DIR/app_slot.sh" \
                    --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
     done
 
-    sketchybar --add item pad_r5 right --set pad_r5 width=3 drawing=off
+    sketchybar --add item pad_r5 right \
+               --set pad_r5 width=8 icon.drawing=off label.drawing=off background.drawing=off
 fi
+
+# AeroSpace service mode indicator — hidden when in main mode, visible (red S) in service mode
+# Added last so it appears leftmost among right items
+sketchybar --add item aerospace_mode right \
+           --set aerospace_mode drawing=off \
+                                icon.drawing=off \
+                                label=S \
+                                label.align=center \
+                                label.font="Hack Nerd Font:Bold:13.0" \
+                                label.padding_left=0 \
+                                label.padding_right=0 \
+                                label.color=0xffffffff \
+                                label.width=30 \
+                                background.drawing=on \
+                                background.color=0xffC91B00 \
+                                background.corner_radius=9 \
+                                background.height=28 \
+                                padding_left=0 \
+                                padding_right=0 \
+                                width=30
 
 ##### AeroSpace Workspace Labels #####
 
