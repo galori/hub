@@ -48,8 +48,10 @@ print_usage() {
     echo "  ws2 remove         # remove the current workspace"
     echo "  ws2 remove A       # remove workspace A"
     echo "  ws2 remove A -y    # remove workspace A without confirmation"
-    echo "  ws2 open           # open all configured apps"
-    echo "  ws2 open 1         # open just the first configured app"
+    echo "  ws2 open           # interactive: focus or launch an app"
+    echo "  ws2 open 1         # focus app 1 (or launch if not running)"
+    echo "  ws2 open 1 --force # always launch a new window of app 1"
+    echo "  ws2 open --all     # launch any missing apps into current workspace"
     echo
     echo -e "${bold}App launcher config:${reset}"
     echo "  Edit ~/.config/ws2/apps.json to configure up to 5 app slots."
@@ -620,7 +622,8 @@ open_app_slot() {
     local slot="$1"
     local ws_id="$2"
     local ws_path="$3"
-    local verbose="${4:-false}"  # true = print status lines
+    local verbose="${4:-false}"   # true = print status lines
+    local force_new="${5:-false}" # true = always launch new window
 
     local app_info
     app_info="$(jq -r --argjson i "$((slot - 1))" \
@@ -631,6 +634,35 @@ open_app_slot() {
 
     local app_name launch_cmd app_icon
     IFS=$'\t' read -r app_name launch_cmd app_icon <<< "$app_info"
+
+    # Smart mode: if app has windows on current workspace, cycle focus between
+    # them. Otherwise fall through to launch a new window on this workspace.
+    # (We intentionally do NOT jump to another workspace where this app runs —
+    # each ws2 workspace is self-contained, so Chrome on ws 3 ≠ Chrome on ws 10.)
+    if [[ "$force_new" != "true" ]]; then
+        local cur_wins
+        cur_wins="$(aerospace list-windows --workspace "$ws_id" --format '%{window-id}|%{app-name}' 2>/dev/null \
+            | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
+        if [[ -n "$cur_wins" ]]; then
+            local focused_wid
+            focused_wid="$(aerospace list-windows --focused --format '%{window-id}' 2>/dev/null || echo "")"
+            local target="" first="" take_next=false
+            while IFS= read -r wid; do
+                [[ -z "$wid" ]] && continue
+                [[ -z "$first" ]] && first="$wid"
+                if [[ "$take_next" == "true" ]]; then
+                    target="$wid"
+                    break
+                fi
+                [[ "$wid" == "$focused_wid" ]] && take_next=true
+            done <<< "$cur_wins"
+            [[ -z "$target" ]] && target="$first"
+            aerospace focus --window-id "$target" 2>/dev/null || true
+            [[ "$verbose" == "true" ]] && success "$app_name focused"
+            return 0
+        fi
+        # Fall through: no window on this workspace, launch one here
+    fi
 
     [[ "$verbose" == "true" ]] && info "Opening $app_name..."
 
@@ -678,10 +710,12 @@ open_app_slot() {
 cmd_open() {
     local slot=""
     local open_all=false
+    local force_new=false
 
     for arg in "$@"; do
         case "$arg" in
             --all) open_all=true ;;
+            --force|--new) force_new=true ;;
             [1-5]) slot="$arg" ;;
         esac
     done
@@ -710,29 +744,16 @@ cmd_open() {
 
     local app_count="${#app_names[@]}"
 
-    # If called from a keybinding (no terminal), run with overlay feedback
+    # If called from a keybinding (no terminal), just run silently
     if [[ ! -t 0 && ! -t 1 ]]; then
-        # Start overlay immediately — binary launch takes ~1s so we fire it
-        # as early as possible, before the app-open work begins
-        start_overlay "Opening Apps"
-        update_overlay "…"
         if [[ -n "$slot" ]]; then
-            update_overlay "Opening ${app_names[$((slot-1))]}…"
-            open_app_slot "$slot" "$ws_id" "$ws_path" false
+            open_app_slot "$slot" "$ws_id" "$ws_path" false "$force_new"
         else
             for ((i=1; i<=app_count; i++)); do
-                update_overlay "Opening ${app_names[$((i-1))]}…"
-                open_app_slot "$i" "$ws_id" "$ws_path" false
+                open_app_slot "$i" "$ws_id" "$ws_path" false "$force_new"
             done
         fi
-        update_overlay "✓  Done"
-        sleep 0.6
-        stop_overlay
-        # Reset any app_slot label that may still show ⋯
-        for ((i=1; i<=5; i++)); do
-            sketchybar --set "app_slot.$i" label.drawing=off background.color=0x00000000 2>/dev/null || true
-        done
-        aerospace workspace "$ws_id" 2>/dev/null || true
+        refresh_app_indicators
         return
     fi
 
@@ -741,11 +762,13 @@ cmd_open() {
         local ws_apps
         ws_apps="$(aerospace list-windows --workspace "$ws_id" --format '%{app-name}' 2>/dev/null || echo "")"
 
-        echo -e "${bold}Apps for workspace $ws_id:${reset}"
+        local verb="Open/focus"
+        [[ "$force_new" == "true" ]] && verb="Launch new"
+        echo -e "${bold}${verb} which app for workspace $ws_id?${reset}"
         for ((i=1; i<=app_count; i++)); do
             local name="${app_names[$((i-1))]}"
             if echo "$ws_apps" | grep -qxF "$name"; then
-                echo -e "  ${green}$i${reset}  $name ${green}(open)${reset}"
+                echo -e "  ${green}$i${reset}  $name ${green}(open here)${reset}"
             else
                 echo -e "  ${blue}$i${reset}  $name"
             fi
@@ -754,7 +777,7 @@ cmd_open() {
         echo -e "  ${bold}a${reset}  Open all"
         echo -e "  ${bold}q${reset}  Quit"
         echo
-        read -rp "Open which app? [1-${app_count}/a/q] " choice
+        read -rp "Choice [1-${app_count}/a/q] " choice
 
         case "$choice" in
             [1-5]) slot="$choice" ;;
@@ -765,13 +788,27 @@ cmd_open() {
 
     if [[ "$open_all" == "true" ]]; then
         for ((i=1; i<=app_count; i++)); do
-            open_app_slot "$i" "$ws_id" "$ws_path" true
+            open_app_slot "$i" "$ws_id" "$ws_path" true "$force_new"
         done
     else
-        open_app_slot "$slot" "$ws_id" "$ws_path" true
+        open_app_slot "$slot" "$ws_id" "$ws_path" true "$force_new"
     fi
 
-    aerospace workspace "$ws_id" 2>/dev/null || true
+    # Only refocus original workspace after launching new windows — smart-open
+    # may have intentionally jumped to another workspace.
+    if [[ "$force_new" == "true" || "$open_all" == "true" ]]; then
+        aerospace workspace "$ws_id" 2>/dev/null || true
+    fi
+    refresh_app_indicators
+}
+
+# Trigger the sketchybar app_launcher plugin so the "running" dots reflect the
+# current window state. Run with a brief delay so AeroSpace's window list has
+# time to settle after a new window is placed on the workspace.
+refresh_app_indicators() {
+    local plugin="$HOME/.config/sketchybar/plugins/app_launcher.sh"
+    [[ -x "$plugin" ]] || return
+    (sleep 0.8 && AEROSPACE_FOCUSED_WORKSPACE="" "$plugin") >/dev/null 2>&1 &
 }
 
 cmd_up() {

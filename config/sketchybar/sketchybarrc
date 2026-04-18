@@ -201,7 +201,6 @@ if [ -f "$APPS_FILE" ]; then
                    background.corner_radius=6 \
                    padding_left=0 \
                    padding_right=0 \
-                   click_script="__WS2_SCRIPT__ open $i" \
                    script="$PLUGIN_DIR/app_slot.sh" \
                    --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
 

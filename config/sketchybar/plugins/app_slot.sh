@@ -24,6 +24,15 @@ case "$SENDER" in
             background.color=$CLICK_BG \
             background.border_color=0xffffffff \
             background.border_width=2
+        # Slot index from "app_slot.N"
+        SLOT="${NAME##*.}"
+        # Shift-click forces new window; plain click is smart focus-or-launch.
+        # MODIFIER is set by sketchybar: "shift", "cmd", "alt", "ctrl" (or combos).
+        if [[ "$MODIFIER" == *shift* ]]; then
+            __WS2_SCRIPT__ open "$SLOT" --force &
+        else
+            __WS2_SCRIPT__ open "$SLOT" &
+        fi
         sleep 0.12
         "$SKETCHYBAR" --animate tanh 12 --set "$NAME" \
             background.color=$HOVER_BG \

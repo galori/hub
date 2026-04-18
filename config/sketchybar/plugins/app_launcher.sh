@@ -1,6 +1,4 @@
-#!/usr/bin/env bash
-# Called on workspace change — updates open-app indicator dots
-
+#!/usr/bin/env bash # Called on workspace change — updates open-app indicator dots
 SKETCHYBAR=/opt/homebrew/bin/sketchybar
 [ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
 
