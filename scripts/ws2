@@ -44,6 +44,7 @@ print_usage() {
     echo "  ws2 down           # tear down the workspace environment"
     echo "  ws2 new            # create a new workspace"
     echo "  ws2 list           # list all workspaces"
+    echo "  ws2 list -v        # list with paths and root repos"
     echo "  ws2 remove         # remove the current workspace"
     echo "  ws2 remove A       # remove workspace A"
     echo "  ws2 remove A -y    # remove workspace A without confirmation"
@@ -465,6 +466,11 @@ remove_sketchybar_label() {
 }
 
 cmd_list() {
+    local verbose=false
+    for arg in "$@"; do
+        [[ "$arg" == "-v" ]] && verbose=true
+    done
+
     if [[ ! -f "$WORKSPACES_FILE" ]]; then
         echo "No workspaces defined."
         return
@@ -478,13 +484,34 @@ cmd_list() {
         return
     fi
 
-    printf "${bold}%-4s  %-20s  %-40s  %s${reset}\n" "ID" "NAME" "PATH" "ROOT REPO"
-    printf "%-4s  %-20s  %-40s  %s\n" "----" "--------------------" "----------------------------------------" "----------"
+    if [[ "$verbose" == "true" ]]; then
+        local max_name=4 max_path=4 max_root=9
+        while IFS=$'\t' read -r _ ws_name ws_path ws_root; do
+            (( ${#ws_name} > max_name )) && max_name=${#ws_name}
+            (( ${#ws_path} > max_path )) && max_path=${#ws_path}
+            (( ${#ws_root} > max_root )) && max_root=${#ws_root}
+        done < <(jq -r 'sort_by(.workspace_id)[] | [.workspace_id, .name, .path, (.root_repo // "")] | @tsv' "$WORKSPACES_FILE")
 
-    jq -r 'sort_by(.workspace_id)[] | [.workspace_id, .name, .path, (.root_repo // "")] | @tsv' \
-        "$WORKSPACES_FILE" | while IFS=$'\t' read -r ws_id ws_name ws_path ws_root; do
-        printf "%-4s  %-20s  %-40s  %s\n" "$ws_id" "$ws_name" "$ws_path" "$ws_root"
-    done
+        printf "${bold}%-4s  %-${max_name}s  %-${max_path}s  %s${reset}\n" "ID" "NAME" "PATH" "ROOT REPO"
+        printf "%-4s  %-${max_name}s  %-${max_path}s  %s\n" \
+            "$(printf '%0.s-' $(seq 1 4))" \
+            "$(printf '%0.s-' $(seq 1 "$max_name"))" \
+            "$(printf '%0.s-' $(seq 1 "$max_path"))" \
+            "$(printf '%0.s-' $(seq 1 "$max_root"))"
+
+        jq -r 'sort_by(.workspace_id)[] | [.workspace_id, .name, .path, (.root_repo // "")] | @tsv' \
+            "$WORKSPACES_FILE" | while IFS=$'\t' read -r ws_id ws_name ws_path ws_root; do
+            printf "%-4s  %-${max_name}s  %-${max_path}s  %s\n" "$ws_id" "$ws_name" "$ws_path" "$ws_root"
+        done
+    else
+        printf "${bold}%-4s  %s${reset}\n" "ID" "NAME"
+        printf "%-4s  %s\n" "----" "----"
+
+        jq -r 'sort_by(.workspace_id)[] | [.workspace_id, .name] | @tsv' \
+            "$WORKSPACES_FILE" | while IFS=$'\t' read -r ws_id ws_name; do
+            printf "%-4s  %s\n" "$ws_id" "$ws_name"
+        done
+    fi
 }
 
 cmd_remove() {
@@ -604,14 +631,6 @@ open_app_slot() {
 
     local app_name launch_cmd app_icon
     IFS=$'\t' read -r app_name launch_cmd app_icon <<< "$app_info"
-
-    # Check if already open on this workspace
-    local ws_apps
-    ws_apps="$(aerospace list-windows --workspace "$ws_id" --format '%{app-name}' 2>/dev/null || echo "")"
-    if echo "$ws_apps" | grep -qxF "$app_name"; then
-        [[ "$verbose" == "true" ]] && info "$app_name is already open on workspace $ws_id"
-        return 0
-    fi
 
     [[ "$verbose" == "true" ]] && info "Opening $app_name..."
 
@@ -877,7 +896,7 @@ shift || true
 case "$command" in
     install)  cmd_install ;;
     new)      cmd_new ;;
-    list)     cmd_list ;;
+    list)     cmd_list "$@" ;;
     remove)   cmd_remove "$@" ;;
     open)     cmd_open "$@" ;;
     up)       cmd_up ;;

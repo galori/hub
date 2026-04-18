@@ -148,7 +148,7 @@ sketchybar --add item pad_r4 right \
 
 APPS_FILE="$HOME/.config/ws2/apps.json"
 if [ -f "$APPS_FILE" ]; then
-    APP_COUNT=$(python3 -c "import json,sys;print(len(json.load(open(sys.argv[1]))))" "$APPS_FILE" 2>/dev/null || echo 0)
+    APP_COUNT=$(jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)
 
     # Separator line between app icons and system widgets
     sketchybar --add item app_launcher_sep right \
@@ -169,13 +169,7 @@ if [ -f "$APPS_FILE" ]; then
         APP_ICON=""
         DRAW=off
         if [ "$IDX" -lt "$APP_COUNT" ]; then
-            APP_ICON=$(python3 -c "
-import json, sys
-apps = json.load(open(sys.argv[1]))
-i = int(sys.argv[2])
-a = apps[i]
-print(a.get('icon', a['name']))
-" "$APPS_FILE" "$IDX" 2>/dev/null || echo "")
+            APP_ICON=$(jq -r --argjson i "$IDX" '.[$i] | .icon // .name' "$APPS_FILE" 2>/dev/null || echo "")
             DRAW=on
         fi
 
@@ -197,6 +191,7 @@ print(a.get('icon', a['name']))
                    click_script="__WS2_SCRIPT__ open $i" \
                    script="$PLUGIN_DIR/app_slot.sh" \
                    --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
+
     done
 
     sketchybar --add item pad_r5 right \
@@ -251,14 +246,8 @@ WS_LABELS_FILE="/tmp/ws2_sketchybar_labels"
 : > "$WS_LABELS_FILE"
 
 if [ -f "$HOME/.config/ws2/workspaces.json" ]; then
-    python3 -c "
-import json, sys
-try:
-    ws = json.load(open(sys.argv[1]))
-    for w in ws:
-        print(w['workspace_id'] + ':' + w['name'])
-except: pass
-" "$HOME/.config/ws2/workspaces.json" > "$WS_LABELS_FILE" 2>/dev/null
+    jq -r '.[] | .workspace_id + ":" + .name' \
+        "$HOME/.config/ws2/workspaces.json" > "$WS_LABELS_FILE" 2>/dev/null || true
 fi
 
 ws_label() {

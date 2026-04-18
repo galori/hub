@@ -1,33 +1,35 @@
 #!/usr/bin/env bash
-# Handles hover and click visual feedback for app launcher slots
+# Handles hover, click feedback, and magnify for app launcher slots
 
 SKETCHYBAR=/opt/homebrew/bin/sketchybar
 [ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
 
-HOVER_BG=0x33ffffff
+HOVER_BG=0x22ffffff
 CLICK_BG=0x55ffffff
+NORMAL_SCALE=0.8
+HOVER_SCALE=0.9
 
 case "$SENDER" in
     mouse.entered)
-        "$SKETCHYBAR" --set "$NAME" background.color=$HOVER_BG
+        "$SKETCHYBAR" --set "$NAME" \
+            background.color=$HOVER_BG \
+            background.image.scale=$HOVER_SCALE
         ;;
     mouse.exited)
-        "$SKETCHYBAR" --set "$NAME" background.color=0x00000000
-        ;;
-    mouse.clicked)
-        # Instant feedback: bright flash + spinning label while ws2 open loads
-        "$SKETCHYBAR" --set "$NAME" \
-            background.color=$CLICK_BG \
-            label="⋯" \
-            label.drawing=on \
-            label.font="Hack Nerd Font:Bold:11.0" \
-            label.color=0xffffffff \
-            label.padding_left=2 \
-            label.padding_right=2
-        # Reset after a moment (ws2 open will also reset via overlay; this is a fallback)
-        sleep 3
         "$SKETCHYBAR" --set "$NAME" \
             background.color=0x00000000 \
-            label.drawing=off
+            background.image.scale=$NORMAL_SCALE
+        ;;
+    mouse.clicked)
+        # Rapid 3x flash for immediate feedback
+        for _ in 1 2 3; do
+            "$SKETCHYBAR" --set "$NAME" background.color=$CLICK_BG
+            sleep 0.06
+            "$SKETCHYBAR" --set "$NAME" background.color=0x00000000
+            sleep 0.06
+        done
+        "$SKETCHYBAR" --set "$NAME" \
+            background.color=$HOVER_BG \
+            background.image.scale=$NORMAL_SCALE
         ;;
 esac
