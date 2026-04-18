@@ -802,13 +802,9 @@ cmd_open() {
     refresh_app_indicators
 }
 
-# Trigger the sketchybar app_launcher plugin so the "running" dots reflect the
-# current window state. Run with a brief delay so AeroSpace's window list has
-# time to settle after a new window is placed on the workspace.
 refresh_app_indicators() {
     local plugin="$HOME/.config/sketchybar/plugins/app_launcher.sh"
-    [[ -x "$plugin" ]] || return
-    (sleep 0.8 && AEROSPACE_FOCUSED_WORKSPACE="" "$plugin") >/dev/null 2>&1 &
+    [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
 }
 
 cmd_up() {

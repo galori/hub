@@ -13,34 +13,15 @@ RED=0xfffc5d7c
 BLUE=0xff76cce0
 
 case "${PERCENTAGE}" in
-9[0-9] | 100)
-    ICON=󰁹
-    COLOR=$GREEN
-    ;;
-[7-8][0-9])
-    ICON=󰂀
-    COLOR=$GREEN
-    ;;
-[5-6][0-9])
-    ICON=󰁾
-    COLOR=$GREEN
-    ;;
-[3-4][0-9])
-    ICON=󰁼
-    COLOR=$ORANGE
-    ;;
-[1-2][0-9])
-    ICON=󰁺
-    COLOR=$RED
-    ;;
-*)
-    ICON=󰂃
-    COLOR=$RED
-    ;;
+9[0-9] | 100) ICON=󰁹; COLOR=$GREEN  ;;
+[7-8][0-9])   ICON=󰂀; COLOR=$GREEN  ;;
+[5-6][0-9])   ICON=󰁾; COLOR=$GREEN  ;;
+[3-4][0-9])   ICON=󰁼; COLOR=$ORANGE ;;
+[1-2][0-9])   ICON=󰁺; COLOR=$RED    ;;
+*)            ICON=󰂃; COLOR=$RED    ;;
 esac
 
 if [[ $CHARGING != "" ]]; then
-    ICON=󰂄
     COLOR=$BLUE
 fi
 
