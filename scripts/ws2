@@ -730,15 +730,16 @@ for a in apps:
 
     local app_count="${#app_names[@]}"
 
-    # If called from a keybinding (no terminal), just run silently with overlay
+    # If called from a keybinding (no terminal), run with overlay feedback
     if [[ ! -t 0 && ! -t 1 ]]; then
-        local overlay_lines="Workspace $ws_id"
+        # Start overlay immediately — binary launch takes ~1s so we fire it
+        # as early as possible, before the app-open work begins
+        start_overlay "Opening Apps"
+        update_overlay "…"
         if [[ -n "$slot" ]]; then
-            start_overlay "Opening App"
             update_overlay "Opening ${app_names[$((slot-1))]}…"
             open_app_slot "$slot" "$ws_id" "$ws_path" false
         else
-            start_overlay "Opening Apps"
             for ((i=1; i<=app_count; i++)); do
                 update_overlay "Opening ${app_names[$((i-1))]}…"
                 open_app_slot "$i" "$ws_id" "$ws_path" false
@@ -747,6 +748,10 @@ for a in apps:
         update_overlay "✓  Done"
         sleep 0.6
         stop_overlay
+        # Reset any app_slot label that may still show ⋯
+        for ((i=1; i<=5; i++)); do
+            sketchybar --set "app_slot.$i" label.drawing=off background.color=0x00000000 2>/dev/null || true
+        done
         aerospace workspace "$ws_id" 2>/dev/null || true
         return
     fi

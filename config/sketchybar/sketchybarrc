@@ -205,6 +205,8 @@ fi
 
 # AeroSpace service mode indicator — hidden when in main mode, visible (red S) in service mode
 # Added last so it appears leftmost among right items
+# Clear stale toggle file so we always start hidden (main mode)
+rm -f /tmp/aerospace_in_service_mode
 sketchybar --add item aerospace_mode right \
            --set aerospace_mode drawing=off \
                                 icon.drawing=off \
