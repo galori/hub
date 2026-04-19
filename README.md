@@ -1,6 +1,10 @@
 # helm
 
+<img src="assets/helm-logo-gimp.png" width="20%" align="right" style="padding:20px; ">
+
 A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https://github.com/nikitabobko/AeroSpace) (tiling window manager), [SketchyBar](https://github.com/FelixKratz/SketchyBar) (custom menu bar), and [JankyBorders](https://github.com/FelixKratz/JankyBorders) (window borders) into a unified workspace manager.
+
+<br clear="all">
 
 ## Setup
 
