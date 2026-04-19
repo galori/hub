@@ -167,6 +167,9 @@ on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/a
     # ws2: remove current workspace
     ctrl-alt-d = 'exec-and-forget __WS2_SCRIPT__ remove'
 
+    # ws2: rename current workspace
+    ctrl-alt-r = 'exec-and-forget __WS2_SCRIPT__ rename'
+
     # ws2: open apps (smart: focus-or-launch). Shift = force new window.
     ctrl-alt-o = 'exec-and-forget __WS2_SCRIPT__ open'
     ctrl-alt-1 = 'exec-and-forget __WS2_SCRIPT__ open 1'

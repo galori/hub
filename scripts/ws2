@@ -13,6 +13,8 @@ DIALOG_SRC="$LIB_DIR/new_workspace_dialog.swift"
 DIALOG_BIN="$HOME/.config/ws2/new_workspace_dialog"
 CONFIRM_SRC="$LIB_DIR/confirm_dialog.swift"
 CONFIRM_BIN="$HOME/.config/ws2/confirm_dialog"
+RENAME_SRC="$LIB_DIR/rename_dialog.swift"
+RENAME_BIN="$HOME/.config/ws2/rename_dialog"
 WORKSPACES_FILE="$HOME/.config/ws2/workspaces.json"
 APPS_FILE="$HOME/.config/ws2/apps.json"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
@@ -35,6 +37,7 @@ print_usage() {
     echo "  new        Create a new workspace (opens dialog)"
     echo "  list       List all defined workspaces"
     echo "  remove     Remove a workspace (current or by ID)"
+    echo "  rename     Rename a workspace (current or by ID)"
     echo "  open       Open configured apps in current workspace"
     echo "  help       Show this help"
     echo
@@ -48,6 +51,8 @@ print_usage() {
     echo "  ws2 remove         # remove the current workspace"
     echo "  ws2 remove A       # remove workspace A"
     echo "  ws2 remove A -y    # remove workspace A without confirmation"
+    echo "  ws2 rename         # rename the current workspace"
+    echo "  ws2 rename A       # rename workspace A"
     echo "  ws2 open           # interactive: focus or launch an app"
     echo "  ws2 open 1         # focus app 1 (or launch if not running)"
     echo "  ws2 open 1 --force # always launch a new window of app 1"
@@ -172,6 +177,7 @@ compile_all() {
     compile_swift "overlay" "$OVERLAY_SRC" "$OVERLAY_BIN"
     compile_swift "new_workspace_dialog" "$DIALOG_SRC" "$DIALOG_BIN"
     compile_swift "confirm_dialog" "$CONFIRM_SRC" "$CONFIRM_BIN"
+    compile_swift "rename_dialog" "$RENAME_SRC" "$RENAME_BIN"
 }
 
 # --- Commands ---
@@ -478,6 +484,67 @@ update_sketchybar_label() {
 remove_sketchybar_label() {
     local ws_id="$1"
     sketchybar --set "space.$ws_id" "label=$ws_id" drawing=off 2>/dev/null || true
+}
+
+cmd_rename() {
+    local ws_id="${1:-}"
+
+    # If no ID given, use the currently focused workspace
+    if [[ -z "$ws_id" ]]; then
+        ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+        if [[ -z "$ws_id" ]]; then
+            fail "Could not determine current workspace"
+            exit 1
+        fi
+    fi
+
+    if [[ ! -f "$WORKSPACES_FILE" ]]; then
+        fail "No workspaces defined"
+        exit 1
+    fi
+
+    local ws_name
+    ws_name="$(jq -r --arg id "$ws_id" \
+        '.[] | select(.workspace_id == $id) | .name' \
+        "$WORKSPACES_FILE" 2>/dev/null)" || true
+
+    if [[ -z "$ws_name" ]]; then
+        fail "No workspace found with ID '$ws_id'"
+        exit 1
+    fi
+
+    if [[ ! -x "$RENAME_BIN" ]]; then
+        fail "rename_dialog not compiled. Run: ws2 install"
+        exit 1
+    fi
+
+    rm -f /tmp/ws2-rename
+    "$RENAME_BIN" "$ws_id" "$ws_name"
+    local dialog_exit=$?
+
+    if [[ $dialog_exit -ne 0 || ! -f /tmp/ws2-rename ]]; then
+        info "Rename cancelled"
+        return
+    fi
+
+    local new_name
+    new_name="$(cat /tmp/ws2-rename)"
+    rm -f /tmp/ws2-rename
+
+    if [[ -z "$new_name" || "$new_name" == "$ws_name" ]]; then
+        info "Name unchanged"
+        return
+    fi
+
+    local updated
+    updated="$(jq --arg id "$ws_id" --arg name "$new_name" \
+        '[.[] | if .workspace_id == $id then .name = $name else . end]' \
+        "$WORKSPACES_FILE")"
+    echo "$updated" > "$WORKSPACES_FILE"
+
+    update_sketchybar_label "$ws_id" "$new_name"
+
+    success "Renamed workspace $ws_id: '$ws_name' → '$new_name'"
 }
 
 cmd_list() {
@@ -963,6 +1030,7 @@ case "$command" in
     new)      cmd_new ;;
     list)     cmd_list "$@" ;;
     remove)   cmd_remove "$@" ;;
+    rename)   cmd_rename "$@" ;;
     open)     cmd_open "$@" ;;
     up)       cmd_up ;;
     down)     cmd_down ;;
