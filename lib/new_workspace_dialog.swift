@@ -380,6 +380,26 @@ func relayout() {
 // ============================================================================
 // STEP 1: Pick Path
 // ============================================================================
+
+func recentPaths() -> [String] {
+    let wsFile = NSString(string: "~/.config/helm/workspaces.json").expandingTildeInPath
+    guard let data = FileManager.default.contents(atPath: wsFile),
+          let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
+    var seen = Set<String>()
+    var paths: [String] = []
+    for ws in arr {
+        if let root = ws["root_repo"] as? String, !root.isEmpty, !seen.contains(root) {
+            seen.insert(root)
+            paths.append(root)
+        }
+        if let p = ws["path"] as? String, !p.isEmpty, !seen.contains(p) {
+            seen.insert(p)
+            paths.append(p)
+        }
+    }
+    return paths
+}
+
 func showPickPath() {
     clearContent()
 
@@ -403,6 +423,55 @@ func showPickPath() {
     errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
     addView(errorLabel)
 
+    // Recent paths
+    let recent = recentPaths()
+    var recentBtns: [NSButton] = []
+    var recentActions: [AnyObject] = []
+
+    class RecentPathAction: NSObject {
+        let path: String
+        init(_ p: String) { path = p }
+        @objc func pick(_ sender: Any) { handlePathSelected(path) }
+    }
+
+    var prevRecentAnchor: NSLayoutYAxisAnchor = errorLabel.bottomAnchor
+    if !recent.isEmpty {
+        let recentLabel = makeLabel("RECENT")
+        addView(recentLabel)
+        NSLayoutConstraint.activate([
+            recentLabel.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
+            recentLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        ])
+        prevRecentAnchor = recentLabel.bottomAnchor
+
+        for (i, rp) in recent.prefix(5).enumerated() {
+            let displayPath = (rp as NSString).abbreviatingWithTildeInPath
+            let btn = NSButton()
+            btn.translatesAutoresizingMaskIntoConstraints = false
+            btn.isBordered = false
+            btn.wantsLayer = true
+            btn.layer?.cornerRadius = 4
+            btn.alignment = .left
+            btn.attributedTitle = NSAttributedString(string: "  \(displayPath)", attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: NSColor(white: 1, alpha: 0.55),
+            ])
+            let action = RecentPathAction(rp)
+            recentActions.append(action)
+            btn.target = action; btn.action = #selector(RecentPathAction.pick(_:))
+            objc_setAssociatedObject(btn, "rp\(i)", action, .OBJC_ASSOCIATION_RETAIN)
+            addView(btn)
+            NSLayoutConstraint.activate([
+                btn.topAnchor.constraint(equalTo: prevRecentAnchor, constant: 2),
+                btn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
+                btn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -20),
+                btn.heightAnchor.constraint(equalToConstant: 26),
+            ])
+            prevRecentAnchor = btn.bottomAnchor
+            recentBtns.append(btn)
+        }
+    }
+
     let nextBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
     addView(nextBtn)
     let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
@@ -424,7 +493,7 @@ func showPickPath() {
         errorLabel.topAnchor.constraint(equalTo: pathField.bottomAnchor, constant: 6),
         errorLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         errorLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-        nextBtn.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
+        nextBtn.topAnchor.constraint(equalTo: prevRecentAnchor, constant: 14),
         nextBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
         nextBtn.heightAnchor.constraint(equalToConstant: 34),
         nextBtn.widthAnchor.constraint(equalToConstant: 100),
@@ -777,13 +846,6 @@ func showWorktreeSetup(repoRoot: String, worktreePath: String, setupCmd: String)
     scrollView.documentView = textView
     addView(scrollView)
 
-    // Resize window taller for progress view
-    var frame = win.frame
-    let newHeight: CGFloat = 560
-    frame.origin.y -= (newHeight - frame.size.height)
-    frame.size.height = newHeight
-    win.setFrame(frame, display: true, animate: true)
-
     NSLayoutConstraint.activate([
         titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
         titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
@@ -795,7 +857,15 @@ func showWorktreeSetup(repoRoot: String, worktreePath: String, setupCmd: String)
         scrollView.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
     ])
 
-    relayout()
+    // Set fixed height for progress view — don't call relayout() which would shrink it
+    let newHeight: CGFloat = 560
+    let progressRect = NSRect(
+        x: sf.midX - dialogW / 2,
+        y: sf.midY - newHeight / 2 + 80,
+        width: dialogW,
+        height: newHeight
+    )
+    win.setFrame(progressRect, display: true, animate: true)
 
     // Remove key handler while setup runs (no cancel during setup)
     if let kh = currentKeyHandler { NSEvent.removeMonitor(kh); currentKeyHandler = nil }
@@ -847,109 +917,15 @@ func showWorktreeSetup(repoRoot: String, worktreePath: String, setupCmd: String)
 }
 
 // ============================================================================
-// STEP 3: Name Workspace
+// STEP 3: Finalize — auto-submit with directory name as workspace name
 // ============================================================================
 func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil) {
-    clearContent()
-
     let wsID = nextWorkspaceID()
-    let defaultName = lastPathComponent(path)
-
-    let titleLabel = NSTextField(labelWithString: "Name Your Workspace")
-    titleLabel.translatesAutoresizingMaskIntoConstraints = false
-    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    titleLabel.textColor = dimWhite
-    addView(titleLabel)
-
-    let idLabel = NSTextField(labelWithString: "Workspace \(wsID)")
-    idLabel.translatesAutoresizingMaskIntoConstraints = false
-    idLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-    idLabel.textColor = greenColor
-    addView(idLabel)
-
-    let pathDisplayLabel = makeLabel("PATH")
-    addView(pathDisplayLabel)
-    let pathValue = NSTextField(labelWithString: path)
-    pathValue.translatesAutoresizingMaskIntoConstraints = false
-    pathValue.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    pathValue.textColor = NSColor(white: 1, alpha: 0.6)
-    pathValue.lineBreakMode = .byTruncatingMiddle
-    addView(pathValue)
-
-    let nameLabel = makeLabel("NAME")
-    addView(nameLabel)
-    let nameField = makeField(placeholder: "workspace name", value: defaultName)
-    addView(nameField)
-
-    let createBtn = makeBtn(label: "CREATE WORKSPACE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
-    addView(createBtn)
-    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
-    addView(cancelBtn)
-
-    NSLayoutConstraint.activate([
-        titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
-        titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        idLabel.topAnchor.constraint(equalTo: titleLabel.topAnchor),
-        idLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-        pathDisplayLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 18),
-        pathDisplayLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        pathValue.topAnchor.constraint(equalTo: pathDisplayLabel.bottomAnchor, constant: 4),
-        pathValue.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        pathValue.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-        nameLabel.topAnchor.constraint(equalTo: pathValue.bottomAnchor, constant: 14),
-        nameLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        nameField.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
-        nameField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        nameField.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-        nameField.heightAnchor.constraint(equalToConstant: 36),
-        createBtn.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 20),
-        createBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
-        createBtn.heightAnchor.constraint(equalToConstant: 34),
-        createBtn.widthAnchor.constraint(equalToConstant: 190),
-        cancelBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
-        cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-        cancelBtn.heightAnchor.constraint(equalToConstant: 34),
-        cancelBtn.widthAnchor.constraint(equalToConstant: 100),
-        cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
-    ])
-
-    relayout()
-    win.makeFirstResponder(nameField)
-
-    class SubmitAction: NSObject {
-        let wsPath: String
-        let root: String
-        let id: String
-        let field: NSTextField
-        let wsColor: String?
-        init(_ p: String, _ r: String, _ i: String, _ f: NSTextField, _ c: String?) {
-            wsPath = p; root = r; id = i; field = f; wsColor = c
-        }
-        @objc func submit(_ sender: Any) { doSubmit() }
-        func doSubmit() {
-            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { return }
-            var result = "\(name)\t\(wsPath)\t\(root)\t\(id)"
-            if let c = wsColor { result += "\t\(c)" }
-            writeResult(result)
-            dismiss()
-        }
-    }
-    class CancelAction: NSObject {
-        @objc func cancel(_ sender: Any) { cancelAndDismiss() }
-    }
-    let submitAction = SubmitAction(path, repoRoot, wsID, nameField, color)
-    let cancelAction = CancelAction()
-    createBtn.target = submitAction; createBtn.action = #selector(SubmitAction.submit(_:))
-    cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
-    objc_setAssociatedObject(createBtn, "a", submitAction, .OBJC_ASSOCIATION_RETAIN)
-    objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
-
-    currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-        if event.keyCode == 53 { cancelAndDismiss(); return nil }
-        if event.keyCode == 36 { submitAction.doSubmit(); return nil }
-        return event
-    }
+    let name = lastPathComponent(path)
+    var result = "\(name)\t\(path)\t\(repoRoot)\t\(wsID)"
+    if let c = color { result += "\t\(c)" }
+    writeResult(result)
+    dismiss()
 }
 
 // ============================================================================
