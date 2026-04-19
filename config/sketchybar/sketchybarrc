@@ -154,57 +154,54 @@ if [ -f "$APPS_FILE" ]; then
     sketchybar --add item app_launcher_sep right \
                --set app_launcher_sep \
                drawing=on \
+               icon.drawing=off \
+               label.drawing=off \
                background.drawing=on \
                background.color=0x80ffffff \
                background.height=20 \
-               background.width=2 \
-               padding_left=8 \
-               padding_right=0 \
-               icon.drawing=off \
-               label.drawing=off \
-               width=2
+               background.corner_radius=1 \
+               width=10 \
+               padding_left=4 \
+               padding_right=4
 
     for ((i=5; i>=1; i--)); do
         IDX=$((i-1))
-        APP_ICON=""
-        DRAW=off
         if [ "$IDX" -lt "$APP_COUNT" ]; then
             APP_ICON=$(jq -r --argjson i "$IDX" '.[$i] | .icon // .name' "$APPS_FILE" 2>/dev/null || echo "")
-            DRAW=on
+            sketchybar --add item "app_slot.$i" right \
+                       --set "app_slot.$i" \
+                       drawing=on \
+                       width=34 \
+                       icon=● \
+                       icon.drawing=off \
+                       icon.align=center \
+                       icon.width=34 \
+                       icon.font="Hack Nerd Font:Bold:6.0" \
+                       icon.color=0xff9ed072 \
+                       icon.y_offset=-13 \
+                       icon.padding_left=0 \
+                       icon.padding_right=0 \
+                       label.drawing=off \
+                       label.width=0 \
+                       label.padding_left=0 \
+                       label.padding_right=0 \
+                       background.drawing=on \
+                       background.color=0x00000000 \
+                       background.image="app.$APP_ICON" \
+                       background.image.scale=0.78 \
+                       background.image.padding_left=3 \
+                       background.image.padding_right=0 \
+                       background.height=40 \
+                       background.y_offset=2 \
+                       background.corner_radius=6 \
+                       padding_left=0 \
+                       padding_right=0 \
+                       script="$PLUGIN_DIR/app_slot.sh" \
+                       --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
+        else
+            sketchybar --add item "app_slot.$i" right \
+                       --set "app_slot.$i" drawing=off
         fi
-
-        sketchybar --add item "app_slot.$i" right \
-                   --set "app_slot.$i" \
-                   drawing=$DRAW \
-                   width=34 \
-                   icon=● \
-                   icon.drawing=off \
-                   icon.align=center \
-                   icon.width=34 \
-                   icon.font="Hack Nerd Font:Bold:6.0" \
-                   icon.color=0xff9ed072 \
-                   icon.y_offset=-13 \
-                   icon.padding_left=0 \
-                   icon.padding_right=0 \
-                   label.drawing=off \
-                   label.width=0 \
-                   label.padding_left=0 \
-                   label.padding_right=0 \
-                   background.drawing=on \
-                   background.color=0x00000000 \
-                   background.image="app.$APP_ICON" \
-                   background.image.scale=0.78 \
-                   background.image.padding_left=3 \
-                   background.image.padding_right=0 \
-                   background.width=34 \
-                   background.height=40 \
-                   background.y_offset=2 \
-                   background.corner_radius=6 \
-                   padding_left=0 \
-                   padding_right=0 \
-                   script="$PLUGIN_DIR/app_slot.sh" \
-                   --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
-
     done
 
     # Hidden trigger: update running-app dots when focus changes (app open/close)
