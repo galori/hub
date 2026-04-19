@@ -154,15 +154,15 @@ if [ -f "$APPS_FILE" ]; then
     sketchybar --add item app_launcher_sep right \
                --set app_launcher_sep \
                drawing=on \
-               icon.drawing=off \
+               icon="│" \
+               icon.drawing=on \
+               icon.font="Hack Nerd Font:Bold:16.0" \
+               icon.color=0x40ffffff \
+               icon.padding_left=4 \
+               icon.padding_right=4 \
                label.drawing=off \
-               background.drawing=on \
-               background.color=0x80ffffff \
-               background.height=20 \
-               background.corner_radius=1 \
-               width=10 \
-               padding_left=4 \
-               padding_right=4
+               background.drawing=off \
+               width=0
 
     for ((i=5; i>=1; i--)); do
         IDX=$((i-1))

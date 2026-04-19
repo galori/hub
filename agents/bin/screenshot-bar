@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Capture a screenshot of the sketchybar region (top of screen).
+# Usage: screenshot-bar [output.png]
+# Requires: screencapture (macOS), system_profiler
+
+set -euo pipefail
+
+OUT="${1:-/tmp/helm-bar-screenshot.png}"
+BAR_HEIGHT=50
+
+SCREEN_W=$(system_profiler SPDisplaysDataType 2>/dev/null | grep Resolution | head -1 | awk '{print $2}')
+screencapture -x -R "0,0,${SCREEN_W},${BAR_HEIGHT}" "$OUT"
+echo "$OUT"
