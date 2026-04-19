@@ -39,6 +39,7 @@ print_usage() {
     echo "  remove     Remove a workspace (current or by ID)"
     echo "  rename     Rename a workspace (current or by ID)"
     echo "  open       Open configured apps in current workspace"
+    echo "  label-length  Shrink or grow workspace label max length (+/-/number)"
     echo "  help       Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
@@ -923,6 +924,32 @@ refresh_app_indicators() {
     [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
 }
 
+cmd_label_length() {
+    local direction="${1:-}"
+    local maxlen_file="/tmp/helm_label_maxlen"
+    local current=0
+    [[ -f "$maxlen_file" ]] && current=$(cat "$maxlen_file" 2>/dev/null || echo 0)
+
+    case "$direction" in
+        +|up|grow)   current=$(( current <= 0 ? 0 : current - 2 )) ;;
+        -|down|shrink) current=$(( current + 2 )) ;;
+        *)
+            if [[ "$direction" =~ ^[0-9]+$ ]]; then
+                current="$direction"
+            else
+                fail "Usage: helm label-length [+|-|<number>]"
+                return 1
+            fi
+            ;;
+    esac
+
+    [[ "$current" -lt 0 ]] && current=0
+    echo "$current" > "$maxlen_file"
+
+    local plugin="$HOME/.config/sketchybar/plugins/aerospace.sh"
+    [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
+}
+
 cmd_up() {
     echo -e "${bold}Starting helm environment...${reset}\n"
 
@@ -1051,6 +1078,7 @@ case "$command" in
     open)     cmd_open "$@" ;;
     up)       cmd_up ;;
     down)     cmd_down ;;
+    label-length) cmd_label_length "$@" ;;
     help|-h|--help) print_usage ;;
     '')
         print_usage

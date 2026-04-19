@@ -345,6 +345,62 @@ func nextWorkspaceID() -> String {
     return "1"
 }
 
+// --- ANSI color parsing ---
+func parseANSI(_ raw: String, baseFont: NSFont, baseColor: NSColor) -> NSAttributedString {
+    let result = NSMutableAttributedString()
+    var curColor = baseColor
+    var curFont = baseFont
+    let esc = Character("\u{1B}")
+    var i = raw.startIndex
+    var plain = ""
+    while i < raw.endIndex {
+        if raw[i] == esc {
+            if !plain.isEmpty {
+                result.append(NSAttributedString(string: plain, attributes: [
+                    .foregroundColor: curColor, .font: curFont]))
+                plain = ""
+            }
+            let next = raw.index(after: i)
+            if next < raw.endIndex && raw[next] == "[" {
+                var j = raw.index(after: next)
+                var seq = ""
+                while j < raw.endIndex && raw[j] != "m" {
+                    seq.append(raw[j])
+                    j = raw.index(after: j)
+                }
+                if j < raw.endIndex && raw[j] == "m" {
+                    let codes = seq.split(separator: ";").compactMap { Int($0) }
+                    for c in (codes.isEmpty ? [0] : codes) {
+                        switch c {
+                        case 0: curColor = baseColor; curFont = baseFont
+                        case 1: curFont = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .bold)
+                        case 31: curColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
+                        case 32: curColor = NSColor(red: 0.62, green: 0.82, blue: 0.45, alpha: 1)
+                        case 33: curColor = NSColor(red: 0.91, green: 0.78, blue: 0.39, alpha: 1)
+                        case 34: curColor = NSColor(red: 0.46, green: 0.80, blue: 0.88, alpha: 1)
+                        case 35: curColor = NSColor(red: 0.70, green: 0.62, blue: 0.95, alpha: 1)
+                        case 36: curColor = NSColor(red: 0.00, green: 0.82, blue: 1.00, alpha: 1)
+                        default: break
+                        }
+                    }
+                    i = raw.index(after: j)
+                    continue
+                }
+            }
+            plain.append(raw[i])
+            i = raw.index(after: i)
+        } else {
+            plain.append(raw[i])
+            i = raw.index(after: i)
+        }
+    }
+    if !plain.isEmpty {
+        result.append(NSAttributedString(string: plain, attributes: [
+            .foregroundColor: curColor, .font: curFont]))
+    }
+    return result
+}
+
 // ============================================================================
 // STATE MACHINE
 // ============================================================================
@@ -388,14 +444,12 @@ func recentPaths() -> [String] {
     var seen = Set<String>()
     var paths: [String] = []
     for ws in arr {
-        if let root = ws["root_repo"] as? String, !root.isEmpty, !seen.contains(root) {
-            seen.insert(root)
-            paths.append(root)
-        }
-        if let p = ws["path"] as? String, !p.isEmpty, !seen.contains(p) {
-            seen.insert(p)
-            paths.append(p)
-        }
+        let root = ws["root_repo"] as? String ?? ""
+        let path = ws["path"] as? String ?? ""
+        let repoPath = root.isEmpty ? path : root
+        guard !repoPath.isEmpty, !seen.contains(repoPath) else { continue }
+        seen.insert(repoPath)
+        paths.append(repoPath)
     }
     return paths
 }
@@ -777,15 +831,7 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
                 showNamingWorkspace(path: match.path, repoRoot: root, color: color)
                 return
             }
-            if let newPath = createWorktree(repoRoot: root, name: name) {
-                if let setupCmd = mgr?["setup"] {
-                    showWorktreeSetup(repoRoot: root, worktreePath: newPath, setupCmd: setupCmd)
-                } else {
-                    showNamingWorkspace(path: newPath, repoRoot: root)
-                }
-            } else {
-                errLabel.stringValue = "Failed to create worktree"
-            }
+            showCreatingSpinner(repoRoot: root, name: name, manager: mgr)
         }
     }
     class CancelAction: NSObject {
@@ -802,6 +848,65 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
         if event.keyCode == 36 { createAction.doCreate(); return nil }
         return event
+    }
+}
+
+// ============================================================================
+// STEP 2b.5: Creating Worktree Spinner
+// ============================================================================
+func showCreatingSpinner(repoRoot: String, name: String, manager: [String: String]? = nil) {
+    clearContent()
+
+    let titleLabel = NSTextField(labelWithString: "Creating Worktree")
+    titleLabel.translatesAutoresizingMaskIntoConstraints = false
+    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    titleLabel.textColor = dimWhite
+    addView(titleLabel)
+
+    let spinner = NSProgressIndicator()
+    spinner.translatesAutoresizingMaskIntoConstraints = false
+    spinner.style = .spinning
+    spinner.controlSize = .regular
+    spinner.startAnimation(nil)
+    addView(spinner)
+
+    let statusLabel = NSTextField(labelWithString: "Running git worktree add...")
+    statusLabel.translatesAutoresizingMaskIntoConstraints = false
+    statusLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    statusLabel.textColor = NSColor(white: 1, alpha: 0.5)
+    addView(statusLabel)
+
+    NSLayoutConstraint.activate([
+        titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
+        titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        spinner.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 24),
+        spinner.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+        statusLabel.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16),
+        statusLabel.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+        statusLabel.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -24),
+    ])
+
+    relayout()
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        let newPath = createWorktree(repoRoot: repoRoot, name: name)
+        DispatchQueue.main.async {
+            guard let path = newPath else {
+                statusLabel.stringValue = "Failed to create worktree"
+                statusLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
+                spinner.stopAnimation(nil)
+                currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    if event.keyCode == 53 { cancelAndDismiss(); return nil }
+                    return event
+                }
+                return
+            }
+            if let setupCmd = manager?["setup"] {
+                showWorktreeSetup(repoRoot: repoRoot, worktreePath: path, setupCmd: setupCmd)
+            } else {
+                showNamingWorkspace(path: path, repoRoot: repoRoot)
+            }
+        }
     }
 }
 
@@ -881,14 +986,14 @@ func showWorktreeSetup(repoRoot: String, worktreePath: String, setupCmd: String)
     proc.standardOutput = pipe
     proc.standardError = pipe
 
+    let monoFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+    let monoColor = NSColor(white: 1, alpha: 0.7)
     pipe.fileHandleForReading.readabilityHandler = { handle in
         let data = handle.availableData
         guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+        let parsed = parseANSI(text, baseFont: monoFont, baseColor: monoColor)
         DispatchQueue.main.async {
-            textView.textStorage?.append(NSAttributedString(string: text, attributes: [
-                .foregroundColor: NSColor(white: 1, alpha: 0.7),
-                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
-            ]))
+            textView.textStorage?.append(parsed)
             textView.scrollToEndOfDocument(nil)
         }
     }

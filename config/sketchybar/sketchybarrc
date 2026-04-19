@@ -274,7 +274,17 @@ ws_label() {
     local n="$1"
     local match
     match=$(grep "^${n}:" "$WS_LABELS_FILE" 2>/dev/null | cut -d: -f2)
-    [ -n "$match" ] && echo "$n $match" || echo "$n"
+    if [ -z "$match" ]; then
+        echo "$n"
+        return
+    fi
+    local maxlen=0
+    [ -f /tmp/helm_label_maxlen ] && maxlen=$(cat /tmp/helm_label_maxlen 2>/dev/null || echo 0)
+    if [ "$maxlen" -gt 0 ] && [ "${#match}" -gt "$maxlen" ]; then
+        echo "$n ${match:0:$maxlen}…"
+    else
+        echo "$n $match"
+    fi
 }
 
 for WORKSPACE in 1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U V W X Y Z; do

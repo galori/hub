@@ -116,6 +116,8 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 | `Ctrl + Alt + R` | Rename current workspace |
 | `Ctrl + Alt + O` | Open all configured apps |
 | `Ctrl + Alt + 1-5` | Open specific app slot |
+| `Ctrl + Alt + -` | Shrink workspace labels |
+| `Ctrl + Alt + =` | Grow workspace labels |
 | `Alt + Shift + ;` | Enter service mode |
 
 ## Guiding Principles

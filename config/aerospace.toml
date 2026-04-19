@@ -177,6 +177,10 @@ on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/a
     ctrl-alt-3 = 'exec-and-forget __HELM_SCRIPT__ open 3'
     ctrl-alt-4 = 'exec-and-forget __HELM_SCRIPT__ open 4'
     ctrl-alt-5 = 'exec-and-forget __HELM_SCRIPT__ open 5'
+    # helm: shrink/grow workspace label length
+    ctrl-alt-minus = 'exec-and-forget __HELM_SCRIPT__ label-length -'
+    ctrl-alt-equal = 'exec-and-forget __HELM_SCRIPT__ label-length +'
+
     ctrl-alt-shift-1 = 'exec-and-forget __HELM_SCRIPT__ open 1 --force'
     ctrl-alt-shift-2 = 'exec-and-forget __HELM_SCRIPT__ open 2 --force'
     ctrl-alt-shift-3 = 'exec-and-forget __HELM_SCRIPT__ open 3 --force'
