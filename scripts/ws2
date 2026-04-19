@@ -650,20 +650,34 @@ cmd_remove() {
         confirm_msg="$confirm_msg?"
     fi
 
+    # Determine if this is a worktree (path differs from root repo)
+    local is_worktree=false
+    if [[ -n "$ws_root" && "$ws_path" != "$ws_root" && -d "$ws_path" ]]; then
+        is_worktree=true
+    fi
+
     # Confirm: show GUI dialog unless -y
+    local remove_worktree=true
     if [[ "$auto_yes" != "true" ]]; then
         if [[ ! -x "$CONFIRM_BIN" ]]; then
             fail "confirm_dialog not compiled. Run: ws2 install"
             exit 1
         fi
-        if ! "$CONFIRM_BIN" "Remove Workspace" "$confirm_msg"; then
-            echo "Cancelled."
-            return
+        local dialog_args=("Remove Workspace" "$confirm_msg")
+        if [[ "$is_worktree" == "true" ]]; then
+            dialog_args+=("Remove worktree from disk")
         fi
+        local dialog_exit=0
+        "$CONFIRM_BIN" "${dialog_args[@]}" || dialog_exit=$?
+        case $dialog_exit in
+            0) remove_worktree=true ;;
+            2) remove_worktree=false ;;
+            *) echo "Cancelled."; return ;;
+        esac
     fi
 
-    # Delegate worktree teardown to repo's worktree manager if applicable
-    if [[ -n "$ws_root" && "$ws_path" != "$ws_root" && -d "$ws_path" ]]; then
+    # Worktree teardown and removal if user opted in
+    if [[ "$is_worktree" == "true" && "$remove_worktree" == "true" ]]; then
         local teardown_cmd
         teardown_cmd="$(read_superset_config "$ws_root" "teardown" 2>/dev/null || echo "")"
         if [[ -n "$teardown_cmd" ]]; then
@@ -674,7 +688,6 @@ cmd_remove() {
                 warn "Worktree teardown failed (continuing with workspace removal)"
             fi
         fi
-        # Remove the git worktree
         info "Removing git worktree..."
         git -C "$ws_root" worktree remove "$ws_path" --force 2>/dev/null || true
         git -C "$ws_root" worktree prune 2>/dev/null || true

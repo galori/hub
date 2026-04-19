@@ -1,8 +1,8 @@
 import Cocoa
 
 // Confirmation dialog for ws2.
-// Usage: confirm_dialog "Title" "Message"
-// Exits 0 if confirmed, 1 if cancelled.
+// Usage: confirm_dialog "Title" "Message" ["Checkbox label"]
+// Exits 0 if confirmed, 1 if cancelled, 2 if confirmed with checkbox unchecked.
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
@@ -47,8 +47,17 @@ let backdrop: NSWindow = {
 
 var exitCode: Int32 = 1
 
+// Exit codes: 0 = confirmed (checkbox checked or no checkbox), 1 = cancelled, 2 = confirmed (checkbox unchecked)
 func dismiss(confirmed: Bool) {
-    exitCode = confirmed ? 0 : 1
+    if confirmed {
+        if let cb = checkbox, cb.state == .off {
+            exitCode = 2
+        } else {
+            exitCode = 0
+        }
+    } else {
+        exitCode = 1
+    }
     NSAnimationContext.runAnimationGroup({ ctx in
         ctx.duration = 0.2
         win.animator().alphaValue = 0
@@ -60,6 +69,7 @@ func dismiss(confirmed: Bool) {
 
 let titleText = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Confirm"
 let messageText = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "Are you sure?"
+let checkboxText: String? = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : nil
 
 let titleLabel = NSTextField(labelWithString: titleText)
 titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -103,11 +113,27 @@ func makeBtn(_ label: String, shortcut: String, bg: NSColor, fg: NSColor, bold: 
     return b
 }
 
+var checkbox: NSButton? = nil
+if let cbText = checkboxText {
+    let cb = NSButton(checkboxWithTitle: cbText, target: nil, action: nil)
+    cb.translatesAutoresizingMaskIntoConstraints = false
+    cb.state = .on
+    cb.attributedTitle = NSAttributedString(string: cbText, attributes: [
+        .foregroundColor: NSColor(white: 1, alpha: 0.7),
+        .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+    ])
+    cb.contentTintColor = NSColor(red: 0.10, green: 0.45, blue: 0.91, alpha: 1)
+    cv.addSubview(cb)
+    checkbox = cb
+}
+
 let confirmBtn = makeBtn("REMOVE", shortcut: "enter", bg: accentRed, fg: .white, bold: true)
 cv.addSubview(confirmBtn)
 
 let cancelBtn = makeBtn("CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
 cv.addSubview(cancelBtn)
+
+let aboveBtns: NSView = checkbox ?? msgLabel
 
 NSLayoutConstraint.activate([
     titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
@@ -116,7 +142,7 @@ NSLayoutConstraint.activate([
     msgLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
     msgLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
     msgLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-    confirmBtn.topAnchor.constraint(equalTo: msgLabel.bottomAnchor, constant: 20),
+    confirmBtn.topAnchor.constraint(equalTo: aboveBtns.bottomAnchor, constant: 20),
     confirmBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
     confirmBtn.heightAnchor.constraint(equalToConstant: 34),
     confirmBtn.widthAnchor.constraint(equalToConstant: 100),
@@ -126,6 +152,13 @@ NSLayoutConstraint.activate([
     cancelBtn.widthAnchor.constraint(equalToConstant: 100),
     cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
 ])
+
+if let cb = checkbox {
+    NSLayoutConstraint.activate([
+        cb.topAnchor.constraint(equalTo: msgLabel.bottomAnchor, constant: 14),
+        cb.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+    ])
+}
 
 class ConfirmAction: NSObject {
     @objc func confirm(_ sender: Any) { dismiss(confirmed: true) }
