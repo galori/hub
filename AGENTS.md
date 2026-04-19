@@ -24,4 +24,4 @@
 
 After changing any file in `config/` or `lib/`, run `helm install` to deploy and recompile.
 
-Create a git commit after every completed set of changes.
+Create a git commit and `git push` after every completed set of changes.
