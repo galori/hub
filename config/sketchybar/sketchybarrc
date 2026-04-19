@@ -142,7 +142,7 @@ sketchybar --add bracket wifi_bracket wifi \
                               background.border_color=$ITEM_BG2
 
 sketchybar --add item pad_r4 right \
-           --set pad_r4 width=8 icon.drawing=off label.drawing=off background.drawing=off
+           --set pad_r4 width=8 icon.drawing=off label.drawing=off background.drawing=off 
 
 ##### App Launcher Icons #####
 
@@ -150,59 +150,53 @@ APPS_FILE="$HOME/.config/helm/apps.json"
 if [ -f "$APPS_FILE" ]; then
     APP_COUNT=$(jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)
 
-    # Separator line between app icons and system widgets
-    sketchybar --add item app_launcher_sep right \
-               --set app_launcher_sep \
-               drawing=on \
-               icon="│" \
-               icon.drawing=on \
-               icon.font="Hack Nerd Font:Bold:16.0" \
-               icon.color=0x80ffffff \
-               icon.padding_left=8 \
-               icon.padding_right=8 \
-               label.drawing=off \
-               background.drawing=off \
-               width=0
-
-    for ((i=5; i>=1; i--)); do
+    # Only add app slots that have configured apps.
+    for ((i=APP_COUNT; i>=1; i--)); do
         IDX=$((i-1))
-        if [ "$IDX" -lt "$APP_COUNT" ]; then
-            APP_ICON=$(jq -r --argjson i "$IDX" '.[$i] | .icon // .name' "$APPS_FILE" 2>/dev/null || echo "")
-            sketchybar --add item "app_slot.$i" right \
-                       --set "app_slot.$i" \
-                       drawing=on \
-                       width=34 \
-                       icon=● \
-                       icon.drawing=off \
-                       icon.align=center \
-                       icon.width=34 \
-                       icon.font="Hack Nerd Font:Bold:6.0" \
-                       icon.color=0xff9ed072 \
-                       icon.y_offset=-13 \
-                       icon.padding_left=0 \
-                       icon.padding_right=0 \
-                       label.drawing=off \
-                       label.width=0 \
-                       label.padding_left=0 \
-                       label.padding_right=0 \
-                       background.drawing=on \
-                       background.color=0x00000000 \
-                       background.image="app.$APP_ICON" \
-                       background.image.scale=0.78 \
-                       background.image.padding_left=3 \
-                       background.image.padding_right=0 \
-                       background.height=40 \
-                       background.y_offset=2 \
-                       background.corner_radius=6 \
-                       padding_left=0 \
-                       padding_right=0 \
-                       script="$PLUGIN_DIR/app_slot.sh" \
-                       --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
-        else
-            sketchybar --add item "app_slot.$i" right \
-                       --set "app_slot.$i" drawing=off
-        fi
+        APP_ICON=$(jq -r --argjson i "$IDX" '.[$i] | .icon // .name' "$APPS_FILE" 2>/dev/null || echo "")
+        sketchybar --add item "app_slot.$i" right \
+                   --set "app_slot.$i" \
+                   drawing=on \
+                   width=34 \
+                   icon=● \
+                   icon.drawing=off \
+                   icon.align=center \
+                   icon.width=34 \
+                   icon.font="Hack Nerd Font:Bold:6.0" \
+                   icon.color=0xff9ed072 \
+                   icon.y_offset=-13 \
+                   icon.padding_left=0 \
+                   icon.padding_right=0 \
+                   label.drawing=off \
+                   label.width=0 \
+                   label.padding_left=0 \
+                   label.padding_right=0 \
+                   background.drawing=on \
+                   background.color=0x00000000 \
+                   background.image="app.$APP_ICON" \
+                   background.image.scale=0.78 \
+                   background.image.padding_left=3 \
+                   background.image.padding_right=0 \
+                   background.height=40 \
+                   background.y_offset=2 \
+                   background.corner_radius=6 \
+                   padding_left=0 \
+                   padding_right=0 \
+                   script="$PLUGIN_DIR/app_slot.sh" \
+                   --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
     done
+
+    # Build bracket member list: app_slot.1 .. app_slot.APP_COUNT
+    APP_SLOTS=()
+    for ((i=1; i<=APP_COUNT; i++)); do
+        APP_SLOTS+=("app_slot.$i")
+    done
+    sketchybar --add bracket app_bracket "${APP_SLOTS[@]}" \
+               --set app_bracket background.color=$ITEM_BG \
+                                 background.corner_radius=9 \
+                                 background.height=28 \
+                                 background.border_width=2 \
+                                 background.border_color=$ITEM_BG2
 
     # Hidden trigger: update running-app dots when focus changes (app open/close)
     sketchybar --add item app_refresh_trigger right \
