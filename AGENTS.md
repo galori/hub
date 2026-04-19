@@ -20,6 +20,10 @@
 - **Single-binary Swift UIs**: GUI elements are standalone Swift files compiled with `swiftc -O -framework Cocoa`. No Xcode project, no storyboards.
 - **Config is deployed, not symlinked**: `helm install` deploys configs to their destinations. Both aerospace.toml and sketchybar configs use `__HELM_SCRIPT__` placeholder substituted via sed.
 
+## Agent Tools
+
+- `agents/bin/screenshot-bar` - Captures a screenshot of just the sketchybar region (top of screen). Use to visually verify sketchybar layout changes. Outputs a PNG path: `agents/bin/screenshot-bar [output.png]`
+
 ## Workflow
 
 After changing any file in `config/` or `lib/`, run `helm install` to deploy and recompile.

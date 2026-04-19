@@ -157,9 +157,9 @@ if [ -f "$APPS_FILE" ]; then
                icon="│" \
                icon.drawing=on \
                icon.font="Hack Nerd Font:Bold:16.0" \
-               icon.color=0x40ffffff \
-               icon.padding_left=4 \
-               icon.padding_right=4 \
+               icon.color=0x80ffffff \
+               icon.padding_left=8 \
+               icon.padding_right=8 \
                label.drawing=off \
                background.drawing=off \
                width=0
