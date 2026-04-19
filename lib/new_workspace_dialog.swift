@@ -226,6 +226,36 @@ struct Worktree {
     let path: String
     let branch: String
     let isBare: Bool
+    var color: String?
+}
+
+func loadSupersetConfig(_ repoRoot: String) -> [String: String]? {
+    let filePath = (repoRoot as NSString).appendingPathComponent(".superset/config.json")
+    guard let data = FileManager.default.contents(atPath: filePath),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+    var result: [String: String] = [:]
+    for (key, val) in json {
+        if let arr = val as? [String], let first = arr.first {
+            result[key] = first
+        } else if let str = val as? String {
+            result[key] = str
+        }
+    }
+    return result.isEmpty ? nil : result
+}
+
+func readWorktreeColor(_ worktreePath: String) -> String? {
+    let envrcPath = (worktreePath as NSString).appendingPathComponent(".envrc.local")
+    guard let content = try? String(contentsOfFile: envrcPath, encoding: .utf8) else { return nil }
+    for line in content.components(separatedBy: "\n") {
+        if line.contains("WORKTREE_COLOR=") {
+            let parts = line.components(separatedBy: "WORKTREE_COLOR=")
+            if parts.count > 1 {
+                return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+    }
+    return nil
 }
 
 func listWorktrees(_ path: String) -> [Worktree] {
@@ -468,14 +498,15 @@ func handlePathSelected(_ path: String) {
         return
     }
     let root = gitRepoRoot(path) ?? path
+    let manager = loadSupersetConfig(root)
     let worktrees = listWorktrees(root)
-    showPickWorktree(repoRoot: root, worktrees: worktrees)
+    showPickWorktree(repoRoot: root, worktrees: worktrees, manager: manager)
 }
 
 // ============================================================================
 // STEP 2: Pick Worktree
 // ============================================================================
-func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
+func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String: String]? = nil) {
     clearContent()
 
     let titleLabel = NSTextField(labelWithString: "Select Worktree")
@@ -500,7 +531,10 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
         let path: String
         let root: String
         init(_ p: String, _ r: String) { path = p; root = r }
-        @objc func pick(_ sender: Any) { showNamingWorkspace(path: path, repoRoot: root) }
+        @objc func pick(_ sender: Any) {
+            let color = readWorktreeColor(path)
+            showNamingWorkspace(path: path, repoRoot: root, color: color)
+        }
     }
 
     var prevAnchor: NSLayoutYAxisAnchor = subtitleLabel.bottomAnchor
@@ -550,10 +584,11 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
 
     class NewWtAction: NSObject {
         let root: String
-        init(_ r: String) { root = r }
-        @objc func create(_ sender: Any) { showCreateWorktree(repoRoot: root) }
+        let mgr: [String: String]?
+        init(_ r: String, _ m: [String: String]?) { root = r; mgr = m }
+        @objc func create(_ sender: Any) { showCreateWorktree(repoRoot: root, manager: mgr) }
     }
-    let newWtAction = NewWtAction(repoRoot)
+    let newWtAction = NewWtAction(repoRoot, manager)
     newWtBtn.target = newWtAction; newWtBtn.action = #selector(NewWtAction.create(_:))
     objc_setAssociatedObject(newWtBtn, "a", newWtAction, .OBJC_ASSOCIATION_RETAIN)
 
@@ -589,11 +624,12 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
         if let chars = event.charactersIgnoringModifiers, let digit = Int(chars),
            digit >= 1, digit <= worktrees.count {
             let wt = worktrees[digit - 1]
-            showNamingWorkspace(path: wt.path, repoRoot: repoRoot)
+            let color = readWorktreeColor(wt.path)
+            showNamingWorkspace(path: wt.path, repoRoot: repoRoot, color: color)
             return nil
         }
         if event.charactersIgnoringModifiers == "n" {
-            showCreateWorktree(repoRoot: repoRoot)
+            showCreateWorktree(repoRoot: repoRoot, manager: manager)
             return nil
         }
         return event
@@ -603,7 +639,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree]) {
 // ============================================================================
 // STEP 2b: Create New Worktree
 // ============================================================================
-func showCreateWorktree(repoRoot: String) {
+func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
     clearContent()
 
     let titleLabel = NSTextField(labelWithString: "Create New Worktree")
@@ -658,18 +694,26 @@ func showCreateWorktree(repoRoot: String) {
         let root: String
         let field: NSTextField
         let errLabel: NSTextField
-        init(_ r: String, _ f: NSTextField, _ e: NSTextField) { root = r; field = f; errLabel = e }
+        let mgr: [String: String]?
+        init(_ r: String, _ f: NSTextField, _ e: NSTextField, _ m: [String: String]?) {
+            root = r; field = f; errLabel = e; mgr = m
+        }
         @objc func create(_ sender: Any) { doCreate() }
         func doCreate() {
             let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { errLabel.stringValue = "Name cannot be empty"; return }
             let existing = listWorktrees(root)
             if let match = existing.first(where: { lastPathComponent($0.path) == name }) {
-                showNamingWorkspace(path: match.path, repoRoot: root)
+                let color = readWorktreeColor(match.path)
+                showNamingWorkspace(path: match.path, repoRoot: root, color: color)
                 return
             }
             if let newPath = createWorktree(repoRoot: root, name: name) {
-                showNamingWorkspace(path: newPath, repoRoot: root)
+                if let setupCmd = mgr?["setup"] {
+                    showWorktreeSetup(repoRoot: root, worktreePath: newPath, setupCmd: setupCmd)
+                } else {
+                    showNamingWorkspace(path: newPath, repoRoot: root)
+                }
             } else {
                 errLabel.stringValue = "Failed to create worktree"
             }
@@ -678,7 +722,7 @@ func showCreateWorktree(repoRoot: String) {
     class CancelAction: NSObject {
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
     }
-    let createAction = CreateAction(repoRoot, nameField, errorLabel)
+    let createAction = CreateAction(repoRoot, nameField, errorLabel, manager)
     let cancelAction = CancelAction()
     createBtn.target = createAction; createBtn.action = #selector(CreateAction.create(_:))
     cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
@@ -693,9 +737,119 @@ func showCreateWorktree(repoRoot: String) {
 }
 
 // ============================================================================
+// STEP 2c: Worktree Setup Progress
+// ============================================================================
+func showWorktreeSetup(repoRoot: String, worktreePath: String, setupCmd: String) {
+    clearContent()
+
+    let titleLabel = NSTextField(labelWithString: "Setting Up Worktree")
+    titleLabel.translatesAutoresizingMaskIntoConstraints = false
+    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    titleLabel.textColor = dimWhite
+    addView(titleLabel)
+
+    let subtitleLabel = NSTextField(labelWithString: lastPathComponent(worktreePath))
+    subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+    subtitleLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    subtitleLabel.textColor = NSColor(white: 1, alpha: 0.4)
+    addView(subtitleLabel)
+
+    let scrollView = NSScrollView()
+    scrollView.translatesAutoresizingMaskIntoConstraints = false
+    scrollView.hasVerticalScroller = true
+    scrollView.hasHorizontalScroller = false
+    scrollView.autohidesScrollers = true
+    scrollView.borderType = .noBorder
+    scrollView.wantsLayer = true
+    scrollView.layer?.backgroundColor = NSColor(white: 0.06, alpha: 1).cgColor
+    scrollView.layer?.cornerRadius = 8
+
+    let textView = NSTextView()
+    textView.isEditable = false
+    textView.isSelectable = true
+    textView.backgroundColor = NSColor(white: 0.06, alpha: 1)
+    textView.textColor = NSColor(white: 1, alpha: 0.7)
+    textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+    textView.textContainerInset = NSSize(width: 8, height: 8)
+    textView.isVerticallyResizable = true
+    textView.isHorizontallyResizable = false
+    textView.textContainer?.widthTracksTextView = true
+    scrollView.documentView = textView
+    addView(scrollView)
+
+    // Resize window taller for progress view
+    var frame = win.frame
+    let newHeight: CGFloat = 420
+    frame.origin.y -= (newHeight - frame.size.height)
+    frame.size.height = newHeight
+    win.setFrame(frame, display: true, animate: true)
+
+    NSLayoutConstraint.activate([
+        titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
+        titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
+        subtitleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        scrollView.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 12),
+        scrollView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
+        scrollView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -20),
+        scrollView.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
+    ])
+
+    relayout()
+
+    // Remove key handler while setup runs (no cancel during setup)
+    if let kh = currentKeyHandler { NSEvent.removeMonitor(kh); currentKeyHandler = nil }
+
+    // Run setup command asynchronously
+    let fullCmd = (repoRoot as NSString).appendingPathComponent(setupCmd)
+    let proc = Process()
+    proc.executableURL = URL(fileURLWithPath: "/bin/bash")
+    proc.arguments = ["-c", fullCmd]
+    proc.currentDirectoryURL = URL(fileURLWithPath: worktreePath)
+
+    let pipe = Pipe()
+    proc.standardOutput = pipe
+    proc.standardError = pipe
+
+    pipe.fileHandleForReading.readabilityHandler = { handle in
+        let data = handle.availableData
+        guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+        DispatchQueue.main.async {
+            textView.textStorage?.append(NSAttributedString(string: text, attributes: [
+                .foregroundColor: NSColor(white: 1, alpha: 0.7),
+                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular),
+            ]))
+            textView.scrollToEndOfDocument(nil)
+        }
+    }
+
+    proc.terminationHandler = { process in
+        DispatchQueue.main.async {
+            pipe.fileHandleForReading.readabilityHandler = nil
+            if process.terminationStatus == 0 {
+                let color = readWorktreeColor(worktreePath)
+                showNamingWorkspace(path: worktreePath, repoRoot: repoRoot, color: color)
+            } else {
+                textView.textStorage?.append(NSAttributedString(string: "\n\n✗ Setup failed (exit \(process.terminationStatus))", attributes: [
+                    .foregroundColor: NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1),
+                    .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+                ]))
+                textView.scrollToEndOfDocument(nil)
+                currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    if event.keyCode == 53 { cancelAndDismiss(); return nil }
+                    return event
+                }
+            }
+        }
+    }
+
+    try? proc.run()
+}
+
+// ============================================================================
 // STEP 3: Name Workspace
 // ============================================================================
-func showNamingWorkspace(path: String, repoRoot: String) {
+func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil) {
     clearContent()
 
     let wsID = nextWorkspaceID()
@@ -767,19 +921,24 @@ func showNamingWorkspace(path: String, repoRoot: String) {
         let root: String
         let id: String
         let field: NSTextField
-        init(_ p: String, _ r: String, _ i: String, _ f: NSTextField) { wsPath = p; root = r; id = i; field = f }
+        let wsColor: String?
+        init(_ p: String, _ r: String, _ i: String, _ f: NSTextField, _ c: String?) {
+            wsPath = p; root = r; id = i; field = f; wsColor = c
+        }
         @objc func submit(_ sender: Any) { doSubmit() }
         func doSubmit() {
             let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { return }
-            writeResult("\(name)\t\(wsPath)\t\(root)\t\(id)")
+            var result = "\(name)\t\(wsPath)\t\(root)\t\(id)"
+            if let c = wsColor { result += "\t\(c)" }
+            writeResult(result)
             dismiss()
         }
     }
     class CancelAction: NSObject {
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
     }
-    let submitAction = SubmitAction(path, repoRoot, wsID, nameField)
+    let submitAction = SubmitAction(path, repoRoot, wsID, nameField, color)
     let cancelAction = CancelAction()
     createBtn.target = submitAction; createBtn.action = #selector(SubmitAction.submit(_:))
     cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))

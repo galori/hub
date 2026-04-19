@@ -64,6 +64,13 @@ warn()    { echo -e "  ${yellow}!${reset} $1"; }
 fail()    { echo -e "  ${red}✗${reset} $1"; }
 info()    { echo -e "  ${blue}→${reset} $1"; }
 
+read_superset_config() {
+    local repo_root="$1" key="$2"
+    local cfg="$repo_root/.superset/config.json"
+    [[ -f "$cfg" ]] || return 1
+    jq -r --arg k "$key" '.[$k][0] // empty' "$cfg" 2>/dev/null
+}
+
 # --- Overlay helpers ---
 
 OVERLAY_PID=""
@@ -405,9 +412,9 @@ cmd_new() {
         return
     fi
 
-    # Parse: name\tpath\troot_repo\tworkspace_id
-    local ws_name ws_path ws_root ws_id
-    IFS=$'\t' read -r ws_name ws_path ws_root ws_id <<< "$result"
+    # Parse: name\tpath\troot_repo\tworkspace_id[\tcolor]
+    local ws_name ws_path ws_root ws_id ws_color
+    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color <<< "$result"
 
     if [[ -z "$ws_name" || -z "$ws_path" || -z "$ws_id" ]]; then
         fail "Invalid dialog result"
@@ -425,9 +432,15 @@ cmd_new() {
     fi
 
     local updated
-    updated="$(echo "$existing" | jq --arg name "$ws_name" --arg path "$ws_path" \
-        --arg root "$ws_root" --arg id "$ws_id" \
-        '. + [{name: $name, path: $path, root_repo: $root, workspace_id: $id}]')"
+    if [[ -n "$ws_color" ]]; then
+        updated="$(echo "$existing" | jq --arg name "$ws_name" --arg path "$ws_path" \
+            --arg root "$ws_root" --arg id "$ws_id" --arg color "$ws_color" \
+            '. + [{name: $name, path: $path, root_repo: $root, workspace_id: $id, color: $color}]')"
+    else
+        updated="$(echo "$existing" | jq --arg name "$ws_name" --arg path "$ws_path" \
+            --arg root "$ws_root" --arg id "$ws_id" \
+            '. + [{name: $name, path: $path, root_repo: $root, workspace_id: $id}]')"
+    fi
 
     echo "$updated" > "$WORKSPACES_FILE"
     success "Saved to $WORKSPACES_FILE"
@@ -544,7 +557,7 @@ cmd_remove() {
     # Look up workspace info
     local ws_info
     ws_info="$(jq -r --arg id "$ws_id" \
-        '.[] | select(.workspace_id == $id) | [.name, .path] | @tsv' \
+        '.[] | select(.workspace_id == $id) | [.name, .path, .root_repo] | @tsv' \
         "$WORKSPACES_FILE" 2>/dev/null)" || true
 
     if [[ -z "$ws_info" ]]; then
@@ -552,8 +565,8 @@ cmd_remove() {
         exit 1
     fi
 
-    local ws_name ws_path
-    IFS=$'\t' read -r ws_name ws_path <<< "$ws_info"
+    local ws_name ws_path ws_root
+    IFS=$'\t' read -r ws_name ws_path ws_root <<< "$ws_info"
 
     # Count windows
     local windows
@@ -580,6 +593,25 @@ cmd_remove() {
             echo "Cancelled."
             return
         fi
+    fi
+
+    # Delegate worktree teardown to repo's worktree manager if applicable
+    if [[ -n "$ws_root" && "$ws_path" != "$ws_root" && -d "$ws_path" ]]; then
+        local teardown_cmd
+        teardown_cmd="$(read_superset_config "$ws_root" "teardown" 2>/dev/null || echo "")"
+        if [[ -n "$teardown_cmd" ]]; then
+            info "Tearing down worktree environment..."
+            if (cd "$ws_path" && eval "$ws_root/$teardown_cmd"); then
+                success "Worktree environment cleaned up"
+            else
+                warn "Worktree teardown failed (continuing with workspace removal)"
+            fi
+        fi
+        # Remove the git worktree
+        info "Removing git worktree..."
+        git -C "$ws_root" worktree remove "$ws_path" --force 2>/dev/null || true
+        git -C "$ws_root" worktree prune 2>/dev/null || true
+        success "Git worktree removed"
     fi
 
     # Remove from workspaces.json

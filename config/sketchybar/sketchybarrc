@@ -266,7 +266,7 @@ WS_LABELS_FILE="/tmp/ws2_sketchybar_labels"
 : > "$WS_LABELS_FILE"
 
 if [ -f "$HOME/.config/ws2/workspaces.json" ]; then
-    jq -r '.[] | .workspace_id + ":" + .name' \
+    jq -r '.[] | .workspace_id + ":" + .name + ":" + (.color // "")' \
         "$HOME/.config/ws2/workspaces.json" > "$WS_LABELS_FILE" 2>/dev/null || true
 fi
 

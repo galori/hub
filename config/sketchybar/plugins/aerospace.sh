@@ -51,11 +51,24 @@ INACTIVE_BG=0x40363944
 EMPTY_LABELED_BG=0x20363944
 BORDER_COLOR=0xff414550
 
+ws_color() {
+    local ws="$1"
+    if [ -f "$WS_LABELS_FILE" ]; then
+        local color_field
+        color_field=$(grep "^${ws}:" "$WS_LABELS_FILE" 2>/dev/null | cut -d: -f3)
+        if [ -n "$color_field" ]; then
+            echo "0xff${color_field#\#}"
+            return
+        fi
+    fi
+    slot_color "$ws"
+}
+
 ARGS=()
 for ws in 1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U V W X Y Z; do
     if [[ $ACTIVE_LIST == *" $ws "* ]]; then
         if [ "$ws" = "$CURRENT" ]; then
-            bg=$(slot_color "$ws")
+            bg=$(ws_color "$ws")
             fg=$(label_color "$bg")
             ARGS+=(--set "space.$ws" drawing=on
                 "label.color=$fg" label.font.size=13
