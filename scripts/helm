@@ -930,9 +930,33 @@ cmd_label_length() {
     local current=0
     [[ -f "$maxlen_file" ]] && current=$(cat "$maxlen_file" 2>/dev/null || echo 0)
 
+    # Find longest label to cap the max
+    local longest=0
+    local labels_file="/tmp/helm_sketchybar_labels"
+    if [[ -f "$labels_file" ]]; then
+        while IFS=: read -r _ name _; do
+            (( ${#name} > longest )) && longest=${#name}
+        done < "$labels_file"
+    fi
+
     case "$direction" in
-        +|up|grow)   current=$(( current <= 0 ? 0 : current - 2 )) ;;
-        -|down|shrink) current=$(( current + 2 )) ;;
+        +|up|grow)
+            if [[ "$current" -le 0 ]]; then
+                current=0
+            else
+                current=$(( current + 2 ))
+            fi
+            ;;
+        -|down|shrink)
+            if [[ "$current" -le 0 ]]; then
+                # First shrink from unlimited: start at longest - 2
+                if [[ "$longest" -gt 0 ]]; then
+                    current=$(( longest - 2 ))
+                fi
+            else
+                current=$(( current - 2 ))
+            fi
+            ;;
         *)
             if [[ "$direction" =~ ^[0-9]+$ ]]; then
                 current="$direction"
@@ -943,7 +967,13 @@ cmd_label_length() {
             ;;
     esac
 
-    [[ "$current" -lt 0 ]] && current=0
+    # Clamp: 0 = unlimited, otherwise min 4, max = longest label
+    if [[ "$current" -gt 0 ]]; then
+        (( current < 4 )) && current=4
+        if [[ "$longest" -gt 0 ]] && (( current >= longest )); then
+            current=0
+        fi
+    fi
     echo "$current" > "$maxlen_file"
 
     local plugin="$HOME/.config/sketchybar/plugins/aerospace.sh"
