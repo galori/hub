@@ -480,6 +480,11 @@ update_sketchybar_label() {
     local ws_name="$2"
     local label="$ws_id $ws_name"
     sketchybar --set "space.$ws_id" "label=$label" drawing=on 2>/dev/null || true
+    local labels_file="/tmp/helm_sketchybar_labels"
+    if [[ -f "$WORKSPACES_FILE" ]]; then
+        jq -r '.[] | .workspace_id + ":" + .name + ":" + (.color // "")' \
+            "$WORKSPACES_FILE" > "$labels_file" 2>/dev/null || true
+    fi
 }
 
 remove_sketchybar_label() {
