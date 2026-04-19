@@ -7,7 +7,7 @@ CURRENT="${AEROSPACE_FOCUSED_WORKSPACE:-$(aerospace list-workspaces --focused 2>
 ACTIVE=$(aerospace list-workspaces --monitor all --empty no 2>/dev/null)
 ACTIVE_LIST=" ${ACTIVE//$'\n'/ } ${CURRENT} "
 
-WS_LABELS_FILE="/tmp/ws2_sketchybar_labels"
+WS_LABELS_FILE="/tmp/helm_sketchybar_labels"
 LABELED_LIST=" "
 if [ -f "$WS_LABELS_FILE" ]; then
     while IFS=: read -r num _; do

@@ -1,18 +1,18 @@
-# AeroSpace config managed by ws2
+# AeroSpace config managed by helm
 # Based on: https://nikitabobko.github.io/AeroSpace/guide#default-config
 
 config-version = 2
 
-# ws2: launch sketchybar and jankyborders on startup
+# helm: launch sketchybar and jankyborders on startup
 after-startup-command = [
     'exec-and-forget sketchybar',
     'exec-and-forget borders active_color=0xff00ff00 width=10.0 style=round',
 ]
 
-# ws2: start at login
+# helm: start at login
 start-at-login = true
 
-# ws2: update sketchybar workspace labels on focus change
+# helm: update sketchybar workspace labels on focus change
 exec-on-workspace-change = ['/bin/bash', '-c',
     '$HOME/.config/sketchybar/plugins/aerospace.sh']
 
@@ -54,7 +54,7 @@ on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/a
 [key-mapping]
     preset = 'qwerty'
 
-# ws2: 15px padding on all sides
+# helm: 15px padding on all sides
 [gaps]
     inner.horizontal = 15
     inner.vertical =   15
@@ -161,27 +161,27 @@ on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/a
     # See: https://nikitabobko.github.io/AeroSpace/commands#mode
     alt-shift-semicolon = 'mode service'
 
-    # ws2: create new workspace
-    ctrl-alt-n = 'exec-and-forget __WS2_SCRIPT__ new'
+    # helm: create new workspace
+    ctrl-alt-n = 'exec-and-forget __HELM_SCRIPT__ new'
 
-    # ws2: remove current workspace
-    ctrl-alt-d = 'exec-and-forget __WS2_SCRIPT__ remove'
+    # helm: remove current workspace
+    ctrl-alt-d = 'exec-and-forget __HELM_SCRIPT__ remove'
 
-    # ws2: rename current workspace
-    ctrl-alt-r = 'exec-and-forget __WS2_SCRIPT__ rename'
+    # helm: rename current workspace
+    ctrl-alt-r = 'exec-and-forget __HELM_SCRIPT__ rename'
 
-    # ws2: open apps (smart: focus-or-launch). Shift = force new window.
-    ctrl-alt-o = 'exec-and-forget __WS2_SCRIPT__ open'
-    ctrl-alt-1 = 'exec-and-forget __WS2_SCRIPT__ open 1'
-    ctrl-alt-2 = 'exec-and-forget __WS2_SCRIPT__ open 2'
-    ctrl-alt-3 = 'exec-and-forget __WS2_SCRIPT__ open 3'
-    ctrl-alt-4 = 'exec-and-forget __WS2_SCRIPT__ open 4'
-    ctrl-alt-5 = 'exec-and-forget __WS2_SCRIPT__ open 5'
-    ctrl-alt-shift-1 = 'exec-and-forget __WS2_SCRIPT__ open 1 --force'
-    ctrl-alt-shift-2 = 'exec-and-forget __WS2_SCRIPT__ open 2 --force'
-    ctrl-alt-shift-3 = 'exec-and-forget __WS2_SCRIPT__ open 3 --force'
-    ctrl-alt-shift-4 = 'exec-and-forget __WS2_SCRIPT__ open 4 --force'
-    ctrl-alt-shift-5 = 'exec-and-forget __WS2_SCRIPT__ open 5 --force'
+    # helm: open apps (smart: focus-or-launch). Shift = force new window.
+    ctrl-alt-o = 'exec-and-forget __HELM_SCRIPT__ open'
+    ctrl-alt-1 = 'exec-and-forget __HELM_SCRIPT__ open 1'
+    ctrl-alt-2 = 'exec-and-forget __HELM_SCRIPT__ open 2'
+    ctrl-alt-3 = 'exec-and-forget __HELM_SCRIPT__ open 3'
+    ctrl-alt-4 = 'exec-and-forget __HELM_SCRIPT__ open 4'
+    ctrl-alt-5 = 'exec-and-forget __HELM_SCRIPT__ open 5'
+    ctrl-alt-shift-1 = 'exec-and-forget __HELM_SCRIPT__ open 1 --force'
+    ctrl-alt-shift-2 = 'exec-and-forget __HELM_SCRIPT__ open 2 --force'
+    ctrl-alt-shift-3 = 'exec-and-forget __HELM_SCRIPT__ open 3 --force'
+    ctrl-alt-shift-4 = 'exec-and-forget __HELM_SCRIPT__ open 4 --force'
+    ctrl-alt-shift-5 = 'exec-and-forget __HELM_SCRIPT__ open 5 --force'
 
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes

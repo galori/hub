@@ -8,15 +8,15 @@ CONFIG_DIR="$REPO_DIR/config"
 AEROSPACE_CONFIG="$HOME/.aerospace.toml"
 SKETCHYBAR_CONFIG_DIR="$HOME/.config/sketchybar"
 OVERLAY_SRC="$LIB_DIR/overlay.swift"
-OVERLAY_BIN="$HOME/.config/ws2/overlay"
+OVERLAY_BIN="$HOME/.config/helm/overlay"
 DIALOG_SRC="$LIB_DIR/new_workspace_dialog.swift"
-DIALOG_BIN="$HOME/.config/ws2/new_workspace_dialog"
+DIALOG_BIN="$HOME/.config/helm/new_workspace_dialog"
 CONFIRM_SRC="$LIB_DIR/confirm_dialog.swift"
-CONFIRM_BIN="$HOME/.config/ws2/confirm_dialog"
+CONFIRM_BIN="$HOME/.config/helm/confirm_dialog"
 RENAME_SRC="$LIB_DIR/rename_dialog.swift"
-RENAME_BIN="$HOME/.config/ws2/rename_dialog"
-WORKSPACES_FILE="$HOME/.config/ws2/workspaces.json"
-APPS_FILE="$HOME/.config/ws2/apps.json"
+RENAME_BIN="$HOME/.config/helm/rename_dialog"
+WORKSPACES_FILE="$HOME/.config/helm/workspaces.json"
+APPS_FILE="$HOME/.config/helm/apps.json"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
 # Colors
@@ -28,10 +28,10 @@ blue='\033[34m'
 reset='\033[0m'
 
 print_usage() {
-    echo -e "${bold}Usage:${reset} ws2 <command>"
+    echo -e "${bold}Usage:${reset} helm <command>"
     echo
     echo -e "${bold}Commands:${reset}"
-    echo "  install    Install ws2 alias, check dependencies, compile binaries, and deploy configs"
+    echo "  install    Install helm alias, check dependencies, compile binaries, and deploy configs"
     echo "  up         Start AeroSpace, SketchyBar, JankyBorders, hide the Dock and menu bar"
     echo "  down       Stop everything, restore the Dock and menu bar"
     echo "  new        Create a new workspace (opens dialog)"
@@ -42,24 +42,24 @@ print_usage() {
     echo "  help       Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
-    echo "  ws2 install        # install shell alias and dependencies"
-    echo "  ws2 up             # start the workspace environment"
-    echo "  ws2 down           # tear down the workspace environment"
-    echo "  ws2 new            # create a new workspace"
-    echo "  ws2 list           # list all workspaces"
-    echo "  ws2 list -v        # list with paths and root repos"
-    echo "  ws2 remove         # remove the current workspace"
-    echo "  ws2 remove A       # remove workspace A"
-    echo "  ws2 remove A -y    # remove workspace A without confirmation"
-    echo "  ws2 rename         # rename the current workspace"
-    echo "  ws2 rename A       # rename workspace A"
-    echo "  ws2 open           # interactive: focus or launch an app"
-    echo "  ws2 open 1         # focus app 1 (or launch if not running)"
-    echo "  ws2 open 1 --force # always launch a new window of app 1"
-    echo "  ws2 open --all     # launch any missing apps into current workspace"
+    echo "  helm install        # install shell alias and dependencies"
+    echo "  helm up             # start the workspace environment"
+    echo "  helm down           # tear down the workspace environment"
+    echo "  helm new            # create a new workspace"
+    echo "  helm list           # list all workspaces"
+    echo "  helm list -v        # list with paths and root repos"
+    echo "  helm remove         # remove the current workspace"
+    echo "  helm remove A       # remove workspace A"
+    echo "  helm remove A -y    # remove workspace A without confirmation"
+    echo "  helm rename         # rename the current workspace"
+    echo "  helm rename A       # rename workspace A"
+    echo "  helm open           # interactive: focus or launch an app"
+    echo "  helm open 1         # focus app 1 (or launch if not running)"
+    echo "  helm open 1 --force # always launch a new window of app 1"
+    echo "  helm open --all     # launch any missing apps into current workspace"
     echo
     echo -e "${bold}App launcher config:${reset}"
-    echo "  Edit ~/.config/ws2/apps.json to configure up to 5 app slots."
+    echo "  Edit ~/.config/helm/apps.json to configure up to 5 app slots."
     echo "  Each entry: { \"name\": \"App Name\", \"launch\": \"<shell cmd>\", \"icon\": \"App Name\" }"
     echo "  Use {path} and {workspace} in launch commands as substitution variables."
 }
@@ -81,7 +81,7 @@ read_superset_config() {
 OVERLAY_PID=""
 
 start_overlay() {
-    local title="${1:-ws2}"
+    local title="${1:-helm}"
     if [[ -x "$OVERLAY_BIN" ]]; then
         coproc OVERLAY { "$OVERLAY_BIN" "$title"; }
         OVERLAY_PID=$OVERLAY_PID
@@ -183,7 +183,7 @@ compile_all() {
 # --- Commands ---
 
 cmd_install() {
-    echo -e "${bold}Installing ws2...${reset}\n"
+    echo -e "${bold}Installing helm...${reset}\n"
 
     # --- Check dependencies ---
     echo -e "${bold}Checking dependencies...${reset}"
@@ -241,14 +241,14 @@ cmd_install() {
     echo
     echo -e "${bold}Deploying configs...${reset}"
     if [[ -f "$AEROSPACE_CONFIG" ]]; then
-        if grep -q "# AeroSpace config managed by ws2" "$AEROSPACE_CONFIG" 2>/dev/null; then
-            success "aerospace.toml already managed by ws2, updating"
+        if grep -q "# AeroSpace config managed by helm" "$AEROSPACE_CONFIG" 2>/dev/null; then
+            success "aerospace.toml already managed by helm, updating"
         else
             warn "existing aerospace.toml found, backing up to ${AEROSPACE_CONFIG}.bak"
             cp "$AEROSPACE_CONFIG" "${AEROSPACE_CONFIG}.bak"
         fi
     fi
-    sed "s|__WS2_SCRIPT__|$REPO_DIR/scripts/ws2|g" "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
+    sed "s|__HELM_SCRIPT__|$REPO_DIR/scripts/helm|g" "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
     success "aerospace.toml deployed to $AEROSPACE_CONFIG"
 
     # --- Deploy sketchybar config ---
@@ -257,9 +257,9 @@ cmd_install() {
         info "removed existing sketchybar config"
     fi
     mkdir -p "$SKETCHYBAR_CONFIG_DIR/plugins"
-    sed "s|__WS2_SCRIPT__|$REPO_DIR/scripts/ws2|g" "$CONFIG_DIR/sketchybar/sketchybarrc" > "$SKETCHYBAR_CONFIG_DIR/sketchybarrc"
+    sed "s|__HELM_SCRIPT__|$REPO_DIR/scripts/helm|g" "$CONFIG_DIR/sketchybar/sketchybarrc" > "$SKETCHYBAR_CONFIG_DIR/sketchybarrc"
     for f in "$CONFIG_DIR/sketchybar/plugins/"*.sh; do
-        sed "s|__WS2_SCRIPT__|$REPO_DIR/scripts/ws2|g" "$f" > "$SKETCHYBAR_CONFIG_DIR/plugins/$(basename "$f")"
+        sed "s|__HELM_SCRIPT__|$REPO_DIR/scripts/helm|g" "$f" > "$SKETCHYBAR_CONFIG_DIR/plugins/$(basename "$f")"
     done
     chmod +x "$SKETCHYBAR_CONFIG_DIR/sketchybarrc" "$SKETCHYBAR_CONFIG_DIR/plugins/"*.sh
     success "sketchybar config deployed to $SKETCHYBAR_CONFIG_DIR"
@@ -276,7 +276,7 @@ cmd_install() {
   },
   {
     "name": "Google Chrome",
-    "launch": "open -na 'Google Chrome' --args --new-window --profile-directory=ws2",
+    "launch": "open -na 'Google Chrome' --args --new-window --profile-directory=helm",
     "icon": "Google Chrome"
   },
   {
@@ -330,20 +330,20 @@ APPS_EOF
         */fish) shell_name=fish ;;
         *)
             fail "Unsupported shell: $SHELL"
-            echo "Add this alias manually: alias ws2='$REPO_DIR/scripts/ws2'"
+            echo "Add this alias manually: alias helm='$REPO_DIR/scripts/helm'"
             return
             ;;
     esac
     success "Detected shell: $shell_name"
 
-    local snippet_path="$REPO_DIR/.ws2-shell-integration"
+    local snippet_path="$REPO_DIR/.helm-shell-integration"
     local script_path
-    script_path="$(printf '%q' "$REPO_DIR/scripts/ws2")"
+    script_path="$(printf '%q' "$REPO_DIR/scripts/helm")"
 
     if [[ "$shell_name" == "fish" ]]; then
-        echo "alias ws2 $script_path" > "$snippet_path"
+        echo "alias helm $script_path" > "$snippet_path"
     else
-        echo "alias ws2=$script_path" > "$snippet_path"
+        echo "alias helm=$script_path" > "$snippet_path"
     fi
     success "Created $snippet_path"
 
@@ -360,14 +360,14 @@ APPS_EOF
         fish) config_file="$HOME/.config/fish/config.fish" ;;
     esac
 
-    if [[ -f "$config_file" ]] && grep -q '.ws2-shell-integration' "$config_file" 2>/dev/null; then
+    if [[ -f "$config_file" ]] && grep -q '.helm-shell-integration' "$config_file" 2>/dev/null; then
         warn "Already installed in $config_file"
     else
         if [[ "$shell_name" == "fish" ]]; then
             mkdir -p "$(dirname "$config_file")"
-            printf '\n# ws2 workspace integration\nsource %s\n' "'$snippet_path'" >> "$config_file"
+            printf '\n# helm workspace integration\nsource %s\n' "'$snippet_path'" >> "$config_file"
         else
-            printf '\n# ws2 workspace integration\nsource %s\n' "$snippet_path" >> "$config_file"
+            printf '\n# helm workspace integration\nsource %s\n' "$snippet_path" >> "$config_file"
         fi
         success "Added to $config_file"
     fi
@@ -392,26 +392,26 @@ APPS_EOF
     echo
     echo "Or open a new terminal."
     echo
-    echo -e "  Tip: edit ${bold}~/.config/ws2/apps.json${reset} to configure your app launcher slots."
-    echo -e "  Then use ${bold}Ctrl+Alt+O${reset} or ${bold}ws2 open${reset} to launch apps into the current workspace."
+    echo -e "  Tip: edit ${bold}~/.config/helm/apps.json${reset} to configure your app launcher slots."
+    echo -e "  Then use ${bold}Ctrl+Alt+O${reset} or ${bold}helm open${reset} to launch apps into the current workspace."
 }
 
 cmd_new() {
     if [[ ! -x "$DIALOG_BIN" ]]; then
-        fail "new_workspace_dialog not compiled. Run: ws2 install"
+        fail "new_workspace_dialog not compiled. Run: helm install"
         exit 1
     fi
 
     # Clean up any stale result
-    rm -f /tmp/ws2-new-workspace
+    rm -f /tmp/helm-new-workspace
 
     # Launch the dialog and wait
     "$DIALOG_BIN"
 
     # Read result
     local result
-    result="$(cat /tmp/ws2-new-workspace 2>/dev/null || echo "cancel")"
-    rm -f /tmp/ws2-new-workspace
+    result="$(cat /tmp/helm-new-workspace 2>/dev/null || echo "cancel")"
+    rm -f /tmp/helm-new-workspace
 
     if [[ "$result" == "cancel" || -z "$result" ]]; then
         echo "Cancelled."
@@ -484,6 +484,10 @@ update_sketchybar_label() {
 remove_sketchybar_label() {
     local ws_id="$1"
     sketchybar --set "space.$ws_id" "label=$ws_id" drawing=off 2>/dev/null || true
+    local labels_file="/tmp/helm_sketchybar_labels"
+    if [[ -f "$labels_file" ]]; then
+        sed -i '' "/^${ws_id}:/d" "$labels_file"
+    fi
 }
 
 cmd_rename() {
@@ -514,22 +518,22 @@ cmd_rename() {
     fi
 
     if [[ ! -x "$RENAME_BIN" ]]; then
-        fail "rename_dialog not compiled. Run: ws2 install"
+        fail "rename_dialog not compiled. Run: helm install"
         exit 1
     fi
 
-    rm -f /tmp/ws2-rename
+    rm -f /tmp/helm-rename
     "$RENAME_BIN" "$ws_id" "$ws_name"
     local dialog_exit=$?
 
-    if [[ $dialog_exit -ne 0 || ! -f /tmp/ws2-rename ]]; then
+    if [[ $dialog_exit -ne 0 || ! -f /tmp/helm-rename ]]; then
         info "Rename cancelled"
         return
     fi
 
     local new_name
-    new_name="$(cat /tmp/ws2-rename)"
-    rm -f /tmp/ws2-rename
+    new_name="$(cat /tmp/helm-rename)"
+    rm -f /tmp/helm-rename
 
     if [[ -z "$new_name" || "$new_name" == "$ws_name" ]]; then
         info "Name unchanged"
@@ -660,12 +664,12 @@ cmd_remove() {
     local remove_worktree=true
     if [[ "$auto_yes" != "true" ]]; then
         if [[ ! -x "$CONFIRM_BIN" ]]; then
-            fail "confirm_dialog not compiled. Run: ws2 install"
+            fail "confirm_dialog not compiled. Run: helm install"
             exit 1
         fi
         local dialog_args=("Remove Workspace" "$confirm_msg")
         if [[ "$is_worktree" == "true" ]]; then
-            dialog_args+=("Remove worktree from disk")
+            dialog_args+=("Remove / teardown worktree")
         fi
         local dialog_exit=0
         "$CONFIRM_BIN" "${dialog_args[@]}" || dialog_exit=$?
@@ -750,7 +754,7 @@ open_app_slot() {
     # Smart mode: if app has windows on current workspace, cycle focus between
     # them. Otherwise fall through to launch a new window on this workspace.
     # (We intentionally do NOT jump to another workspace where this app runs —
-    # each ws2 workspace is self-contained, so Chrome on ws 3 ≠ Chrome on ws 10.)
+    # each helm workspace is self-contained, so Chrome on ws 3 ≠ Chrome on ws 10.)
     if [[ "$force_new" != "true" ]]; then
         local cur_wins
         cur_wins="$(aerospace list-windows --workspace "$ws_id" --format '%{window-id}|%{app-name}' 2>/dev/null \
@@ -787,7 +791,7 @@ open_app_slot() {
     launch_cmd="${launch_cmd//\{workspace\}/$ws_id}"
 
     # Launch the app
-    bash -c "$launch_cmd" >/dev/null 2>/tmp/ws2_open_err &
+    bash -c "$launch_cmd" >/dev/null 2>/tmp/helm_open_err &
 
     # Poll for new window (up to 8 seconds)
     local new_wid=""
@@ -833,7 +837,7 @@ cmd_open() {
     done
 
     if [[ ! -f "$APPS_FILE" ]]; then
-        fail "No apps.json found. Run: ws2 install"
+        fail "No apps.json found. Run: helm install"
         exit 1
     fi
 
@@ -920,7 +924,7 @@ refresh_app_indicators() {
 }
 
 cmd_up() {
-    echo -e "${bold}Starting ws2 environment...${reset}\n"
+    echo -e "${bold}Starting helm environment...${reset}\n"
 
     # Show overlay while configuring system settings
     start_overlay "Configuring System Settings"
@@ -974,14 +978,14 @@ cmd_up() {
     stop_overlay
 
     echo
-    echo -e "${green}${bold}ws2 is up!${reset}"
+    echo -e "${green}${bold}helm is up!${reset}"
     echo
-    echo -e "  Tip: use ${bold}Ctrl+Alt+O${reset} to open configured apps, or ${bold}ws2 open${reset} from the CLI."
-    echo -e "  Edit ${bold}~/.config/ws2/apps.json${reset} to customize your app slots."
+    echo -e "  Tip: use ${bold}Ctrl+Alt+O${reset} to open configured apps, or ${bold}helm open${reset} from the CLI."
+    echo -e "  Edit ${bold}~/.config/helm/apps.json${reset} to customize your app slots."
 }
 
 cmd_down() {
-    echo -e "${bold}Shutting down ws2 environment...${reset}\n"
+    echo -e "${bold}Shutting down helm environment...${reset}\n"
 
     # Stop borders
     if pgrep -q borders; then
@@ -1031,7 +1035,7 @@ cmd_down() {
     stop_overlay
 
     echo
-    echo -e "${green}${bold}ws2 shut down complete.${reset}"
+    echo -e "${green}${bold}helm shut down complete.${reset}"
 }
 
 # --- Main ---

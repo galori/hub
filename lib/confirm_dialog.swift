@@ -1,6 +1,6 @@
 import Cocoa
 
-// Confirmation dialog for ws2.
+// Confirmation dialog for helm.
 // Usage: confirm_dialog "Title" "Message" ["Checkbox label"]
 // Exits 0 if confirmed, 1 if cancelled, 2 if confirmed with checkbox unchecked.
 

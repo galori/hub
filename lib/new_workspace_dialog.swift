@@ -1,19 +1,19 @@
 import Cocoa
 
-// New Workspace dialog for ws2.
+// New Workspace dialog for helm.
 // Keyboard-first: every action reachable via keyboard, also clickable with mouse.
-// Writes result to /tmp/ws2-new-workspace as tab-separated:
+// Writes result to /tmp/helm-new-workspace as tab-separated:
 //   name\tpath\troot_repo\tworkspace_id
 // or "cancel" if cancelled.
 
-let resultPath = "/tmp/ws2-new-workspace"
+let resultPath = "/tmp/helm-new-workspace"
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 let screen = NSScreen.main ?? NSScreen.screens[0]
 let sf = screen.frame
 
-// --- Colors (matching ws2 palette) ---
+// --- Colors (matching helm palette) ---
 let bgColor = NSColor(white: 0.08, alpha: 0.93)
 let itemBg = NSColor(red: 0.21, green: 0.22, blue: 0.27, alpha: 1)
 let itemBg2 = NSColor(red: 0.25, green: 0.27, blue: 0.31, alpha: 1)
@@ -329,7 +329,7 @@ func lastPathComponent(_ path: String) -> String {
 }
 
 func nextWorkspaceID() -> String {
-    let wsFile = NSString(string: "~/.config/ws2/workspaces.json").expandingTildeInPath
+    let wsFile = NSString(string: "~/.config/helm/workspaces.json").expandingTildeInPath
     var usedIDs: Set<String> = []
     if let data = FileManager.default.contents(atPath: wsFile),
        let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
@@ -779,7 +779,7 @@ func showWorktreeSetup(repoRoot: String, worktreePath: String, setupCmd: String)
 
     // Resize window taller for progress view
     var frame = win.frame
-    let newHeight: CGFloat = 420
+    let newHeight: CGFloat = 560
     frame.origin.y -= (newHeight - frame.size.height)
     frame.size.height = newHeight
     win.setFrame(frame, display: true, animate: true)

@@ -2,7 +2,7 @@
 SKETCHYBAR=/opt/homebrew/bin/sketchybar
 [ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
 
-APPS_FILE="$HOME/.config/ws2/apps.json"
+APPS_FILE="$HOME/.config/helm/apps.json"
 [ -f "$APPS_FILE" ] || exit 0
 
 CURRENT="${AEROSPACE_FOCUSED_WORKSPACE:-$(aerospace list-workspaces --focused 2>/dev/null)}"

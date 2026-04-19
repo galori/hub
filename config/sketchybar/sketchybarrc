@@ -146,7 +146,7 @@ sketchybar --add item pad_r4 right \
 
 ##### App Launcher Icons #####
 
-APPS_FILE="$HOME/.config/ws2/apps.json"
+APPS_FILE="$HOME/.config/helm/apps.json"
 if [ -f "$APPS_FILE" ]; then
     APP_COUNT=$(jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)
 
@@ -262,18 +262,18 @@ default=(
 sketchybar --default "${default[@]}"
 
 # Read workspace labels from workspaces.json
-WS_LABELS_FILE="/tmp/ws2_sketchybar_labels"
+WS_LABELS_FILE="/tmp/helm_sketchybar_labels"
 : > "$WS_LABELS_FILE"
 
-if [ -f "$HOME/.config/ws2/workspaces.json" ]; then
+if [ -f "$HOME/.config/helm/workspaces.json" ]; then
     jq -r '.[] | .workspace_id + ":" + .name + ":" + (.color // "")' \
-        "$HOME/.config/ws2/workspaces.json" > "$WS_LABELS_FILE" 2>/dev/null || true
+        "$HOME/.config/helm/workspaces.json" > "$WS_LABELS_FILE" 2>/dev/null || true
 fi
 
 ws_label() {
     local n="$1"
     local match
-    match=$(grep "^${n}:" "$WS_LABELS_FILE" 2>/dev/null | cut -d: -f2-)
+    match=$(grep "^${n}:" "$WS_LABELS_FILE" 2>/dev/null | cut -d: -f2)
     [ -n "$match" ] && echo "$n $match" || echo "$n"
 }
 

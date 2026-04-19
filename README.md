@@ -1,4 +1,4 @@
-# ws2
+# helm
 
 A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https://github.com/nikitabobko/AeroSpace) (tiling window manager), [SketchyBar](https://github.com/FelixKratz/SketchyBar) (custom menu bar), and [JankyBorders](https://github.com/FelixKratz/JankyBorders) (window borders) into a unified workspace manager.
 
@@ -7,9 +7,9 @@ A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https
 ### Install
 
 ```sh
-git clone <repo-url> ~/workspace/ws2
-cd ~/workspace/ws2
-./scripts/ws2 install
+git clone <repo-url> ~/workspace/helm
+cd ~/workspace/helm
+./scripts/helm install
 ```
 
 This will:
@@ -17,12 +17,12 @@ This will:
 - Deploy the AeroSpace config to `~/.aerospace.toml`
 - Deploy the SketchyBar config to `~/.config/sketchybar/`
 - Compile Swift binaries (overlay HUD, workspace dialog)
-- Install a `ws2` shell alias in your shell config
+- Install a `helm` shell alias in your shell config
 
 ### Start the environment
 
 ```sh
-ws2 up
+helm up
 ```
 
 Starts AeroSpace, SketchyBar, and JankyBorders. Hides the macOS Dock and menu bar for a distraction-free tiled workspace.
@@ -30,7 +30,7 @@ Starts AeroSpace, SketchyBar, and JankyBorders. Hides the macOS Dock and menu ba
 ### Stop the environment
 
 ```sh
-ws2 down
+helm down
 ```
 
 Stops all managed services and restores the Dock and menu bar.
@@ -38,7 +38,7 @@ Stops all managed services and restores the Dock and menu bar.
 ### Create a workspace
 
 ```sh
-ws2 new
+helm new
 ```
 
 Opens a dialog to create a named workspace. Supports picking a git repo (with optional worktree creation), assigning a workspace key (1-9, A-Z), and automatically switching to it with a terminal open at the project path.
@@ -48,7 +48,7 @@ Keyboard shortcut: `Ctrl+Alt+N` (from anywhere, via AeroSpace keybinding).
 ### List workspaces
 
 ```sh
-ws2 list
+helm list
 ```
 
 Shows a table of all defined workspaces with their ID, name, path, and root repo.
@@ -56,26 +56,37 @@ Shows a table of all defined workspaces with their ID, name, path, and root repo
 ### Remove a workspace
 
 ```sh
-ws2 remove        # remove the current workspace (prompts for confirmation)
-ws2 remove A      # remove workspace A
-ws2 remove A -y   # remove without confirmation
+helm remove        # remove the current workspace (prompts for confirmation)
+helm remove A      # remove workspace A
+helm remove A -y   # remove without confirmation
 ```
 
-Removes a workspace from the configuration, clears its sketchybar label, and moves any windows to workspace 1.
+Removes a workspace from the configuration, clears its sketchybar label, and moves any windows to workspace 1. For worktree-backed workspaces, offers to teardown and remove the git worktree.
 
-Keyboard shortcut: `Ctrl+Alt+D` (removes current workspace without confirmation).
+Keyboard shortcut: `Ctrl+Alt+D` (removes current workspace).
+
+### Rename a workspace
+
+```sh
+helm rename        # rename the current workspace
+helm rename A      # rename workspace A
+```
+
+Opens a dialog to rename the workspace. Updates the sketchybar label immediately.
+
+Keyboard shortcut: `Ctrl+Alt+R`.
 
 ### Open apps in a workspace
 
 ```sh
-ws2 open           # open all configured apps in current workspace
-ws2 open 1         # open just the first configured app (e.g., iTerm)
-ws2 open 2         # open just the second configured app (e.g., Chrome)
+helm open           # open all configured apps in current workspace
+helm open 1         # open just the first configured app (e.g., iTerm)
+helm open 2         # open just the second configured app (e.g., Chrome)
 ```
 
-Opens the apps defined in `~/.config/ws2/apps.json` in the current workspace. Skips apps already open on the workspace. New windows are automatically moved to the correct workspace.
+Opens the apps defined in `~/.config/helm/apps.json` in the current workspace. Skips apps already open on the workspace. New windows are automatically moved to the correct workspace.
 
-Default apps: iTerm2, Google Chrome, VS Code. Edit `~/.config/ws2/apps.json` to customize (up to 5 slots).
+Default apps: iTerm2, Google Chrome, VS Code. Edit `~/.config/helm/apps.json` to customize (up to 5 slots).
 
 Keyboard shortcuts: `Ctrl+Alt+O` (all apps), `Ctrl+Alt+1-5` (individual slots).
 
@@ -98,6 +109,7 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 | `Alt + Shift + Tab` | Move workspace to next monitor |
 | `Ctrl + Alt + N` | Create new workspace |
 | `Ctrl + Alt + D` | Remove current workspace |
+| `Ctrl + Alt + R` | Rename current workspace |
 | `Ctrl + Alt + O` | Open all configured apps |
 | `Ctrl + Alt + 1-5` | Open specific app slot |
 | `Alt + Shift + ;` | Enter service mode |
@@ -107,7 +119,7 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 - **Keyboard-first**: Everything should be keyboard-only accessible, similar to how AeroSpace is designed for keyboard use, but also usable with the mouse.
 - **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command.
 - **Minimal chrome**: Hide the Dock and menu bar. SketchyBar provides only what's needed.
-- **Single command**: `ws2 up` to start, `ws2 down` to stop. No manual config needed after install.
+- **Single command**: `helm up` to start, `helm down` to stop. No manual config needed after install.
 
 ## Dependencies
 
