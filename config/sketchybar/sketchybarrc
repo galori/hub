@@ -209,6 +209,37 @@ if [ -f "$APPS_FILE" ]; then
                --set pad_r5 width=8 icon.drawing=off label.drawing=off background.drawing=off
 fi
 
+##### Dynamic workspace window slots (apps not in launcher, open in current workspace) #####
+# Pre-allocate 8 slots; app_launcher.sh shows/hides them on workspace change.
+# Items are added right-to-left so ws_win.1 is leftmost.
+WS_WIN_COUNT=8
+for ((i=WS_WIN_COUNT; i>=1; i--)); do
+    sketchybar --add item "ws_win.$i" right \
+               --set "ws_win.$i" \
+               drawing=off \
+               width=34 \
+               label="" \
+               label.drawing=off \
+               label.width=0 \
+               label.padding_left=0 \
+               label.padding_right=0 \
+               background.drawing=on \
+               background.color=0x00000000 \
+               background.image.scale=0.78 \
+               background.image.padding_left=3 \
+               background.image.padding_right=0 \
+               background.height=40 \
+               background.y_offset=2 \
+               background.corner_radius=6 \
+               padding_left=7 \
+               padding_right=7 \
+               click_script="$PLUGIN_DIR/ws_win_slot.sh" \
+               --subscribe "ws_win.$i" mouse.clicked
+done
+
+sketchybar --add item pad_ws_win right \
+           --set pad_ws_win width=8 icon.drawing=off label.drawing=off background.drawing=off drawing=off
+
 # AeroSpace service mode indicator — hidden when in main mode, visible (red S) in service mode
 # Added last so it appears leftmost among right items
 # Clear stale toggle file so we always start hidden (main mode)
