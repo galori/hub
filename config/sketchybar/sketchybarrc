@@ -322,8 +322,13 @@ ws_label() {
         echo "$n"
         return
     fi
-    local maxlen=0
-    [ -f /tmp/helm_label_maxlen ] && maxlen=$(cat /tmp/helm_label_maxlen 2>/dev/null || echo 0)
+    # -1 = unlimited, 0 = code only, N>0 = truncate at N chars
+    local maxlen=-1
+    [ -f /tmp/helm_label_maxlen ] && maxlen=$(cat /tmp/helm_label_maxlen 2>/dev/null || echo -1)
+    if [ "$maxlen" -eq 0 ]; then
+        echo "$n"
+        return
+    fi
     if [ "$maxlen" -gt 0 ] && [ "${#match}" -gt "$maxlen" ]; then
         echo "$n ${match:0:$maxlen}…"
     else

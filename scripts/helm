@@ -938,8 +938,9 @@ refresh_app_indicators() {
 cmd_label_length() {
     local direction="${1:-}"
     local maxlen_file="/tmp/helm_label_maxlen"
-    local current=0
-    [[ -f "$maxlen_file" ]] && current=$(cat "$maxlen_file" 2>/dev/null || echo 0)
+    # -1 = unlimited, 0 = code only, N>0 = max N chars of name
+    local current=-1
+    [[ -f "$maxlen_file" ]] && current=$(cat "$maxlen_file" 2>/dev/null || echo -1)
 
     # Find longest label to cap the max
     local longest=0
@@ -953,13 +954,13 @@ cmd_label_length() {
     case "$direction" in
         +|up|grow)
             if [[ "$current" -le 0 ]]; then
-                current=0
+                current=-1  # already at code-only or unlimited → go to unlimited
             else
                 current=$(( current + 2 ))
             fi
             ;;
         -|down|shrink)
-            if [[ "$current" -le 0 ]]; then
+            if [[ "$current" -lt 0 ]]; then
                 # First shrink from unlimited: start at longest - 2
                 if [[ "$longest" -gt 0 ]]; then
                     current=$(( longest - 2 ))
@@ -978,12 +979,13 @@ cmd_label_length() {
             ;;
     esac
 
-    # Clamp: 0 = unlimited, otherwise min 4, max = longest label
+    # Clamp: -1 = unlimited, 0 = code only, positive = capped at longest
     if [[ "$current" -gt 0 ]]; then
-        (( current < 4 )) && current=4
         if [[ "$longest" -gt 0 ]] && (( current >= longest )); then
-            current=0
+            current=-1
         fi
+    elif [[ "$current" -lt -1 ]]; then
+        current=0
     fi
     echo "$current" > "$maxlen_file"
 

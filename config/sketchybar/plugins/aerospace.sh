@@ -9,9 +9,9 @@ ACTIVE=$(aerospace list-workspaces --monitor all --empty no 2>/dev/null)
 ACTIVE_LIST=" ${ACTIVE//$'\n'/ } ${CURRENT} "
 
 MAXLEN_FILE="/tmp/helm_label_maxlen"
-LABEL_MAXLEN=0
+LABEL_MAXLEN=-1
 if [ -f "$MAXLEN_FILE" ]; then
-    LABEL_MAXLEN=$(cat "$MAXLEN_FILE" 2>/dev/null || echo 0)
+    LABEL_MAXLEN=$(cat "$MAXLEN_FILE" 2>/dev/null || echo -1)
 fi
 
 WS_LABELS_FILE="/tmp/helm_sketchybar_labels"
@@ -29,6 +29,11 @@ truncate_label() {
     local short="${2:-false}"
     local name="${WS_NAME[$ws]:-}"
     if [ -z "$name" ] || [ "$short" = "true" ]; then
+        echo "$ws"
+        return
+    fi
+    # LABEL_MAXLEN: -1 = unlimited, 0 = code only, N>0 = truncate at N chars
+    if [ "$LABEL_MAXLEN" -eq 0 ]; then
         echo "$ws"
         return
     fi
