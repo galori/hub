@@ -75,10 +75,3 @@ fi
 if [ ${#ARGS[@]} -gt 0 ]; then
     "$SKETCHYBAR" "${ARGS[@]}"
 fi
-
-# If this update was triggered independently, recalculate workspace label
-# overflow against the new right-side geometry. aerospace.sh sets
-# HELM_SKIP_OVERFLOW_RECALC when it calls us, preventing a feedback loop.
-if [ "${HELM_SKIP_OVERFLOW_RECALC:-0}" != "1" ]; then
-    HELM_SKIP_APP_LAUNCHER=1 "$SCRIPT_DIR/aerospace.sh" >/dev/null 2>&1 &
-fi
