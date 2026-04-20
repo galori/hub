@@ -81,28 +81,40 @@ read_superset_config() {
 # --- Overlay helpers ---
 
 OVERLAY_PID=""
+OVERLAY_FIFO=""
 
 start_overlay() {
     local title="${1:-helm}"
     if [[ -x "$OVERLAY_BIN" ]]; then
-        coproc OVERLAY { "$OVERLAY_BIN" "$title"; }
-        OVERLAY_PID=$OVERLAY_PID
+        OVERLAY_FIFO="$(mktemp -u "${TMPDIR:-/tmp}/helm-overlay.XXXXXX")"
+        mkfifo "$OVERLAY_FIFO" || {
+            OVERLAY_FIFO=""
+            return
+        }
+        "$OVERLAY_BIN" "$title" < "$OVERLAY_FIFO" &
+        OVERLAY_PID=$!
+        exec 3>"$OVERLAY_FIFO"
     fi
 }
 
 update_overlay() {
     local text="$1"
     if [[ -n "${OVERLAY_PID:-}" ]] && kill -0 "$OVERLAY_PID" 2>/dev/null; then
-        echo "$text" >&"${OVERLAY[1]}"
+        echo "$text" >&3
     fi
 }
 
 stop_overlay() {
     if [[ -n "${OVERLAY_PID:-}" ]] && kill -0 "$OVERLAY_PID" 2>/dev/null; then
-        echo "QUIT" >&"${OVERLAY[1]}"
+        echo "QUIT" >&3
+        exec 3>&-
         wait "$OVERLAY_PID" 2>/dev/null || true
     fi
     OVERLAY_PID=""
+    if [[ -n "${OVERLAY_FIFO:-}" ]]; then
+        rm -f "$OVERLAY_FIFO"
+        OVERLAY_FIFO=""
+    fi
 }
 
 # --- Menu bar toggle (AppleScript, non-blocking) ---
@@ -1030,6 +1042,7 @@ cmd_label_length() {
                 # First shrink from unlimited: start at longest - 2
                 if [[ "$longest" -gt 0 ]]; then
                     current=$(( longest - 2 ))
+                    (( current < 0 )) && current=0
                 fi
             else
                 current=$(( current - 2 ))

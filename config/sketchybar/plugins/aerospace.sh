@@ -13,22 +13,29 @@ LABEL_MAXLEN=-1
 if [ -f "$MAXLEN_FILE" ]; then
     LABEL_MAXLEN=$(cat "$MAXLEN_FILE" 2>/dev/null || echo -1)
 fi
+if ! [[ "$LABEL_MAXLEN" =~ ^-?[0-9]+$ ]]; then
+    LABEL_MAXLEN=-1
+fi
 
 WS_LABELS_FILE="/tmp/helm_sketchybar_labels"
 LABELED_LIST=" "
-declare -A WS_NAME
 if [ -f "$WS_LABELS_FILE" ]; then
     while IFS=: read -r num name _; do
         LABELED_LIST+="$num "
-        WS_NAME["$num"]="$name"
     done <"$WS_LABELS_FILE"
 fi
 
+workspace_name() {
+    local ws="$1"
+    [ -f "$WS_LABELS_FILE" ] || return
+    awk -F: -v ws="$ws" '$1 == ws { print $2; exit }' "$WS_LABELS_FILE"
+}
+
 truncate_label() {
     local ws="$1"
-    local short="${2:-false}"
-    local name="${WS_NAME[$ws]:-}"
-    if [ -z "$name" ] || [ "$short" = "true" ]; then
+    local name
+    name=$(workspace_name "$ws")
+    if [ -z "$name" ]; then
         echo "$ws"
         return
     fi
@@ -101,14 +108,11 @@ for ws in 1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U V W X Y Z;
     fi
 done
 
-# WS_SHORT["ws"]=true means render that workspace ID-only (no name)
-declare -A WS_SHORT
-
 render_workspaces() {
     local ARGS=()
     for ws in 1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U V W X Y Z; do
         local lbl
-        lbl=$(truncate_label "$ws" "${WS_SHORT[$ws]:-false}")
+        lbl=$(truncate_label "$ws")
         if [[ $ACTIVE_LIST == *" $ws "* ]]; then
             if [ "$ws" = "$CURRENT" ]; then
                 local bg fg
@@ -141,6 +145,10 @@ render_workspaces() {
 
 render_workspaces
 
+update_app_launcher() {
+    "$SCRIPT_DIR/app_launcher.sh" >/dev/null 2>&1 || true
+}
+
 # --- Overflow detection ---
 # Query the right edge of a sketchybar item (returns -1 if hidden/missing)
 item_right_edge() {
@@ -167,14 +175,59 @@ else:
 " 2>/dev/null || echo -1
 }
 
+workspace_row_right_edge() {
+    local max=-1 edge ws
+    for ws in "${VISIBLE_WS[@]}"; do
+        edge=$(item_right_edge "space.$ws")
+        if [ "$edge" -gt "$max" ]; then
+            max="$edge"
+        fi
+    done
+    echo "$max"
+}
+
+longest_workspace_name_length() {
+    local longest=0 name
+    [ -f "$WS_LABELS_FILE" ] || {
+        echo 0
+        return
+    }
+    while IFS=: read -r _ name _; do
+        if [ "${#name}" -gt "$longest" ]; then
+            longest="${#name}"
+        fi
+    done <"$WS_LABELS_FILE"
+    echo "$longest"
+}
+
+shrink_label_maxlen() {
+    local current="$LABEL_MAXLEN"
+    local longest
+    longest=$(longest_workspace_name_length)
+
+    if [ "$current" -lt 0 ]; then
+        [ "$longest" -gt 0 ] || return 1
+        current=$((longest - 2))
+    else
+        current=$((current - 2))
+    fi
+
+    [ "$current" -lt 0 ] && current=0
+    [ "$current" -ne "$LABEL_MAXLEN" ] || return 1
+
+    LABEL_MAXLEN="$current"
+    echo "$LABEL_MAXLEN" >"$MAXLEN_FILE"
+}
+
+# Update the right-side app modules before measuring. On initial launch the
+# dynamic app block can appear after workspace labels unless this runs first.
+update_app_launcher
+sleep 0.05
+
 # Only run overflow check if there are named workspaces that could be shortened
 if [ "${#VISIBLE_WS[@]}" -eq 0 ]; then
-    "$SCRIPT_DIR/app_launcher.sh" &
     exit 0
 fi
-
-# Find the rightmost visible workspace
-RIGHTMOST_WS="${VISIBLE_WS[${#VISIBLE_WS[@]}-1]}"
 
 # Right-side boundary = left edge of the leftmost visible right-side item.
 # When the dynamic ws_win block is showing, pad_ws_win is its left spacer and
@@ -184,30 +237,24 @@ if [ "$BOUNDARY" -le 0 ]; then
     BOUNDARY=$(item_left_edge "pad_r5")
 fi
 if [ "$BOUNDARY" -le 0 ]; then
-    "$SCRIPT_DIR/app_launcher.sh" &
     exit 0
 fi
 
-WS_RIGHT=$(item_right_edge "space.$RIGHTMOST_WS")
+WS_RIGHT=$(workspace_row_right_edge)
 if [ "$WS_RIGHT" -le 0 ] || [ "$WS_RIGHT" -le "$BOUNDARY" ]; then
-    "$SCRIPT_DIR/app_launcher.sh" &
     exit 0
 fi
 
-# Overflow: shorten labels from rightmost inward until the row fits
-for ((idx=${#VISIBLE_WS[@]}-1; idx>=0; idx--)); do
-    ws="${VISIBLE_WS[$idx]}"
-    # Skip workspaces that are already ID-only (no name to remove)
-    if [ -z "${WS_NAME[$ws]:-}" ]; then
-        continue
+# Overflow: use the same global label shrink model as `helm label-length -`.
+while [ "$WS_RIGHT" -gt "$BOUNDARY" ]; do
+    if [ "$LABEL_MAXLEN" -eq 0 ]; then
+        break
     fi
-    WS_SHORT["$ws"]=true
+    shrink_label_maxlen || break
     render_workspaces
     sleep 0.05
-    WS_RIGHT=$(item_right_edge "space.$RIGHTMOST_WS")
+    WS_RIGHT=$(workspace_row_right_edge)
     if [ "$WS_RIGHT" -le 0 ] || [ "$WS_RIGHT" -le "$BOUNDARY" ]; then
         break
     fi
 done
-
-"$SCRIPT_DIR/app_launcher.sh" &

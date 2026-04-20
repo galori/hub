@@ -19,6 +19,7 @@
 - **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command. Commands without full flags show a GUI dialog; with all flags + `-y`, they execute silently. The same code path runs from both CLI and keybinding.
 - **Single-binary Swift UIs**: GUI elements are standalone Swift files compiled with `swiftc -O -framework Cocoa`. No Xcode project, no storyboards.
 - **Config is deployed, not symlinked**: `helm install` deploys configs to their destinations. Both aerospace.toml and sketchybar configs use `__HELM_SCRIPT__` placeholder substituted via sed.
+- **Harmless deploy**: Running `helm install` is always safe as an idempotent deploy/reload step after code changes.
 
 ## Agent Tools
 
@@ -26,6 +27,7 @@
 
 ## Workflow
 
-After changing any file in `config/` or `lib/`, run `helm install` to deploy and recompile.
+### IMPORTANT
 
-Create a git commit and `git push` after every completed set of changes.
+* After changing any file in `config/` or `lib/`, run `helm install` to deploy and recompile.
+* reate a git commit and `git push` after every completed set of changes.
