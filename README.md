@@ -1,6 +1,6 @@
 # helm
 
-<img src="assets/helm-logo.png" width="100px" align="right" style="padding:20px; ">
+<img src="assets/helm-logo.png" width="20%" align="right" style="padding:20px; ">
 
 A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https://github.com/nikitabobko/AeroSpace) (tiling window manager), [SketchyBar](https://github.com/FelixKratz/SketchyBar) (custom menu bar), and [JankyBorders](https://github.com/FelixKratz/JankyBorders) (window borders) into a unified workspace manager.
 
@@ -41,60 +41,59 @@ Stops all managed services and restores the Dock and menu bar.
 
 ### Create a workspace
 
-```sh
-helm new
-```
+Press **`Ctrl+Alt+N`** from anywhere to open the new workspace dialog.
 
 Opens a dialog to create a named workspace. Supports picking a git repo (with optional worktree creation), assigning a workspace key (1-9, A-Z), and automatically switching to it with a terminal open at the project path.
 
-Keyboard shortcut: `Ctrl+Alt+N` (from anywhere, via AeroSpace keybinding).
+CLI alternative: `helm new`
 
 ### List workspaces
 
-```sh
-helm list
-```
+SketchyBar displays all workspace labels in the menu bar at all times.
 
-Shows a table of all defined workspaces with their ID, name, path, and root repo.
+CLI alternative: `helm list` — shows a table of all defined workspaces with their ID, name, path, and root repo.
 
 ### Remove a workspace
 
+Press **`Ctrl+Alt+D`** to remove the current workspace (prompts for confirmation).
+
+Removes the workspace from configuration, clears its sketchybar label, and moves any windows to workspace 1. For worktree-backed workspaces, offers to teardown and remove the git worktree.
+
+CLI alternative:
 ```sh
 helm remove        # remove the current workspace (prompts for confirmation)
 helm remove A      # remove workspace A
 helm remove A -y   # remove without confirmation
 ```
 
-Removes a workspace from the configuration, clears its sketchybar label, and moves any windows to workspace 1. For worktree-backed workspaces, offers to teardown and remove the git worktree.
-
-Keyboard shortcut: `Ctrl+Alt+D` (removes current workspace).
-
 ### Rename a workspace
 
+Press **`Ctrl+Alt+R`** to rename the current workspace.
+
+Opens a dialog to rename the workspace. Updates the sketchybar label immediately.
+
+CLI alternative:
 ```sh
 helm rename        # rename the current workspace
 helm rename A      # rename workspace A
 ```
 
-Opens a dialog to rename the workspace. Updates the sketchybar label immediately.
-
-Keyboard shortcut: `Ctrl+Alt+R`.
-
 ### Open apps in a workspace
 
-```sh
-helm open           # open all configured apps in current workspace
-helm open 1         # open just the first configured app (e.g., iTerm)
-helm open 2         # open just the second configured app (e.g., Chrome)
-```
+Press **`Ctrl+Alt+O`** to open all configured apps in the current workspace, or **`Ctrl+Alt+1-5`** for individual app slots.
 
 Opens the apps defined in `~/.config/helm/apps.json` in the current workspace. Skips apps already open on the workspace. New windows are automatically moved to the correct workspace.
 
 Default apps: iTerm2, Google Chrome, VS Code. Edit `~/.config/helm/apps.json` to customize (up to 5 slots).
 
-Keyboard shortcuts: `Ctrl+Alt+O` (all apps), `Ctrl+Alt+1-5` (individual slots).
-
 SketchyBar shows clickable app icons on the right side — full-size when open on the current workspace, dimmed when not.
+
+CLI alternative:
+```sh
+helm open           # open all configured apps in current workspace
+helm open 1         # open just the first configured app (e.g., iTerm)
+helm open 2         # open just the second configured app (e.g., Chrome)
+```
 
 ## Keybindings
 
