@@ -40,7 +40,8 @@ print_usage() {
     echo "  remove     Remove a workspace (current or by ID)"
     echo "  rename     Rename a workspace (current or by ID)"
     echo "  open       Open configured apps in current workspace"
-    echo "  label-length  Shrink or grow workspace label max length (+/-/number)"
+    echo "  keys          List all AeroSpace key bindings (main and service mode)"
+  echo "  label-length  Shrink or grow workspace label max length (+/-/number)"
     echo "  help       Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
@@ -1013,6 +1014,28 @@ refresh_app_indicators() {
     [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
 }
 
+cmd_keys() {
+    local cyan='\033[36m'
+    local dim='\033[2m'
+
+    for mode in main service; do
+        local keys
+        keys="$(aerospace config --get "mode.${mode}.binding" --keys 2>/dev/null)" || continue
+        [[ -z "$keys" ]] && continue
+
+        echo -e "${bold}${blue}${mode} mode${reset}"
+        echo -e "${dim}$(printf '%.0s─' {1..40})${reset}"
+
+        while IFS= read -r key; do
+            [[ -z "$key" ]] && continue
+            local cmd
+            cmd="$(aerospace config --get "mode.${mode}.binding.${key}" 2>/dev/null)" || continue
+            printf "  ${cyan}${bold}%-28s${reset}  %s\n" "$key" "$cmd"
+        done <<< "$keys"
+        echo
+    done
+}
+
 cmd_label_length() {
     local direction="${1:-}"
     local maxlen_file="/tmp/helm_label_maxlen"
@@ -1200,6 +1223,7 @@ case "$command" in
     open)     cmd_open "$@" ;;
     up)       cmd_up ;;
     down)     cmd_down ;;
+    keys)         cmd_keys ;;
     label-length) cmd_label_length "$@" ;;
     help|-h|--help) print_usage ;;
     '')
