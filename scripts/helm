@@ -400,6 +400,8 @@ APPS_EOF
     fi
 
     echo
+    rm -f "$KEYS_CACHE"
+
     echo -e "${green}${bold}Installation complete!${reset}"
     echo
     echo "To activate, run:"
@@ -1014,7 +1016,9 @@ refresh_app_indicators() {
     [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
 }
 
-cmd_keys() {
+KEYS_CACHE="$HOME/.config/helm/keys_cache"
+
+build_keys_output() {
     local cyan='\033[36m'
     local dim='\033[2m'
 
@@ -1039,6 +1043,19 @@ cmd_keys() {
         done <<< "$keys"
         echo
     done
+}
+
+cache_keys() {
+    mkdir -p "$(dirname "$KEYS_CACHE")"
+    build_keys_output > "$KEYS_CACHE"
+}
+
+cmd_keys() {
+    if [[ -f "$KEYS_CACHE" ]]; then
+        cat "$KEYS_CACHE"
+    else
+        build_keys_output | tee "$KEYS_CACHE"
+    fi
 }
 
 cmd_label_length() {
@@ -1154,6 +1171,9 @@ cmd_up() {
     stop_overlay
 
     echo
+    cache_keys &
+    disown
+
     echo -e "${green}${bold}helm is up!${reset}"
     echo
     echo -e "  Tip: use ${bold}Ctrl+Alt+O${reset} to open configured apps, or ${bold}helm open${reset} from the CLI."
