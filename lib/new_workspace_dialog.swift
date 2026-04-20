@@ -259,6 +259,14 @@ func readWorktreeColor(_ worktreePath: String) -> String? {
 }
 
 func listWorktrees(_ path: String) -> [Worktree] {
+    let prune = Process()
+    prune.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    prune.arguments = ["-C", path, "worktree", "prune"]
+    prune.standardOutput = FileHandle.nullDevice
+    prune.standardError = FileHandle.nullDevice
+    try? prune.run()
+    prune.waitUntilExit()
+
     let p = Process()
     let pipe = Pipe()
     p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
