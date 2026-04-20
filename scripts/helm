@@ -1024,6 +1024,15 @@ cmd_keys() {
         [[ -z "$keys" ]] && continue
 
         echo -e "${bold}${blue}${mode} mode${reset}"
+        if [[ "$mode" == "service" ]]; then
+            local trigger
+            trigger="$(aerospace config --get mode.main.binding --keys 2>/dev/null \
+                | while IFS= read -r k; do
+                    v="$(aerospace config --get "mode.main.binding.$k" 2>/dev/null)"
+                    [[ "$v" == "mode service" ]] && echo "$k" && break
+                  done)"
+            [[ -n "$trigger" ]] && echo -e "  ${dim}activated by ${bold}${trigger}${reset}"
+        fi
         echo -e "${dim}$(printf '%.0s─' {1..40})${reset}"
 
         while IFS= read -r key; do
