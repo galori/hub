@@ -36,6 +36,7 @@ print_usage() {
     echo "  down       Stop everything, restore the Dock and menu bar"
     echo "  new        Create a new workspace (opens dialog)"
     echo "  list       List all defined workspaces"
+    echo "  status     Show current service state, workspace info, and label length"
     echo "  remove     Remove a workspace (current or by ID)"
     echo "  rename     Rename a workspace (current or by ID)"
     echo "  open       Open configured apps in current workspace"
@@ -606,6 +607,71 @@ cmd_list() {
     fi
 }
 
+cmd_status() {
+    echo -e "${bold}helm status${reset}"
+    echo
+
+    # --- Services ---
+    echo -e "${bold}Services:${reset}"
+    if pgrep -q AeroSpace; then
+        echo -e "  ${green}✓${reset} AeroSpace"
+    else
+        echo -e "  ${red}✗${reset} AeroSpace"
+    fi
+    if pgrep -q sketchybar; then
+        echo -e "  ${green}✓${reset} SketchyBar"
+    else
+        echo -e "  ${red}✗${reset} SketchyBar"
+    fi
+    if pgrep -q borders; then
+        echo -e "  ${green}✓${reset} JankyBorders"
+    else
+        echo -e "  ${red}✗${reset} JankyBorders"
+    fi
+    echo
+
+    # --- Current workspace ---
+    local current_ws
+    current_ws="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+    local current_name=""
+    if [[ -n "$current_ws" && -f "$WORKSPACES_FILE" ]]; then
+        current_name="$(jq -r --arg id "$current_ws" \
+            '.[] | select(.workspace_id == $id) | .name' \
+            "$WORKSPACES_FILE" 2>/dev/null)"
+    fi
+    if [[ -n "$current_ws" ]]; then
+        if [[ -n "$current_name" ]]; then
+            echo -e "${bold}Current workspace:${reset} $current_ws  $current_name"
+        else
+            echo -e "${bold}Current workspace:${reset} $current_ws"
+        fi
+    fi
+
+    # --- Active (non-empty) workspaces ---
+    local active_ws
+    active_ws="$(aerospace list-workspaces --monitor all --empty no 2>/dev/null || echo "")"
+    local active_count=0
+    [[ -n "$active_ws" ]] && active_count="$(echo "$active_ws" | wc -l | tr -d ' ')"
+    echo -e "${bold}Active workspaces:${reset} $active_count  ($(echo "$active_ws" | tr '\n' ' ' | sed 's/ $//'))"
+    echo
+
+    # --- Label length ---
+    local maxlen=-1
+    [[ -f /tmp/helm_label_maxlen ]] && maxlen="$(cat /tmp/helm_label_maxlen 2>/dev/null || echo -1)"
+    echo -e "${bold}Label length:${reset}"
+    if [[ "$maxlen" -lt 0 ]]; then
+        echo -e "  unlimited  ${yellow}(shrink with ctrl-alt-minus or helm label-length shrink)${reset}"
+    elif [[ "$maxlen" -eq 0 ]]; then
+        echo -e "  code only  ${yellow}(grow with ctrl-alt-equal or helm label-length grow)${reset}"
+    else
+        echo -e "  $maxlen chars"
+    fi
+    echo
+
+    # --- Workspaces ---
+    cmd_list -v
+}
+
 cmd_remove() {
     local ws_id="${1:-}"
     local auto_yes=false
@@ -1116,6 +1182,7 @@ case "$command" in
     install)  cmd_install ;;
     new)      cmd_new ;;
     list)     cmd_list "$@" ;;
+    status)   cmd_status ;;
     remove)   cmd_remove "$@" ;;
     rename)   cmd_rename "$@" ;;
     open)     cmd_open "$@" ;;
