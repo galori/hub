@@ -157,9 +157,14 @@ func makeScrollView(attributed: NSAttributedString) -> NSScrollView {
 // --- Title bar ---
 let titleBar = NSView()
 titleBar.translatesAutoresizingMaskIntoConstraints = false
-titleBar.wantsLayer = true
-titleBar.layer?.backgroundColor = NSColor(white: 1, alpha: 0.04).cgColor
 cv.addSubview(titleBar)
+
+// Bottom border line under title bar
+let titleBorder = NSView()
+titleBorder.translatesAutoresizingMaskIntoConstraints = false
+titleBorder.wantsLayer = true
+titleBorder.layer?.backgroundColor = divColor.cgColor
+cv.addSubview(titleBorder)
 
 func makeTitle(_ text: String) -> NSTextField {
     let t = NSTextField(labelWithString: text)
@@ -171,8 +176,15 @@ func makeTitle(_ text: String) -> NSTextField {
 
 let statusTitle = makeTitle("status")
 let keysTitle   = makeTitle("keys")
-let hint        = makeTitle("esc to close")
-hint.font       = NSFont.systemFont(ofSize: 11, weight: .regular)
+
+class ClickLabel: NSTextField {
+    override func mouseDown(with event: NSEvent) { dismiss() }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .pointingHand) }
+}
+let hint = ClickLabel(labelWithString: "esc to close")
+hint.translatesAutoresizingMaskIntoConstraints = false
+hint.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+hint.textColor = NSColor(white: 1, alpha: 0.50)
 
 titleBar.addSubview(statusTitle)
 titleBar.addSubview(keysTitle)
@@ -186,7 +198,7 @@ divider.layer?.backgroundColor = divColor.cgColor
 cv.addSubview(divider)
 
 // --- Content panes ---
-let baseFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+let baseFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
 let statusAttr = ansiToAttributedString(statusRaw, baseFont: baseFont)
 let keysAttr   = ansiToAttributedString(keysRaw,   baseFont: baseFont)
 
@@ -205,12 +217,18 @@ NSLayoutConstraint.activate([
     titleBar.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
     titleBar.heightAnchor.constraint(equalToConstant: titleH),
 
+    // title border
+    titleBorder.topAnchor.constraint(equalTo: titleBar.bottomAnchor),
+    titleBorder.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
+    titleBorder.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
+    titleBorder.heightAnchor.constraint(equalToConstant: 1),
+
     // status title — left column
     statusTitle.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
     statusTitle.leadingAnchor.constraint(equalTo: titleBar.leadingAnchor, constant: pad),
 
     // divider — vertical, center
-    divider.topAnchor.constraint(equalTo: titleBar.bottomAnchor),
+    divider.topAnchor.constraint(equalTo: titleBorder.bottomAnchor),
     divider.bottomAnchor.constraint(equalTo: cv.bottomAnchor),
     divider.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
     divider.widthAnchor.constraint(equalToConstant: 1),
@@ -224,13 +242,13 @@ NSLayoutConstraint.activate([
     hint.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor, constant: -pad),
 
     // status scroll — left pane
-    statusScroll.topAnchor.constraint(equalTo: titleBar.bottomAnchor, constant: 8),
+    statusScroll.topAnchor.constraint(equalTo: titleBorder.bottomAnchor, constant: 8),
     statusScroll.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: pad),
     statusScroll.trailingAnchor.constraint(equalTo: divider.leadingAnchor, constant: -pad/2),
     statusScroll.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -pad/2),
 
     // keys scroll — right pane
-    keysScroll.topAnchor.constraint(equalTo: titleBar.bottomAnchor, constant: 8),
+    keysScroll.topAnchor.constraint(equalTo: titleBorder.bottomAnchor, constant: 8),
     keysScroll.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: pad/2),
     keysScroll.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -pad),
     keysScroll.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -pad/2),

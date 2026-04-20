@@ -682,9 +682,9 @@ cmd_status() {
     [[ -f /tmp/helm_label_maxlen ]] && maxlen="$(cat /tmp/helm_label_maxlen 2>/dev/null || echo -1)"
     echo -e "${bold}Label length:${reset}"
     if [[ "$maxlen" -lt 0 ]]; then
-        echo -e "  unlimited  ${yellow}(shrink with ctrl-alt-minus or helm label-length shrink)${reset}"
+        echo -e "  unlimited  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
     elif [[ "$maxlen" -eq 0 ]]; then
-        echo -e "  code only  ${yellow}(grow with ctrl-alt-equal or helm label-length grow)${reset}"
+        echo -e "  code only  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
     else
         echo -e "  $maxlen chars"
     fi
