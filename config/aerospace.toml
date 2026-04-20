@@ -161,6 +161,9 @@ on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/a
     # See: https://nikitabobko.github.io/AeroSpace/commands#mode
     alt-shift-semicolon = 'mode service'
 
+    # helm: dashboard (status + keys)
+    ctrl-alt-slash = 'exec-and-forget __HELM_SCRIPT__ dashboard'
+
     # helm: create new workspace
     ctrl-alt-n = 'exec-and-forget __HELM_SCRIPT__ new'
 
