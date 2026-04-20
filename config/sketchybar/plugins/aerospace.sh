@@ -171,8 +171,13 @@ fi
 # Find the rightmost visible workspace
 RIGHTMOST_WS="${VISIBLE_WS[${#VISIBLE_WS[@]}-1]}"
 
-# Right-side boundary = left edge of pad_r5 (always visible spacer before app launcher)
-BOUNDARY=$(item_left_edge "pad_r5")
+# Right-side boundary = left edge of the leftmost visible right-side item.
+# When the dynamic ws_win block is showing, pad_ws_win is its left spacer and
+# is leftmost. When it's hidden, fall back to pad_r5 (left of static launcher).
+BOUNDARY=$(item_left_edge "pad_ws_win")
+if [ "$BOUNDARY" -le 0 ]; then
+    BOUNDARY=$(item_left_edge "pad_r5")
+fi
 if [ "$BOUNDARY" -le 0 ]; then
     "$SCRIPT_DIR/app_launcher.sh" &
     exit 0
