@@ -1030,6 +1030,8 @@ cmd_keys() {
             [[ -z "$key" ]] && continue
             local cmd
             cmd="$(aerospace config --get "mode.${mode}.binding.${key}" 2>/dev/null)" || continue
+            cmd="${cmd#exec-and-forget  }"
+            cmd="${cmd//$REPO_DIR\/scripts\/helm/helm}"
             printf "  ${cyan}${bold}%-28s${reset}  %s\n" "$key" "$cmd"
         done <<< "$keys"
         echo
