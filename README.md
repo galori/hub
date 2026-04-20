@@ -6,6 +6,30 @@ A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https
 
 <br clear="all">
 
+## Keybindings
+
+All keybindings use `Alt` as the modifier (AeroSpace default):
+
+| Key | Action |
+|-----|--------|
+| `Alt + [1-9, A-Z]` | Switch to workspace |
+| `Alt + Shift + [1-9, A-Z]` | Move window to workspace |
+| `Alt + H/J/K/L` | Focus left/down/up/right |
+| `Alt + Shift + H/J/K/L` | Move window left/down/up/right |
+| `Alt + /` | Toggle tiles horizontal/vertical |
+| `Alt + ,` | Toggle accordion layout |
+| `Alt + -/=` | Resize window |
+| `Alt + Tab` | Switch to previous workspace |
+| `Alt + Shift + Tab` | Move workspace to next monitor |
+| `Ctrl + Alt + N` | Create new workspace |
+| `Ctrl + Alt + D` | Remove current workspace |
+| `Ctrl + Alt + R` | Rename current workspace |
+| `Ctrl + Alt + O` | Open all configured apps |
+| `Ctrl + Alt + 1-5` | Open specific app slot |
+| `Ctrl + Alt + -` | Shrink workspace labels |
+| `Ctrl + Alt + =` | Grow workspace labels |
+| `Alt + Shift + ;` | Enter service mode |
+
 ## Setup
 
 ### Install
@@ -94,30 +118,6 @@ helm open           # open all configured apps in current workspace
 helm open 1         # open just the first configured app (e.g., iTerm)
 helm open 2         # open just the second configured app (e.g., Chrome)
 ```
-
-## Keybindings
-
-All keybindings use `Alt` as the modifier (AeroSpace default):
-
-| Key | Action |
-|-----|--------|
-| `Alt + [1-9, A-Z]` | Switch to workspace |
-| `Alt + Shift + [1-9, A-Z]` | Move window to workspace |
-| `Alt + H/J/K/L` | Focus left/down/up/right |
-| `Alt + Shift + H/J/K/L` | Move window left/down/up/right |
-| `Alt + /` | Toggle tiles horizontal/vertical |
-| `Alt + ,` | Toggle accordion layout |
-| `Alt + -/=` | Resize window |
-| `Alt + Tab` | Switch to previous workspace |
-| `Alt + Shift + Tab` | Move workspace to next monitor |
-| `Ctrl + Alt + N` | Create new workspace |
-| `Ctrl + Alt + D` | Remove current workspace |
-| `Ctrl + Alt + R` | Rename current workspace |
-| `Ctrl + Alt + O` | Open all configured apps |
-| `Ctrl + Alt + 1-5` | Open specific app slot |
-| `Ctrl + Alt + -` | Shrink workspace labels |
-| `Ctrl + Alt + =` | Grow workspace labels |
-| `Alt + Shift + ;` | Enter service mode |
 
 ## Guiding Principles
 
