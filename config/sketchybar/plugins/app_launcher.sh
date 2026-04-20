@@ -64,11 +64,11 @@ for ((i=1; i<=WS_WIN_COUNT; i++)); do
     fi
 done
 
-# Show/hide bracket and spacer with the ws_win block
+# Show/hide bracket and spacers with the ws_win block
 if [ "${#EXTRA_APPS[@]}" -gt 0 ]; then
-    ARGS+=(--set ws_wins_bracket drawing=on --set pad_ws_win drawing=on)
+    ARGS+=(--set ws_wins_bracket drawing=on --set pad_ws_app drawing=on --set pad_ws_win drawing=on)
 else
-    ARGS+=(--set ws_wins_bracket drawing=off --set pad_ws_win drawing=off)
+    ARGS+=(--set ws_wins_bracket drawing=off --set pad_ws_app drawing=off --set pad_ws_win drawing=off)
 fi
 
 if [ ${#ARGS[@]} -gt 0 ]; then

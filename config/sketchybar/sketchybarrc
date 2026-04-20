@@ -254,6 +254,11 @@ sketchybar --add bracket ws_wins_bracket ws_win.1 ws_win.2 ws_win.3 ws_win.4 ws_
                                  background.border_width=2 \
                                  background.border_color=$ITEM_BG2
 
+# Spacer between ws_wins_bracket and app_bracket (shown only when ws_win slots are visible)
+sketchybar --add item pad_ws_app right \
+           --set pad_ws_app width=8 icon.drawing=off label.drawing=off background.drawing=off drawing=off
+
+# Spacer to the left of ws_wins_bracket (towards workspace labels)
 sketchybar --add item pad_ws_win right \
            --set pad_ws_win width=8 icon.drawing=off label.drawing=off background.drawing=off drawing=off
 
