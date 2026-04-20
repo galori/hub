@@ -1,13 +1,28 @@
 #!/usr/bin/env bash
 # Capture a screenshot of the sketchybar region (top of screen).
 # Usage: screenshot-bar [output.png]
-# Requires: screencapture (macOS), system_profiler
+# Requires: screencapture (macOS)
 
 set -euo pipefail
 
 OUT="${1:-/tmp/helm-bar-screenshot.png}"
 BAR_HEIGHT=50
 
-SCREEN_W=$(system_profiler SPDisplaysDataType 2>/dev/null | grep Resolution | head -1 | awk '{print $2}')
-screencapture -x -R "0,0,${SCREEN_W},${BAR_HEIGHT}" "$OUT"
-echo "$OUT"
+# Try common display widths instead of querying display metadata. In headless or
+# sandboxed contexts, system_profiler can omit resolutions and full-screen
+# screencapture can fail even when region capture works.
+WIDTHS=()
+if [[ "${HELM_BAR_SCREEN_WIDTH:-}" =~ ^[0-9]+$ ]] && [ "$HELM_BAR_SCREEN_WIDTH" -gt 0 ]; then
+    WIDTHS+=("$HELM_BAR_SCREEN_WIDTH")
+fi
+WIDTHS+=(8192 7680 6016 5120 4096 3840 3456 3024 3000 2560 2048 1920 1728 1512 1440 1280)
+
+for WIDTH in "${WIDTHS[@]}"; do
+    if screencapture -x -R "0,0,${WIDTH},${BAR_HEIGHT}" "$OUT" 2>/dev/null; then
+        echo "$OUT"
+        exit 0
+    fi
+done
+
+echo "Unable to capture the SketchyBar region" >&2
+exit 1
