@@ -1033,6 +1033,7 @@ cmd_label_length() {
                 fi
             else
                 current=$(( current - 2 ))
+                (( current < 0 )) && current=0
             fi
             ;;
         *)
@@ -1050,8 +1051,6 @@ cmd_label_length() {
         if [[ "$longest" -gt 0 ]] && (( current >= longest )); then
             current=-1
         fi
-    elif [[ "$current" -lt -1 ]]; then
-        current=0
     fi
     echo "$current" > "$maxlen_file"
 
