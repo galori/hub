@@ -1,5 +1,12 @@
 # helm Development Guide
 
+## Workflow
+
+### REQUIRED: After every change
+
+- MUST run `helm install` if any file in `config/` or `lib/` changed
+- MUST create a git commit and `git push` after every completed set of changes
+
 ## Project Structure
 
 - `scripts/helm` - Main shell script (install, up, down, new, list, remove, rename, open commands)
@@ -25,9 +32,3 @@
 
 - `agents/bin/screenshot-bar` - Captures a screenshot of just the sketchybar region (top of screen). Use to visually verify sketchybar layout changes. Outputs a PNG path: `agents/bin/screenshot-bar [output.png]`
 
-## Workflow
-
-### IMPORTANT
-
-* After changing any file in `config/` or `lib/`, run `helm install` to deploy and recompile.
-* reate a git commit and `git push` after every completed set of changes.
