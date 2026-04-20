@@ -1,4 +1,4 @@
-˙# AeroSpace config managed by helm
+# AeroSpace config managed by helm
 # Based on: https://nikitabobko.github.io/AeroSpace/guide#default-config
 
 config-version = 2
