@@ -218,6 +218,15 @@ for ((i=WS_WIN_COUNT; i>=1; i--)); do
                --set "ws_win.$i" \
                drawing=off \
                width=34 \
+               icon=● \
+               icon.drawing=on \
+               icon.align=center \
+               icon.width=34 \
+               icon.font="Hack Nerd Font:Bold:6.0" \
+               icon.color=0xff9ed072 \
+               icon.y_offset=-13 \
+               icon.padding_left=0 \
+               icon.padding_right=0 \
                label="" \
                label.drawing=off \
                label.width=0 \
@@ -236,6 +245,14 @@ for ((i=WS_WIN_COUNT; i>=1; i--)); do
                click_script="$PLUGIN_DIR/ws_win_slot.sh" \
                --subscribe "ws_win.$i" mouse.clicked
 done
+
+sketchybar --add bracket ws_wins_bracket ws_win.1 ws_win.2 ws_win.3 ws_win.4 ws_win.5 ws_win.6 ws_win.7 ws_win.8 \
+           --set ws_wins_bracket drawing=off \
+                                 background.color=$ITEM_BG \
+                                 background.corner_radius=9 \
+                                 background.height=28 \
+                                 background.border_width=2 \
+                                 background.border_color=$ITEM_BG2
 
 sketchybar --add item pad_ws_win right \
            --set pad_ws_win width=8 icon.drawing=off label.drawing=off background.drawing=off drawing=off

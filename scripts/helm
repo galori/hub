@@ -645,15 +645,13 @@ cmd_remove() {
     local ws_name ws_path ws_root
     IFS=$'\t' read -r ws_name ws_path ws_root <<< "$ws_info"
 
-    # Collect window IDs and their app PIDs before prompting
-    local win_pids=()
-    local windows=()
-    while IFS='|' read -r wid pid; do
-        [[ -z "$wid" ]] && continue
-        windows+=("$wid")
-        win_pids+=("$pid")
-    done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}|%{app-pid}' 2>/dev/null || true)
-    local window_count="${#windows[@]}"
+    # Count windows
+    local windows
+    windows="$(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || echo "")"
+    local window_count=0
+    if [[ -n "$windows" ]]; then
+        window_count="$(echo "$windows" | wc -l | tr -d ' ')"
+    fi
 
     local confirm_msg="Remove workspace '$ws_name' (ID: $ws_id)"
     if [[ "$window_count" -gt 0 ]]; then
@@ -670,7 +668,6 @@ cmd_remove() {
 
     # Confirm: show GUI dialog unless -y
     local remove_worktree=true
-    local force_close_windows=false
     if [[ "$auto_yes" != "true" ]]; then
         if [[ ! -x "$CONFIRM_BIN" ]]; then
             fail "confirm_dialog not compiled. Run: helm install"
@@ -681,26 +678,15 @@ cmd_remove() {
         if [[ "$is_worktree" == "true" ]]; then
             dialog_args+=("Remove / teardown worktree")
         fi
-        if [[ "$window_count" -gt 0 ]]; then
-            dialog_args+=("!Force close windows that don't close after 1s")
-        fi
         local dialog_exit=0
         "$CONFIRM_BIN" "${dialog_args[@]}" || dialog_exit=$?
         if [[ "$dialog_exit" -ne 0 ]]; then
             echo "Cancelled."; return
         fi
-        # Read checkbox states from state file
-        if [[ -f /tmp/helm-confirm-state ]]; then
-            local cb_idx=1
-            if [[ "$is_worktree" == "true" ]]; then
-                local v; v="$(grep "^cb${cb_idx}=" /tmp/helm-confirm-state | cut -d= -f2)"
-                [[ "$v" == "0" ]] && remove_worktree=false
-                cb_idx=$((cb_idx + 1))
-            fi
-            if [[ "$window_count" -gt 0 ]]; then
-                local v; v="$(grep "^cb${cb_idx}=" /tmp/helm-confirm-state | cut -d= -f2)"
-                [[ "$v" == "1" ]] && force_close_windows=true
-            fi
+        # Read worktree checkbox state
+        if [[ "$is_worktree" == "true" && -f /tmp/helm-confirm-state ]]; then
+            local v; v="$(grep "^cb1=" /tmp/helm-confirm-state | cut -d= -f2)"
+            [[ "$v" == "0" ]] && remove_worktree=false
             rm -f /tmp/helm-confirm-state
         fi
     fi
@@ -734,18 +720,10 @@ cmd_remove() {
     success "Sketchybar label cleared for workspace $ws_id"
 
     # Close all windows on this workspace
-    if [[ "$window_count" -gt 0 ]]; then
-        for wid in "${windows[@]}"; do
+    if [[ -n "$windows" ]]; then
+        while IFS= read -r wid; do
             aerospace close --window-id "$wid" 2>/dev/null || true
-        done
-        if [[ "$force_close_windows" == "true" ]]; then
-            sleep 1
-            # Kill any PIDs whose windows are still open
-            for pid in "${win_pids[@]}"; do
-                [[ -z "$pid" || "$pid" == "0" ]] && continue
-                kill "$pid" 2>/dev/null || true
-            done
-        fi
+        done <<< "$windows"
         success "Closed $window_count window(s) from workspace $ws_id"
     fi
 
