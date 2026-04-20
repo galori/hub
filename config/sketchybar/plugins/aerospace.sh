@@ -146,7 +146,8 @@ render_workspaces() {
 render_workspaces
 
 update_app_launcher() {
-    "$SCRIPT_DIR/app_launcher.sh" >/dev/null 2>&1 || true
+    [ "${HELM_SKIP_APP_LAUNCHER:-0}" = "1" ] && return
+    HELM_SKIP_OVERFLOW_RECALC=1 "$SCRIPT_DIR/app_launcher.sh" >/dev/null 2>&1 || true
 }
 
 # --- Overflow detection ---

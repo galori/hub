@@ -3,6 +3,7 @@
 # and dynamic ws_win slots for apps not in the launcher.
 SKETCHYBAR=/opt/homebrew/bin/sketchybar
 [ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 APPS_FILE="$HOME/.config/helm/apps.json"
 [ -f "$APPS_FILE" ] || exit 0
@@ -73,4 +74,11 @@ fi
 
 if [ ${#ARGS[@]} -gt 0 ]; then
     "$SKETCHYBAR" "${ARGS[@]}"
+fi
+
+# If this update was triggered independently, recalculate workspace label
+# overflow against the new right-side geometry. aerospace.sh sets
+# HELM_SKIP_OVERFLOW_RECALC when it calls us, preventing a feedback loop.
+if [ "${HELM_SKIP_OVERFLOW_RECALC:-0}" != "1" ]; then
+    HELM_SKIP_APP_LAUNCHER=1 "$SCRIPT_DIR/aerospace.sh" >/dev/null 2>&1 &
 fi
