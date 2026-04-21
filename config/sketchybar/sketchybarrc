@@ -203,7 +203,16 @@ if [ -f "$APPS_FILE" ]; then
                --set app_refresh_trigger \
                drawing=off \
                script="$PLUGIN_DIR/app_launcher.sh" \
-               --subscribe app_refresh_trigger front_app_switched
+               --subscribe app_refresh_trigger front_app_switched system_woke
+
+    # One-shot icon refresh: fires ~8s after startup to recover from icon cache races,
+    # then again on system_woke for the same reason.
+    sketchybar --add item app_icon_init right \
+               --set app_icon_init \
+               drawing=off \
+               update_freq=8 \
+               script="$PLUGIN_DIR/app_icon_refresh.sh" \
+               --subscribe app_icon_init system_woke
 
     # Spacer between the dynamic workspace-window module and static app launcher.
     sketchybar --add item pad_r5 right \
