@@ -18,6 +18,7 @@ RENAME_BIN="$HOME/.config/helm/rename_dialog"
 DASHBOARD_SRC="$LIB_DIR/dashboard_dialog.swift"
 DASHBOARD_BIN="$HOME/.config/helm/dashboard_dialog"
 WORKSPACES_FILE="$HOME/.config/helm/workspaces.json"
+RECENT_REPOS_FILE="$HOME/.config/helm/recent_repos.json"
 APPS_FILE="$HOME/.config/helm/apps.json"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
@@ -471,6 +472,15 @@ cmd_new() {
 
     echo "$updated" > "$WORKSPACES_FILE"
     success "Saved to $WORKSPACES_FILE"
+
+    # Update recent_repos.json (persistent history, independent of active workspaces)
+    local recent_repo="${ws_root:-$ws_path}"
+    local existing_recent="[]"
+    if [[ -f "$RECENT_REPOS_FILE" ]]; then
+        existing_recent="$(cat "$RECENT_REPOS_FILE")"
+    fi
+    echo "$existing_recent" | jq --arg r "$recent_repo" \
+        '[$r] + (map(select(. != $r))) | .[0:20]' > "$RECENT_REPOS_FILE"
 
     # Update sketchybar label
     update_sketchybar_label "$ws_id" "$ws_name"

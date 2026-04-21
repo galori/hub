@@ -446,6 +446,12 @@ func relayout() {
 // ============================================================================
 
 func recentPaths() -> [String] {
+    let recentFile = NSString(string: "~/.config/helm/recent_repos.json").expandingTildeInPath
+    if let data = FileManager.default.contents(atPath: recentFile),
+       let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
+        return arr.filter { !$0.isEmpty }
+    }
+    // Fall back to deriving from workspaces.json for backwards compatibility
     let wsFile = NSString(string: "~/.config/helm/workspaces.json").expandingTildeInPath
     guard let data = FileManager.default.contents(atPath: wsFile),
           let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
