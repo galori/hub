@@ -20,17 +20,23 @@ class KeyableWindow: NSWindow {
 }
 
 class PaddedCell: NSTextFieldCell {
-    private func paddedRect(_ rect: NSRect) -> NSRect {
-        return rect.insetBy(dx: 8, dy: 0)
+    private func adjustedRect(_ rect: NSRect) -> NSRect {
+        var r = rect.insetBy(dx: 8, dy: 0)
+        let h = super.cellSize(forBounds: r).height
+        if h < r.height {
+            r.origin.y += (r.height - h) / 2
+            r.size.height = h
+        }
+        return r
     }
     override func edit(withFrame rect: NSRect, in view: NSView, editor: NSText, delegate: Any?, event: NSEvent?) {
-        super.edit(withFrame: paddedRect(rect), in: view, editor: editor, delegate: delegate, event: event)
+        super.edit(withFrame: adjustedRect(rect), in: view, editor: editor, delegate: delegate, event: event)
     }
     override func draw(withFrame rect: NSRect, in view: NSView) {
-        super.draw(withFrame: paddedRect(rect), in: view)
+        super.draw(withFrame: adjustedRect(rect), in: view)
     }
     override func select(withFrame rect: NSRect, in view: NSView, editor: NSText, delegate: Any?, start: Int, length: Int) {
-        super.select(withFrame: paddedRect(rect), in: view, editor: editor, delegate: delegate, start: start, length: length)
+        super.select(withFrame: adjustedRect(rect), in: view, editor: editor, delegate: delegate, start: start, length: length)
     }
 }
 
