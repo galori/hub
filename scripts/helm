@@ -783,11 +783,9 @@ cmd_remove() {
         window_count="$(echo "$windows" | wc -l | tr -d ' ')"
     fi
 
-    local confirm_msg="Remove workspace '$ws_name' (ID: $ws_id)"
+    local confirm_msg="Remove workspace '$ws_name' (ID: $ws_id)?"
     if [[ "$window_count" -gt 0 ]]; then
-        confirm_msg="$confirm_msg and close $window_count active window(s)?"
-    else
-        confirm_msg="$confirm_msg?"
+        confirm_msg="Remove workspace '$ws_name' (ID: $ws_id)? Any open windows will be moved to the General workspace."
     fi
 
     # Determine if this is a worktree (path differs from root repo)
@@ -864,29 +862,19 @@ cmd_remove() {
     remove_sketchybar_label "$ws_id"
     success "Sketchybar label cleared for workspace $ws_id"
 
-    # Move windows to a hidden trash workspace so the workspace disappears
-    # immediately, then close them in the background so any app dialogs
-    # (unsaved changes, etc.) don't block the remove flow
+    # Move windows to General workspace (Z)
     if [[ -n "$windows" ]]; then
         while IFS= read -r wid; do
-            aerospace move-node-to-workspace --window-id "$wid" _trash 2>/dev/null || true
+            aerospace move-node-to-workspace --window-id "$wid" Z 2>/dev/null || true
         done <<< "$windows"
+        success "Moved $window_count window(s) to General workspace"
     fi
 
     # Switch away only if we were on the removed workspace
     if [[ "$current_ws" == "$ws_id" ]]; then
-        local target_ws="${prev_ws:-${fallback_ws:-1}}"
+        local target_ws="${prev_ws:-${fallback_ws:-Z}}"
         aerospace workspace "$target_ws" 2>/dev/null || true
         success "Switched to workspace $target_ws"
-    fi
-
-    # Close the trashed windows in the background — apps may show dialogs
-    if [[ -n "$windows" ]]; then
-        (
-            while IFS= read -r wid; do
-                aerospace close --window-id "$wid" 2>/dev/null || true
-            done <<< "$windows"
-        ) &
     fi
 
     echo
@@ -1222,6 +1210,21 @@ cmd_label_length() {
     [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
 }
 
+ensure_general_workspace() {
+    mkdir -p "$(dirname "$WORKSPACES_FILE")"
+    local existing="[]"
+    [[ -f "$WORKSPACES_FILE" ]] && existing="$(cat "$WORKSPACES_FILE")"
+    local already
+    already="$(echo "$existing" | jq -r '.[] | select(.workspace_id == "Z") | .workspace_id' 2>/dev/null || echo "")"
+    if [[ -z "$already" ]]; then
+        local updated
+        updated="$(echo "$existing" | jq '. + [{name: "General", path: $ENV.HOME, root_repo: "", workspace_id: "Z"}]')"
+        echo "$updated" > "$WORKSPACES_FILE"
+        update_sketchybar_label "Z" "General"
+        success "Created General workspace (Z)"
+    fi
+}
+
 cmd_up() {
     echo -e "${bold}Starting helm environment...${reset}\n"
 
@@ -1277,6 +1280,7 @@ cmd_up() {
     stop_overlay
 
     echo
+    ensure_general_workspace
     cache_keys &
     disown
 
