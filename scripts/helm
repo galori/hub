@@ -839,6 +839,21 @@ cmd_remove() {
         success "Git worktree removed"
     fi
 
+    # Find neighbor workspaces before removal (prev = before, fallback = after)
+    local current_ws prev_ws="" fallback_ws=""
+    current_ws="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+    local _seen_target=false
+    while IFS= read -r wid; do
+        [[ -z "$wid" ]] && continue
+        if [[ "$wid" == "$ws_id" ]]; then
+            _seen_target=true
+        elif [[ "$_seen_target" == "false" ]]; then
+            prev_ws="$wid"
+        elif [[ -z "$fallback_ws" ]]; then
+            fallback_ws="$wid"
+        fi
+    done < <(jq -r '[.[].workspace_id] | sort | .[]' "$WORKSPACES_FILE" 2>/dev/null)
+
     # Remove from workspaces.json
     local updated
     updated="$(jq --arg id "$ws_id" '[.[] | select(.workspace_id != $id)]' "$WORKSPACES_FILE")"
@@ -858,11 +873,12 @@ cmd_remove() {
         done <<< "$windows"
     fi
 
-    # Switch to another workspace
-    local next_ws
-    next_ws="$(jq -r '[.[].workspace_id] | sort | first // "1"' "$WORKSPACES_FILE" 2>/dev/null || echo "1")"
-    aerospace workspace "$next_ws" 2>/dev/null || true
-    success "Switched to workspace $next_ws"
+    # Switch away only if we were on the removed workspace
+    if [[ "$current_ws" == "$ws_id" ]]; then
+        local target_ws="${prev_ws:-${fallback_ws:-1}}"
+        aerospace workspace "$target_ws" 2>/dev/null || true
+        success "Switched to workspace $target_ws"
+    fi
 
     # Close the trashed windows in the background — apps may show dialogs
     if [[ -n "$windows" ]]; then
