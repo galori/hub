@@ -512,7 +512,7 @@ func showPickPath() {
         ])
         prevRecentAnchor = recentLabel.bottomAnchor
 
-        for (i, rp) in recent.prefix(5).enumerated() {
+        for (i, rp) in recent.prefix(15).enumerated() {
             let displayPath = (rp as NSString).abbreviatingWithTildeInPath
             let btn = NSButton()
             btn.translatesAutoresizingMaskIntoConstraints = false
