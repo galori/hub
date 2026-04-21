@@ -27,6 +27,7 @@
 - **Single-binary Swift UIs**: GUI elements are standalone Swift files compiled with `swiftc -O -framework Cocoa`. No Xcode project, no storyboards.
 - **Config is deployed, not symlinked**: `helm install` deploys configs to their destinations. Both aerospace.toml and sketchybar configs use `__HELM_SCRIPT__` placeholder substituted via sed.
 - **Harmless deploy**: Running `helm install` is always safe as an idempotent deploy/reload step after code changes.
+- **Responsiveness first**: UI actions must feel instant. Never block the user waiting for background work (app teardown, window closing, etc.) to complete. Move slow work off the critical path — fire-and-forget or background subshells — so the visible state updates immediately.
 
 ## Agent Tools
 

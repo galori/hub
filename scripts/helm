@@ -849,12 +849,13 @@ cmd_remove() {
     remove_sketchybar_label "$ws_id"
     success "Sketchybar label cleared for workspace $ws_id"
 
-    # Close all windows on this workspace
+    # Move windows to a hidden trash workspace so the workspace disappears
+    # immediately, then close them in the background so any app dialogs
+    # (unsaved changes, etc.) don't block the remove flow
     if [[ -n "$windows" ]]; then
         while IFS= read -r wid; do
-            aerospace close --window-id "$wid" 2>/dev/null || true
+            aerospace move-node-to-workspace --window-id "$wid" _trash 2>/dev/null || true
         done <<< "$windows"
-        success "Closed $window_count window(s) from workspace $ws_id"
     fi
 
     # Switch to another workspace
@@ -862,6 +863,15 @@ cmd_remove() {
     next_ws="$(jq -r '[.[].workspace_id] | sort | first // "1"' "$WORKSPACES_FILE" 2>/dev/null || echo "1")"
     aerospace workspace "$next_ws" 2>/dev/null || true
     success "Switched to workspace $next_ws"
+
+    # Close the trashed windows in the background — apps may show dialogs
+    if [[ -n "$windows" ]]; then
+        (
+            while IFS= read -r wid; do
+                aerospace close --window-id "$wid" 2>/dev/null || true
+            done <<< "$windows"
+        ) &
+    fi
 
     echo
     echo -e "${green}${bold}Workspace '$ws_name' (ID: $ws_id) removed.${reset}"
