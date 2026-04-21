@@ -489,7 +489,10 @@ cmd_new() {
     aerospace workspace "$ws_id"
     success "Switched to workspace $ws_id"
 
-    # Open iTerm and cd to path
+    # Open iTerm and cd to path, then ensure the window lands on $ws_id
+    local iterm_before
+    iterm_before="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep '|iTerm2$' | cut -d'|' -f1 || echo "")"
+
     osascript <<APPLESCRIPT
 tell application "iTerm"
     activate
@@ -499,6 +502,31 @@ tell application "iTerm"
     end tell
 end tell
 APPLESCRIPT
+
+    # Poll for the new window and move it to the correct workspace if needed
+    local iterm_wid=""
+    for _ in $(seq 1 24); do
+        sleep 0.25
+        local iterm_after
+        iterm_after="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep '|iTerm2$' | cut -d'|' -f1 || echo "")"
+        while IFS= read -r wid; do
+            [[ -z "$wid" ]] && continue
+            if ! echo "$iterm_before" | grep -qxF "$wid"; then
+                iterm_wid="$wid"
+                break 2
+            fi
+        done <<< "$iterm_after"
+    done
+
+    if [[ -n "$iterm_wid" ]]; then
+        local iterm_ws
+        iterm_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${iterm_wid}|" | cut -d'|' -f2 || echo "")"
+        if [[ "$iterm_ws" != "$ws_id" ]]; then
+            aerospace focus --window-id "$iterm_wid" 2>/dev/null || true
+            aerospace move-node-to-workspace "$ws_id" 2>/dev/null || true
+        fi
+        aerospace workspace "$ws_id" 2>/dev/null || true
+    fi
     success "Opened iTerm at $ws_path"
 
     echo
