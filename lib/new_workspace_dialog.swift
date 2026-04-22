@@ -304,7 +304,7 @@ func listWorktrees(_ path: String) -> [Worktree] {
     return worktrees
 }
 
-func createWorktree(repoRoot: String, name: String) -> String? {
+func createWorktree(repoRoot: String, name: String) -> (path: String?, error: String) {
     let checkBranch = Process()
     checkBranch.executableURL = URL(fileURLWithPath: "/usr/bin/git")
     checkBranch.arguments = ["-C", repoRoot, "rev-parse", "--verify", "refs/heads/\(name)"]
@@ -326,10 +326,13 @@ func createWorktree(repoRoot: String, name: String) -> String? {
         p.arguments = ["-C", repoRoot, "worktree", "add", "-b", name, worktreePath]
     }
     p.standardOutput = FileHandle.nullDevice
-    p.standardError = FileHandle.nullDevice
+    let stderrPipe = Pipe()
+    p.standardError = stderrPipe
     try? p.run()
     p.waitUntilExit()
-    return p.terminationStatus == 0 ? worktreePath : nil
+    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    let stderrStr = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return p.terminationStatus == 0 ? (worktreePath, "") : (nil, stderrStr)
 }
 
 func lastPathComponent(_ path: String) -> String {
@@ -884,10 +887,11 @@ func showCreatingSpinner(repoRoot: String, name: String, manager: [String: Strin
     spinner.startAnimation(nil)
     addView(spinner)
 
-    let statusLabel = NSTextField(labelWithString: "Running git worktree add...")
+    let statusLabel = NSTextField(wrappingLabelWithString: "Running git worktree add...")
     statusLabel.translatesAutoresizingMaskIntoConstraints = false
     statusLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
     statusLabel.textColor = NSColor(white: 1, alpha: 0.5)
+    statusLabel.alignment = .center
     addView(statusLabel)
 
     NSLayoutConstraint.activate([
@@ -896,17 +900,19 @@ func showCreatingSpinner(repoRoot: String, name: String, manager: [String: Strin
         spinner.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 24),
         spinner.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
         statusLabel.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16),
-        statusLabel.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+        statusLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        statusLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         statusLabel.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -24),
     ])
 
     relayout()
 
     DispatchQueue.global(qos: .userInitiated).async {
-        let newPath = createWorktree(repoRoot: repoRoot, name: name)
+        let result = createWorktree(repoRoot: repoRoot, name: name)
         DispatchQueue.main.async {
-            guard let path = newPath else {
-                statusLabel.stringValue = "Failed to create worktree"
+            guard let path = result.path else {
+                let errMsg = result.error.isEmpty ? "Failed to create worktree" : "Failed to create worktree:\n\(result.error)"
+                statusLabel.stringValue = errMsg
                 statusLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
                 spinner.stopAnimation(nil)
                 currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
