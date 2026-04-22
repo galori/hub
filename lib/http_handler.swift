@@ -58,30 +58,19 @@ NSLayoutConstraint.activate([
     urlLabel.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -22),
 ])
 
-func appNameForSlot(_ index: Int) -> String? {
+func launchCommandForSlot(_ index: Int) -> String? {
     let appsPath = NSHomeDirectory() + "/.config/helm/apps.json"
     guard let data = try? Data(contentsOf: URL(fileURLWithPath: appsPath)),
           let apps = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
           index < apps.count,
-          let name = apps[index]["name"] as? String
+          let launch = apps[index]["launch"] as? String
     else { return nil }
-    return name
+    return launch
 }
 
-func openURL(_ url: URL, inAppNamed appName: String) {
-    let appPaths = [
-        "/Applications/\(appName).app",
-        NSHomeDirectory() + "/Applications/\(appName).app",
-    ]
-    for path in appPaths {
-        if FileManager.default.fileExists(atPath: path) {
-            let cfg = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.open([url], withApplicationAt: URL(fileURLWithPath: path), configuration: cfg)
-            return
-        }
-    }
-    // Fallback: let the system find it by name
-    Process.launchedProcess(launchPath: "/usr/bin/open", arguments: ["-a", appName, url.absoluteString])
+func openURL(_ url: URL, withLaunchCommand launch: String) {
+    let cmd = "\(launch) \(url.absoluteString)"
+    Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
 }
 
 func showURL(_ urlString: String) {
@@ -102,9 +91,9 @@ func showURL(_ urlString: String) {
         win.animator().alphaValue = 1
     }
 
-    // Open the URL in slot 2 app (index 1)
-    if let url = URL(string: urlString), let appName = appNameForSlot(1) {
-        openURL(url, inAppNamed: appName)
+    // Open the URL using slot 2's launch command (index 1)
+    if let url = URL(string: urlString), let launch = launchCommandForSlot(1) {
+        openURL(url, withLaunchCommand: launch)
     }
 
     DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
