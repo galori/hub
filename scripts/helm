@@ -17,6 +17,8 @@ RENAME_SRC="$LIB_DIR/rename_dialog.swift"
 RENAME_BIN="$HOME/.config/helm/rename_dialog"
 DASHBOARD_SRC="$LIB_DIR/dashboard_dialog.swift"
 DASHBOARD_BIN="$HOME/.config/helm/dashboard_dialog"
+HTTP_HANDLER_SRC="$LIB_DIR/http_handler.swift"
+HTTP_HANDLER_APP="$HOME/Applications/HelmHTTPHandler.app"
 WORKSPACES_FILE="$HOME/.config/helm/workspaces.json"
 RECENT_REPOS_FILE="$HOME/.config/helm/recent_repos.json"
 APPS_FILE="$HOME/.config/helm/apps.json"
@@ -198,6 +200,84 @@ compile_all() {
     compile_swift "confirm_dialog" "$CONFIRM_SRC" "$CONFIRM_BIN"
     compile_swift "rename_dialog" "$RENAME_SRC" "$RENAME_BIN"
     compile_swift "dashboard_dialog" "$DASHBOARD_SRC" "$DASHBOARD_BIN"
+    build_http_handler
+}
+
+build_http_handler() {
+    local src="$HTTP_HANDLER_SRC"
+    local app="$HTTP_HANDLER_APP"
+    local bin="$app/Contents/MacOS/HelmHTTPHandler"
+    local plist="$app/Contents/Info.plist"
+
+    if [[ ! -f "$src" ]]; then
+        warn "http_handler source not found — skipping"
+        return
+    fi
+
+    if [[ -f "$bin" ]] && [[ "$bin" -nt "$src" ]]; then
+        info "HelmHTTPHandler.app up to date"
+        return
+    fi
+
+    mkdir -p "$app/Contents/MacOS"
+    mkdir -p "$app/Contents/Resources"
+
+    cat > "$plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>sh.helm.http-handler</string>
+    <key>CFBundleName</key>
+    <string>HelmHTTPHandler</string>
+    <key>CFBundleDisplayName</key>
+    <string>Helm HTTP Handler</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleExecutable</key>
+    <string>HelmHTTPHandler</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>HTTP URL</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>http</string>
+            </array>
+        </dict>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>HTTPS URL</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>https</string>
+            </array>
+        </dict>
+    </array>
+    <key>LSHandlerRank</key>
+    <string>Alternate</string>
+</dict>
+</plist>
+PLIST
+
+    if swiftc -O -o "$bin" -framework Cocoa "$src" 2>/dev/null; then
+        # Register with Launch Services so it appears in Default Web Browser list
+        /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+            -f "$app" 2>/dev/null || true
+        success "HelmHTTPHandler.app built and registered: $app"
+    else
+        warn "HelmHTTPHandler.app compilation failed"
+    fi
 }
 
 # --- Commands ---
