@@ -659,7 +659,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
     if worktrees.count <= 1 {
         subtitle = "Git repo — use as-is or create a worktree"
     } else {
-        subtitle = "This repo has \(worktrees.count) worktrees — press a number to select"
+        subtitle = "This repo has \(worktrees.count) worktrees"
     }
     let subtitleLabel = NSTextField(labelWithString: subtitle)
     subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -719,8 +719,26 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
         prevAnchor = btn.bottomAnchor
     }
 
-    let newWtBtn = makeBtn(label: "+ NEW WORKTREE", shortcut: "n", bg: NSColor(white: 0.22, alpha: 1), fg: greenColor)
-    addView(newWtBtn)
+    let sep = NSView()
+    sep.translatesAutoresizingMaskIntoConstraints = false
+    sep.wantsLayer = true
+    sep.layer?.backgroundColor = NSColor(white: 1, alpha: 0.08).cgColor
+    addView(sep)
+
+    let newWtRow = NSButton()
+    newWtRow.translatesAutoresizingMaskIntoConstraints = false
+    newWtRow.isBordered = false
+    newWtRow.bezelStyle = .inline
+    newWtRow.wantsLayer = true
+    newWtRow.layer?.cornerRadius = 6
+    newWtRow.alignment = .left
+    let newWtAttr = NSMutableAttributedString()
+    newWtAttr.append(NSAttributedString(string: "  n  + new worktree", attributes: [
+        .font: NSFont.monospacedSystemFont(ofSize: 15, weight: .regular),
+        .foregroundColor: greenColor,
+    ]))
+    newWtRow.attributedTitle = newWtAttr
+    addView(newWtRow)
 
     class NewWtAction: NSObject {
         let root: String
@@ -729,8 +747,8 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
         @objc func create(_ sender: Any) { showCreateWorktree(repoRoot: root, manager: mgr) }
     }
     let newWtAction = NewWtAction(repoRoot, manager)
-    newWtBtn.target = newWtAction; newWtBtn.action = #selector(NewWtAction.create(_:))
-    objc_setAssociatedObject(newWtBtn, "a", newWtAction, .OBJC_ASSOCIATION_RETAIN)
+    newWtRow.target = newWtAction; newWtRow.action = #selector(NewWtAction.create(_:))
+    objc_setAssociatedObject(newWtRow, "a", newWtAction, .OBJC_ASSOCIATION_RETAIN)
 
     let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
@@ -746,11 +764,15 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
         titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
         subtitleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        newWtBtn.topAnchor.constraint(equalTo: prevAnchor, constant: 14),
-        newWtBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        newWtBtn.heightAnchor.constraint(equalToConstant: 34),
-        newWtBtn.widthAnchor.constraint(equalToConstant: 170),
-        cancelBtn.topAnchor.constraint(equalTo: newWtBtn.topAnchor),
+        sep.topAnchor.constraint(equalTo: prevAnchor, constant: 6),
+        sep.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 8),
+        sep.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8),
+        sep.heightAnchor.constraint(equalToConstant: 1),
+        newWtRow.topAnchor.constraint(equalTo: sep.bottomAnchor, constant: 2),
+        newWtRow.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 8),
+        newWtRow.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8),
+        newWtRow.heightAnchor.constraint(equalToConstant: 34),
+        cancelBtn.topAnchor.constraint(equalTo: newWtRow.bottomAnchor, constant: 14),
         cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
         cancelBtn.widthAnchor.constraint(equalToConstant: 100),

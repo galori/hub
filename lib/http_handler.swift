@@ -106,7 +106,7 @@ func showURL(_ urlString: String) {
         })
     }
     hideWork = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -121,6 +121,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func handleGetURL(_ event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {
         let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue ?? "(no URL)"
         showURL(urlString)
+    }
+
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        showURL(URL(fileURLWithPath: filename).absoluteString)
+        return true
     }
 }
 

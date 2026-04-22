@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Capture a screenshot of the sketchybar region (top of screen).
+# Capture a screenshot of the sketchybar region (top of primary screen only).
 # Usage: screenshot-bar [output.png]
 # Requires: screencapture (macOS)
 
@@ -8,21 +8,28 @@ set -euo pipefail
 OUT="${1:-/tmp/helm-bar-screenshot.png}"
 BAR_HEIGHT=50
 
-# Try common display widths instead of querying display metadata. In headless or
-# sandboxed contexts, system_profiler can omit resolutions and full-screen
-# screencapture can fail even when region capture works.
-WIDTHS=()
-if [[ "${HELM_BAR_SCREEN_WIDTH:-}" =~ ^[0-9]+$ ]] && [ "$HELM_BAR_SCREEN_WIDTH" -gt 0 ]; then
-    WIDTHS+=("$HELM_BAR_SCREEN_WIDTH")
+# Get primary display width via system_profiler (main display is listed first).
+PRIMARY_WIDTH=""
+if command -v system_profiler &>/dev/null; then
+    PRIMARY_WIDTH=$(system_profiler SPDisplaysDataType 2>/dev/null \
+        | awk '/Main Display: Yes/{found=1} found && /Resolution:/{if(match($0,/[0-9]+/)) print substr($0,RSTART,RLENGTH); exit}')
 fi
-WIDTHS+=(8192 7680 6016 5120 4096 3840 3456 3024 3000 2560 2048 1920 1728 1512 1440 1280)
 
-for WIDTH in "${WIDTHS[@]}"; do
-    if screencapture -x -R "0,0,${WIDTH},${BAR_HEIGHT}" "$OUT" 2>/dev/null; then
-        echo "$OUT"
-        exit 0
+# Fall back to trying common widths if system_profiler didn't yield a result.
+if [[ ! "$PRIMARY_WIDTH" =~ ^[0-9]+$ ]] || [ "$PRIMARY_WIDTH" -eq 0 ]; then
+    if [[ "${HELM_BAR_SCREEN_WIDTH:-}" =~ ^[0-9]+$ ]] && [ "$HELM_BAR_SCREEN_WIDTH" -gt 0 ]; then
+        PRIMARY_WIDTH="$HELM_BAR_SCREEN_WIDTH"
+    else
+        for W in 3456 3024 2560 1920 1440; do
+            if screencapture -x -R "0,0,${W},${BAR_HEIGHT}" "$OUT" 2>/dev/null; then
+                echo "$OUT"
+                exit 0
+            fi
+        done
+        echo "Unable to capture the SketchyBar region" >&2
+        exit 1
     fi
-done
+fi
 
-echo "Unable to capture the SketchyBar region" >&2
-exit 1
+screencapture -x -R "0,0,${PRIMARY_WIDTH},${BAR_HEIGHT}" "$OUT"
+echo "$OUT"
