@@ -73,6 +73,22 @@ func openURL(_ url: URL, withLaunchCommand launch: String) {
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
 }
 
+var dismissWork: DispatchWorkItem?
+
+func scheduleDismiss() {
+    dismissWork?.cancel()
+    let work = DispatchWorkItem {
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.25
+            win.animator().alphaValue = 0
+        }, completionHandler: {
+            NSApp.terminate(nil)
+        })
+    }
+    dismissWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+}
+
 func showURL(_ urlString: String) {
     urlLabel.stringValue = "Opening \(urlString)"
     cv.layoutSubtreeIfNeeded()
@@ -83,12 +99,14 @@ func showURL(_ urlString: String) {
         width: dialogW, height: fittingH)
     win.setFrame(rect, display: true)
 
-    win.alphaValue = 0
-    win.makeKeyAndOrderFront(nil)
-    app.activate(ignoringOtherApps: true)
-    NSAnimationContext.runAnimationGroup { ctx in
-        ctx.duration = 0.15
-        win.animator().alphaValue = 1
+    if !win.isVisible {
+        win.alphaValue = 0
+        win.makeKeyAndOrderFront(nil)
+        app.activate(ignoringOtherApps: true)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            win.animator().alphaValue = 1
+        }
     }
 
     // Open the URL using slot 2's launch command (index 1)
@@ -96,14 +114,7 @@ func showURL(_ urlString: String) {
         openURL(url, withLaunchCommand: launch)
     }
 
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.25
-            win.animator().alphaValue = 0
-        }, completionHandler: {
-            NSApp.terminate(nil)
-        })
-    }
+    scheduleDismiss()
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
