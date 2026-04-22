@@ -541,9 +541,9 @@ cmd_new() {
         return
     fi
 
-    # Parse: name\tpath\troot_repo\tworkspace_id[\tcolor]
-    local ws_name ws_path ws_root ws_id ws_color
-    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color <<< "$result"
+    # Parse: name\tpath\troot_repo\tworkspace_id\tcolor\tsetup_cmd
+    local ws_name ws_path ws_root ws_id ws_color ws_setup_cmd
+    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color ws_setup_cmd <<< "$result"
 
     if [[ -z "$ws_name" || -z "$ws_path" || -z "$ws_id" ]]; then
         fail "Invalid dialog result"
@@ -629,6 +629,27 @@ APPLESCRIPT
         aerospace workspace "$ws_id" 2>/dev/null || true
     fi
     success "Opened iTerm at $ws_path"
+
+    # Run worktree setup command in background output_window
+    if [[ -n "$ws_setup_cmd" && -n "$ws_root" ]]; then
+        local full_setup_cmd="$ws_root/$ws_setup_cmd"
+        if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
+            ( cd "$ws_path" && eval "$full_setup_cmd" 2>&1 | "$OUTPUT_WINDOW_BIN" "Helm: Setting up workspace $ws_name" ) &
+            disown
+        else
+            ( cd "$ws_path" && eval "$full_setup_cmd" ) &
+            disown
+        fi
+
+        (
+            sleep 0.3
+            local ow_wid
+            ow_wid="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null \
+                | grep '|output_window$' | cut -d'|' -f1 | head -1 || echo "")"
+            [[ -n "$ow_wid" ]] && aerospace move-node-to-workspace --window-id "$ow_wid" "$ws_id" 2>/dev/null || true
+        ) &
+        disown
+    fi
 
     echo
     echo -e "${green}${bold}Workspace '$ws_name' created on workspace $ws_id!${reset}"
@@ -948,7 +969,7 @@ cmd_remove() {
         fi
 
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
-            ( eval "$bg_script" 2>&1 | "$OUTPUT_WINDOW_BIN" "Removing: $ws_name" ) &
+            ( eval "$bg_script" 2>&1 | "$OUTPUT_WINDOW_BIN" "Helm: Removing workspace $ws_name" ) &
             disown
         else
             ( eval "$bg_script" ) &

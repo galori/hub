@@ -1,7 +1,7 @@
 import Cocoa
 
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(.regular)
 
 let titleArg = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Output"
 
@@ -43,21 +43,82 @@ NotificationCenter.default.addObserver(
     NSApp.terminate(nil)
 }
 
-func appendLine(_ text: String, color: NSColor = .white) {
-    let attr = NSAttributedString(string: text + "\n", attributes: [
-        .foregroundColor: color,
-        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-    ])
-    textView.textStorage?.append(attr)
+let baseFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+let baseColor = NSColor.white
+
+func parseANSI(_ raw: String) -> NSAttributedString {
+    let result = NSMutableAttributedString()
+    var curColor = baseColor
+    var curFont = baseFont
+    let esc = Character("\u{1B}")
+    var i = raw.startIndex
+    var plain = ""
+    while i < raw.endIndex {
+        if raw[i] == esc {
+            if !plain.isEmpty {
+                result.append(NSAttributedString(string: plain, attributes: [
+                    .foregroundColor: curColor, .font: curFont]))
+                plain = ""
+            }
+            let next = raw.index(after: i)
+            if next < raw.endIndex && raw[next] == "[" {
+                var j = raw.index(after: next)
+                var seq = ""
+                while j < raw.endIndex && raw[j] != "m" {
+                    seq.append(raw[j])
+                    j = raw.index(after: j)
+                }
+                if j < raw.endIndex && raw[j] == "m" {
+                    let codes = seq.split(separator: ";").compactMap { Int($0) }
+                    for c in (codes.isEmpty ? [0] : codes) {
+                        switch c {
+                        case 0: curColor = baseColor; curFont = baseFont
+                        case 1: curFont = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .bold)
+                        case 31: curColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
+                        case 32: curColor = NSColor(red: 0.62, green: 0.82, blue: 0.45, alpha: 1)
+                        case 33: curColor = NSColor(red: 0.91, green: 0.78, blue: 0.39, alpha: 1)
+                        case 34: curColor = NSColor(red: 0.46, green: 0.80, blue: 0.88, alpha: 1)
+                        case 35: curColor = NSColor(red: 0.70, green: 0.62, blue: 0.95, alpha: 1)
+                        case 36: curColor = NSColor(red: 0.00, green: 0.82, blue: 1.00, alpha: 1)
+                        default: break
+                        }
+                    }
+                    i = raw.index(after: j)
+                    continue
+                }
+            }
+            plain.append(raw[i])
+            i = raw.index(after: i)
+        } else {
+            plain.append(raw[i])
+            i = raw.index(after: i)
+        }
+    }
+    if !plain.isEmpty {
+        result.append(NSAttributedString(string: plain, attributes: [
+            .foregroundColor: curColor, .font: curFont]))
+    }
+    return result
+}
+
+func appendText(_ text: String, color: NSColor? = nil) {
+    if let c = color {
+        let attr = NSAttributedString(string: text + "\n", attributes: [
+            .foregroundColor: c, .font: baseFont])
+        textView.textStorage?.append(attr)
+    } else {
+        let parsed = parseANSI(text + "\n")
+        textView.textStorage?.append(parsed)
+    }
     textView.scrollToEndOfDocument(nil)
 }
 
 DispatchQueue.global(qos: .userInitiated).async {
     while let line = readLine() {
-        DispatchQueue.main.async { appendLine(line) }
+        DispatchQueue.main.async { appendText(line) }
     }
     DispatchQueue.main.async {
-        appendLine("\n--- Done ---", color: NSColor(white: 1, alpha: 0.4))
+        appendText("\n--- Done ---", color: NSColor(white: 1, alpha: 0.4))
     }
 }
 

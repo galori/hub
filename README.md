@@ -131,6 +131,10 @@ helm open 2         # open just the second configured app (e.g., Chrome)
 - **Minimal chrome**: Hide the Dock and menu bar. SketchyBar provides only what's needed.
 - **Single command**: `helm up` to start, `helm down` to stop. No manual config needed after install.
 
+## Development
+
+If working from a worktree, run `helm reboot` after making changes to get everything running from the worktree path for testing.
+
 ## Dependencies
 
 - [AeroSpace](https://github.com/nikitabobko/AeroSpace) - tiling window manager
