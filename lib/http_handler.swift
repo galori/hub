@@ -106,7 +106,7 @@ func showURL(_ urlString: String) {
         })
     }
     hideWork = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
