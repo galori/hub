@@ -167,33 +167,52 @@ if [ -f "$APPS_FILE" ]; then
                    icon.y_offset=-13 \
                    icon.padding_left=0 \
                    icon.padding_right=0 \
-                   label="$i" \
-                   label.drawing=on \
-                   label.font="Hack Nerd Font:Bold:9.0" \
-                   label.color=0xaaffffff \
-                   label.align=right \
-                   label.width=30 \
-                   label.padding_left=-34 \
-                   label.padding_right=4 \
-                   label.y_offset=-6 \
+                   label.drawing=off \
+                   label.width=0 \
+                   label.padding_left=0 \
+                   label.padding_right=0 \
                    background.drawing=on \
                    background.color=0x00000000 \
                    background.image="app.$APP_ICON" \
                    background.image.scale=0.78 \
-                   background.image.padding_left=3 \
+                   background.image.padding_left=0 \
                    background.image.padding_right=0 \
                    background.height=40 \
                    background.y_offset=2 \
                    background.corner_radius=6 \
-                   padding_left=7 \
-                   padding_right=7 \
+                   padding_left=0 \
+                   padding_right=0 \
                    script="$PLUGIN_DIR/app_slot.sh" \
                    --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
+        sketchybar --add item "app_tip.$i" right \
+                   --set "app_tip.$i" \
+                   drawing=on \
+                   width=8 \
+                   icon.drawing=off \
+                   label="$i" \
+                   label.drawing=on \
+                   label.font="Hack Nerd Font:Bold:9.0" \
+                   label.color=0xaaffffff \
+                   label.align=center \
+                   label.width=8 \
+                   label.padding_left=0 \
+                   label.padding_right=0 \
+                   label.y_offset=-6 \
+                   background.drawing=on \
+                   background.color=0x00000000 \
+                   background.height=40 \
+                   background.y_offset=2 \
+                   background.corner_radius=6 \
+                   padding_left=3 \
+                   padding_right=0 \
+                   script="$PLUGIN_DIR/app_slot.sh" \
+                   --subscribe "app_tip.$i" mouse.entered mouse.exited mouse.clicked
     done
 
-    # Build bracket member list: app_slot.1 .. app_slot.APP_COUNT
+    # Build bracket member list: app_tip.1 app_slot.1 .. app_tip.N app_slot.N
     APP_SLOTS=()
     for ((i=1; i<=APP_COUNT; i++)); do
+        APP_SLOTS+=("app_tip.$i")
         APP_SLOTS+=("app_slot.$i")
     done
     sketchybar --add bracket app_bracket "${APP_SLOTS[@]}" \
