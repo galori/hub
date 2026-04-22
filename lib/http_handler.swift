@@ -122,6 +122,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue ?? "(no URL)"
         showURL(urlString)
     }
+
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        showURL(URL(fileURLWithPath: filename).absoluteString)
+        return true
+    }
 }
 
 let delegate = AppDelegate()
