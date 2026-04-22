@@ -219,7 +219,7 @@ build_http_handler() {
         return
     fi
 
-    if [[ -f "$bin" ]] && [[ "$bin" -nt "$src" ]]; then
+    if [[ -f "$bin" ]] && [[ "$bin" -nt "$src" ]] && [[ "$bin" -nt "${BASH_SOURCE[0]}" ]]; then
         info "HelmHTTPHandler.app up to date"
         return
     fi
