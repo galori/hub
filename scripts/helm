@@ -19,6 +19,10 @@ DASHBOARD_SRC="$LIB_DIR/dashboard_dialog.swift"
 DASHBOARD_BIN="$HOME/.config/helm/dashboard_dialog"
 HTTP_HANDLER_SRC="$LIB_DIR/http_handler.swift"
 HTTP_HANDLER_APP="$HOME/Applications/HelmHTTPHandler.app"
+BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
+BROWSER_CTL_BIN="$HOME/.config/helm/browser_ctl"
+PREV_BROWSER_FILE="$HOME/.config/helm/prev_browser"
+HELM_BROWSER_ID="sh.helm.http-handler"
 WORKSPACES_FILE="$HOME/.config/helm/workspaces.json"
 RECENT_REPOS_FILE="$HOME/.config/helm/recent_repos.json"
 APPS_FILE="$HOME/.config/helm/apps.json"
@@ -200,6 +204,7 @@ compile_all() {
     compile_swift "confirm_dialog" "$CONFIRM_SRC" "$CONFIRM_BIN"
     compile_swift "rename_dialog" "$RENAME_SRC" "$RENAME_BIN"
     compile_swift "dashboard_dialog" "$DASHBOARD_SRC" "$DASHBOARD_BIN"
+    compile_swift "browser_ctl" "$BROWSER_CTL_SRC" "$BROWSER_CTL_BIN"
     build_http_handler
 }
 
@@ -1328,6 +1333,19 @@ cmd_up() {
     toggle_menu_bar true
     info "Setting menu bar auto-hide to ON (System Settings will open briefly)..."
 
+    # Set HelmHTTPHandler as default browser, saving previous for restore
+    if [[ -x "$BROWSER_CTL_BIN" ]]; then
+        local prev_browser
+        prev_browser="$("$BROWSER_CTL_BIN" get 2>/dev/null || true)"
+        if [[ -n "$prev_browser" && "$prev_browser" != "$HELM_BROWSER_ID" ]]; then
+            echo "$prev_browser" > "$PREV_BROWSER_FILE"
+        fi
+        "$BROWSER_CTL_BIN" set "$HELM_BROWSER_ID" 2>/dev/null || true
+        success "Default browser set to HelmHTTPHandler"
+    else
+        warn "browser_ctl not found — skipping default browser change"
+    fi
+
     # Hide the Dock
     defaults write com.apple.dock autohide -bool true
     defaults write com.apple.dock autohide-delay -float 1000
@@ -1407,6 +1425,19 @@ cmd_down() {
         success "AeroSpace disabled"
     else
         warn "AeroSpace was not running"
+    fi
+
+    # Restore previous default browser
+    if [[ -x "$BROWSER_CTL_BIN" ]] && [[ -f "$PREV_BROWSER_FILE" ]]; then
+        local prev_browser
+        prev_browser="$(cat "$PREV_BROWSER_FILE")"
+        if [[ -n "$prev_browser" ]]; then
+            "$BROWSER_CTL_BIN" set "$prev_browser" 2>/dev/null || true
+            rm -f "$PREV_BROWSER_FILE"
+            success "Default browser restored to $prev_browser"
+        fi
+    else
+        warn "No saved browser to restore"
     fi
 
     # Show overlay while restoring system settings
