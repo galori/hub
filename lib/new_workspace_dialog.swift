@@ -448,6 +448,16 @@ func relayout() {
 // STEP 1: Pick Path
 // ============================================================================
 
+func removeFromRecentPaths(_ path: String) {
+    let recentFile = NSString(string: "~/.config/helm/recent_repos.json").expandingTildeInPath
+    guard let data = FileManager.default.contents(atPath: recentFile),
+          var arr = try? JSONSerialization.jsonObject(with: data) as? [String] else { return }
+    arr.removeAll { $0 == path }
+    if let newData = try? JSONSerialization.data(withJSONObject: arr) {
+        try? newData.write(to: URL(fileURLWithPath: recentFile))
+    }
+}
+
 func recentPaths() -> [String] {
     let recentFile = NSString(string: "~/.config/helm/recent_repos.json").expandingTildeInPath
     if let data = FileManager.default.contents(atPath: recentFile),
@@ -501,8 +511,19 @@ func showPickPath() {
 
     class RecentPathAction: NSObject {
         let path: String
-        init(_ p: String) { path = p }
-        @objc func pick(_ sender: Any) { handlePathSelected(path) }
+        let errLabel: NSTextField
+        weak var btn: NSButton?
+        init(_ p: String, _ e: NSTextField) { path = p; errLabel = e }
+        @objc func pick(_ sender: Any) {
+            guard FileManager.default.fileExists(atPath: path) else {
+                removeFromRecentPaths(path)
+                btn?.isEnabled = false
+                btn?.alphaValue = 0.3
+                errLabel.stringValue = "Directory no longer exists: \(path)"
+                return
+            }
+            handlePathSelected(path)
+        }
     }
 
     var prevRecentAnchor: NSLayoutYAxisAnchor = errorLabel.bottomAnchor
@@ -527,7 +548,8 @@ func showPickPath() {
                 .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
                 .foregroundColor: NSColor(white: 1, alpha: 0.55),
             ])
-            let action = RecentPathAction(rp)
+            let action = RecentPathAction(rp, errorLabel)
+            action.btn = btn
             recentActions.append(action)
             btn.target = action; btn.action = #selector(RecentPathAction.pick(_:))
             objc_setAssociatedObject(btn, "rp\(i)", action, .OBJC_ASSOCIATION_RETAIN)
