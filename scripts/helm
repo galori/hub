@@ -17,6 +17,8 @@ RENAME_SRC="$LIB_DIR/rename_dialog.swift"
 RENAME_BIN="$HOME/.config/helm/rename_dialog"
 DASHBOARD_SRC="$LIB_DIR/dashboard_dialog.swift"
 DASHBOARD_BIN="$HOME/.config/helm/dashboard_dialog"
+OUTPUT_WINDOW_SRC="$LIB_DIR/output_window.swift"
+OUTPUT_WINDOW_BIN="$HOME/.config/helm/output_window"
 HTTP_HANDLER_SRC="$LIB_DIR/http_handler.swift"
 HTTP_HANDLER_APP="$HOME/Applications/HelmHTTPHandler.app"
 BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
@@ -206,6 +208,7 @@ compile_all() {
     compile_swift "rename_dialog" "$RENAME_SRC" "$RENAME_BIN"
     compile_swift "dashboard_dialog" "$DASHBOARD_SRC" "$DASHBOARD_BIN"
     compile_swift "browser_ctl" "$BROWSER_CTL_SRC" "$BROWSER_CTL_BIN"
+    compile_swift "output_window" "$OUTPUT_WINDOW_SRC" "$OUTPUT_WINDOW_BIN"
     build_http_handler
 }
 
@@ -538,9 +541,9 @@ cmd_new() {
         return
     fi
 
-    # Parse: name\tpath\troot_repo\tworkspace_id[\tcolor]
-    local ws_name ws_path ws_root ws_id ws_color
-    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color <<< "$result"
+    # Parse: name\tpath\troot_repo\tworkspace_id\tcolor\tsetup_cmd
+    local ws_name ws_path ws_root ws_id ws_color ws_setup_cmd
+    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color ws_setup_cmd <<< "$result"
 
     if [[ -z "$ws_name" || -z "$ws_path" || -z "$ws_id" ]]; then
         fail "Invalid dialog result"
@@ -626,6 +629,27 @@ APPLESCRIPT
         aerospace workspace "$ws_id" 2>/dev/null || true
     fi
     success "Opened iTerm at $ws_path"
+
+    # Run worktree setup command in background output_window
+    if [[ -n "$ws_setup_cmd" && -n "$ws_root" ]]; then
+        local full_setup_cmd="$ws_root/$ws_setup_cmd"
+        if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
+            ( cd "$ws_path" && eval "$full_setup_cmd" 2>&1 | "$OUTPUT_WINDOW_BIN" "Helm: Setting up workspace $ws_name" ) &
+            disown
+        else
+            ( cd "$ws_path" && eval "$full_setup_cmd" ) &
+            disown
+        fi
+
+        (
+            sleep 0.3
+            local ow_wid
+            ow_wid="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null \
+                | grep '|output_window$' | cut -d'|' -f1 | head -1 || echo "")"
+            [[ -n "$ow_wid" ]] && aerospace move-node-to-workspace --window-id "$ow_wid" "$ws_id" 2>/dev/null || true
+        ) &
+        disown
+    fi
 
     echo
     echo -e "${green}${bold}Workspace '$ws_name' created on workspace $ws_id!${reset}"
@@ -917,62 +941,49 @@ cmd_remove() {
         fi
     fi
 
-    # Worktree teardown and removal if user opted in
-    if [[ "$is_worktree" == "true" && "$remove_worktree" == "true" ]]; then
-        local teardown_cmd
-        teardown_cmd="$(read_superset_config "$ws_root" "teardown" 2>/dev/null || echo "")"
-        if [[ -n "$teardown_cmd" ]]; then
-            info "Tearing down worktree environment..."
-            if (cd "$ws_path" && eval "$ws_root/$teardown_cmd"); then
-                success "Worktree environment cleaned up"
-            else
-                warn "Worktree teardown failed (continuing with workspace removal)"
-            fi
-        fi
-        info "Removing git worktree..."
-        git -C "$ws_root" worktree remove "$ws_path" --force 2>/dev/null || true
-        git -C "$ws_root" worktree prune 2>/dev/null || true
-        success "Git worktree removed"
-    fi
-
-    # Find neighbor workspaces before removal (prev = before, fallback = after)
-    local current_ws prev_ws="" fallback_ws=""
-    current_ws="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
-    local _seen_target=false
-    while IFS= read -r wid; do
-        [[ -z "$wid" ]] && continue
-        if [[ "$wid" == "$ws_id" ]]; then
-            _seen_target=true
-        elif [[ "$_seen_target" == "false" ]]; then
-            prev_ws="$wid"
-        elif [[ -z "$fallback_ws" ]]; then
-            fallback_ws="$wid"
-        fi
-    done < <(jq -r '[.[].workspace_id] | sort | .[]' "$WORKSPACES_FILE" 2>/dev/null)
-
-    # Remove from workspaces.json
+    # Instant cleanup — before any slow teardown
     local updated
     updated="$(jq --arg id "$ws_id" '[.[] | select(.workspace_id != $id)]' "$WORKSPACES_FILE")"
     echo "$updated" > "$WORKSPACES_FILE"
-    success "Removed from $WORKSPACES_FILE"
 
-    # Update sketchybar
     remove_sketchybar_label "$ws_id"
-    success "Sketchybar label cleared for workspace $ws_id"
 
-    # Move windows to General workspace (Z)
     if [[ -n "$windows" ]]; then
         while IFS= read -r wid; do
             aerospace move-node-to-workspace --window-id "$wid" Z 2>/dev/null || true
         done <<< "$windows"
-        success "Moved $window_count window(s) to General workspace"
     fi
 
-    # Switch away only if we were on the removed workspace
-    if [[ "$current_ws" == "$ws_id" ]]; then
-        local target_ws="${prev_ws:-${fallback_ws:-Z}}"
-        aerospace workspace "$target_ws" 2>/dev/null || true
-        success "Switched to workspace $target_ws"
+    aerospace workspace Z 2>/dev/null || true
+
+    # Background teardown piped to output_window
+    if [[ "$is_worktree" == "true" && "$remove_worktree" == "true" ]]; then
+        local teardown_cmd
+        teardown_cmd="$(read_superset_config "$ws_root" "teardown" 2>/dev/null || echo "")"
+
+        local bg_script
+        if [[ -n "$teardown_cmd" ]]; then
+            bg_script="(cd $(printf '%q' "$ws_path") && eval $(printf '%q' "$ws_root/$teardown_cmd")); git -C $(printf '%q' "$ws_root") worktree remove $(printf '%q' "$ws_path") --force 2>/dev/null; git -C $(printf '%q' "$ws_root") worktree prune 2>/dev/null"
+        else
+            bg_script="git -C $(printf '%q' "$ws_root") worktree remove $(printf '%q' "$ws_path") --force 2>/dev/null; git -C $(printf '%q' "$ws_root") worktree prune 2>/dev/null"
+        fi
+
+        if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
+            ( eval "$bg_script" 2>&1 | "$OUTPUT_WINDOW_BIN" "Helm: Removing workspace $ws_name" ) &
+            disown
+        else
+            ( eval "$bg_script" ) &
+            disown
+        fi
+
+        (
+            sleep 0.3
+            local ow_wid
+            ow_wid="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null \
+                | grep '|output_window$' | cut -d'|' -f1 | head -1 || echo "")"
+            [[ -n "$ow_wid" ]] && aerospace move-node-to-workspace --window-id "$ow_wid" Z 2>/dev/null || true
+        ) &
+        disown
     fi
 
     echo

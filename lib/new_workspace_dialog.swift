@@ -943,134 +943,20 @@ func showCreatingSpinner(repoRoot: String, name: String, manager: [String: Strin
                 }
                 return
             }
-            if let setupCmd = manager?["setup"] {
-                showWorktreeSetup(repoRoot: repoRoot, worktreePath: path, setupCmd: setupCmd)
-            } else {
-                showNamingWorkspace(path: path, repoRoot: repoRoot)
-            }
+            showNamingWorkspace(path: path, repoRoot: repoRoot, setupCmd: manager?["setup"])
         }
     }
-}
-
-// ============================================================================
-// STEP 2c: Worktree Setup Progress
-// ============================================================================
-func showWorktreeSetup(repoRoot: String, worktreePath: String, setupCmd: String) {
-    clearContent()
-
-    let titleLabel = NSTextField(labelWithString: "Setting Up Worktree")
-    titleLabel.translatesAutoresizingMaskIntoConstraints = false
-    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    titleLabel.textColor = dimWhite
-    addView(titleLabel)
-
-    let subtitleLabel = NSTextField(labelWithString: lastPathComponent(worktreePath))
-    subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-    subtitleLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    subtitleLabel.textColor = NSColor(white: 1, alpha: 0.4)
-    addView(subtitleLabel)
-
-    let scrollView = NSScrollView()
-    scrollView.translatesAutoresizingMaskIntoConstraints = false
-    scrollView.hasVerticalScroller = true
-    scrollView.hasHorizontalScroller = false
-    scrollView.autohidesScrollers = true
-    scrollView.borderType = .noBorder
-    scrollView.wantsLayer = true
-    scrollView.layer?.backgroundColor = NSColor(white: 0.06, alpha: 1).cgColor
-    scrollView.layer?.cornerRadius = 8
-
-    let textView = NSTextView()
-    textView.isEditable = false
-    textView.isSelectable = true
-    textView.backgroundColor = NSColor(white: 0.06, alpha: 1)
-    textView.textColor = NSColor(white: 1, alpha: 0.7)
-    textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-    textView.textContainerInset = NSSize(width: 8, height: 8)
-    textView.isVerticallyResizable = true
-    textView.isHorizontallyResizable = false
-    textView.textContainer?.widthTracksTextView = true
-    scrollView.documentView = textView
-    addView(scrollView)
-
-    NSLayoutConstraint.activate([
-        titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
-        titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
-        subtitleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        scrollView.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 12),
-        scrollView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
-        scrollView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -20),
-        scrollView.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
-    ])
-
-    // Set fixed height for progress view — don't call relayout() which would shrink it
-    let newHeight: CGFloat = 560
-    let progressRect = NSRect(
-        x: sf.midX - dialogW / 2,
-        y: sf.midY - newHeight / 2 + 80,
-        width: dialogW,
-        height: newHeight
-    )
-    win.setFrame(progressRect, display: true, animate: true)
-
-    // Remove key handler while setup runs (no cancel during setup)
-    if let kh = currentKeyHandler { NSEvent.removeMonitor(kh); currentKeyHandler = nil }
-
-    // Run setup command asynchronously
-    let fullCmd = (repoRoot as NSString).appendingPathComponent(setupCmd)
-    let proc = Process()
-    proc.executableURL = URL(fileURLWithPath: "/bin/bash")
-    proc.arguments = ["-c", fullCmd]
-    proc.currentDirectoryURL = URL(fileURLWithPath: worktreePath)
-
-    let pipe = Pipe()
-    proc.standardOutput = pipe
-    proc.standardError = pipe
-
-    let monoFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-    let monoColor = NSColor(white: 1, alpha: 0.7)
-    pipe.fileHandleForReading.readabilityHandler = { handle in
-        let data = handle.availableData
-        guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-        let parsed = parseANSI(text, baseFont: monoFont, baseColor: monoColor)
-        DispatchQueue.main.async {
-            textView.textStorage?.append(parsed)
-            textView.scrollToEndOfDocument(nil)
-        }
-    }
-
-    proc.terminationHandler = { process in
-        DispatchQueue.main.async {
-            pipe.fileHandleForReading.readabilityHandler = nil
-            if process.terminationStatus == 0 {
-                let color = readWorktreeColor(worktreePath)
-                showNamingWorkspace(path: worktreePath, repoRoot: repoRoot, color: color)
-            } else {
-                textView.textStorage?.append(NSAttributedString(string: "\n\n✗ Setup failed (exit \(process.terminationStatus))", attributes: [
-                    .foregroundColor: NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1),
-                    .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
-                ]))
-                textView.scrollToEndOfDocument(nil)
-                currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                    if event.keyCode == 53 { cancelAndDismiss(); return nil }
-                    return event
-                }
-            }
-        }
-    }
-
-    try? proc.run()
 }
 
 // ============================================================================
 // STEP 3: Finalize — auto-submit with directory name as workspace name
 // ============================================================================
-func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil) {
+func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil, setupCmd: String? = nil) {
     let wsID = nextWorkspaceID()
     let name = lastPathComponent(path)
     var result = "\(name)\t\(path)\t\(repoRoot)\t\(wsID)"
-    if let c = color { result += "\t\(c)" }
+    result += "\t\(color ?? "")"
+    result += "\t\(setupCmd ?? "")"
     writeResult(result)
     dismiss()
 }
