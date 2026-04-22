@@ -1346,6 +1346,15 @@ cmd_up() {
         warn "browser_ctl not found — skipping default browser change"
     fi
 
+    # Launch HelmHTTPHandler as persistent daemon
+    if ! pgrep -qf "HelmHTTPHandler.app/Contents/MacOS/HelmHTTPHandler"; then
+        open -a "$HTTP_HANDLER_APP" &>/dev/null &
+        disown
+        success "HelmHTTPHandler started"
+    else
+        success "HelmHTTPHandler already running"
+    fi
+
     # Hide the Dock
     defaults write com.apple.dock autohide -bool true
     defaults write com.apple.dock autohide-delay -float 1000
@@ -1425,6 +1434,14 @@ cmd_down() {
         success "AeroSpace disabled"
     else
         warn "AeroSpace was not running"
+    fi
+
+    # Stop HelmHTTPHandler daemon
+    if pgrep -qf "HelmHTTPHandler.app/Contents/MacOS/HelmHTTPHandler"; then
+        pkill -f "HelmHTTPHandler.app/Contents/MacOS/HelmHTTPHandler" 2>/dev/null || true
+        success "HelmHTTPHandler stopped"
+    else
+        warn "HelmHTTPHandler was not running"
     fi
 
     # Restore previous default browser

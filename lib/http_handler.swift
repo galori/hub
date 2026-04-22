@@ -1,18 +1,16 @@
 import Cocoa
 
 // HTTP/HTTPS handler for helm.
-// Registered as the default web browser; receives URLs via Apple Events (GetURL).
-// Displays a modal HUD showing the URL, opens it in the app configured in slot 2
-// of ~/.config/helm/apps.json, then dismisses after 2 seconds.
+// Persistent daemon: launched by `helm up`, killed by `helm down`.
+// Receives URLs via Apple Events (GetURL), shows a brief HUD, opens the URL
+// in the browser configured in slot 2 of ~/.config/helm/apps.json.
 
 let app = NSApplication.shared
-app.setActivationPolicy(.regular)
+app.setActivationPolicy(.accessory)
 
 let screen = NSScreen.main ?? NSScreen.screens[0]
 let sf = screen.frame
 let dialogW: CGFloat = min(sf.width * 0.55, 620)
-
-let bgColor = NSColor(white: 0.08, alpha: 0.93)
 
 class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
@@ -22,7 +20,7 @@ let win = KeyableWindow(
     contentRect: NSRect(x: 0, y: 0, width: dialogW, height: 120),
     styleMask: .borderless, backing: .buffered, defer: false)
 win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
-win.backgroundColor = bgColor
+win.backgroundColor = NSColor(white: 0.08, alpha: 0.93)
 win.isOpaque = false
 win.hasShadow = true
 win.collectionBehavior = [.canJoinAllSpaces, .stationary]
@@ -38,7 +36,7 @@ titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
 titleLabel.textColor = NSColor(white: 1, alpha: 0.45)
 cv.addSubview(titleLabel)
 
-let urlLabel = NSTextField(wrappingLabelWithString: "Waiting for URL…")
+let urlLabel = NSTextField(wrappingLabelWithString: "")
 urlLabel.translatesAutoresizingMaskIntoConstraints = false
 urlLabel.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
 urlLabel.textColor = NSColor.white
@@ -73,21 +71,7 @@ func openURL(_ url: URL, withLaunchCommand launch: String) {
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
 }
 
-var dismissWork: DispatchWorkItem?
-
-func scheduleDismiss() {
-    dismissWork?.cancel()
-    let work = DispatchWorkItem {
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.25
-            win.animator().alphaValue = 0
-        }, completionHandler: {
-            NSApp.terminate(nil)
-        })
-    }
-    dismissWork = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
-}
+var hideWork: DispatchWorkItem?
 
 func showURL(_ urlString: String) {
     urlLabel.stringValue = "Opening \(urlString)"
@@ -101,20 +85,28 @@ func showURL(_ urlString: String) {
 
     if !win.isVisible {
         win.alphaValue = 0
-        win.makeKeyAndOrderFront(nil)
-        app.activate(ignoringOtherApps: true)
+        win.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.15
             win.animator().alphaValue = 1
         }
     }
 
-    // Open the URL using slot 2's launch command (index 1)
     if let url = URL(string: urlString), let launch = launchCommandForSlot(1) {
         openURL(url, withLaunchCommand: launch)
     }
 
-    scheduleDismiss()
+    hideWork?.cancel()
+    let work = DispatchWorkItem {
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.25
+            win.animator().alphaValue = 0
+        }, completionHandler: {
+            win.orderOut(nil)
+        })
+    }
+    hideWork = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
