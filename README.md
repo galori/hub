@@ -30,8 +30,8 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 | `Alt + -/=` | Resize window |
 | `Alt + Tab` | Switch to previous workspace |
 | `Alt + Shift + Tab` | Move workspace to next monitor |
-| `Alt + `` ` `` ` | Cycle focus to next window in workspace |
-| `Alt + Shift + `` ` `` ` | Cycle focus to previous window in workspace |
+| `Alt + ~` | Cycle focus to next window in workspace |
+| `Alt + Shift + ~` | Cycle focus to previous window in workspace |
 | `Ctrl + Alt + Esc` | Focus back and forth between last two windows |
 | `Ctrl + Alt + N` | Create new workspace |
 | `Ctrl + Alt + D` | Remove current workspace |
