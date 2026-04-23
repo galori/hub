@@ -11,6 +11,10 @@ https://github.com/user-attachments/assets/931a020c-86c1-44b4-8c0b-ad8610f6ebd2
 
 <br clear="all">
 
+## Recommended
+
+Check out the [AeroSpace README](https://github.com/nikitabobko/AeroSpace) - especially the videos, to learn how to use AeroSpace. 
+
 ## Keybindings
 
 All keybindings use `Alt` as the modifier (AeroSpace default):
