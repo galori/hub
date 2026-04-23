@@ -30,6 +30,9 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 | `Alt + -/=` | Resize window |
 | `Alt + Tab` | Switch to previous workspace |
 | `Alt + Shift + Tab` | Move workspace to next monitor |
+| `Alt + `` ` `` ` | Cycle focus to next window in workspace |
+| `Alt + Shift + `` ` `` ` | Cycle focus to previous window in workspace |
+| `Ctrl + Alt + Esc` | Focus back and forth between last two windows |
 | `Ctrl + Alt + N` | Create new workspace |
 | `Ctrl + Alt + D` | Remove current workspace |
 | `Ctrl + Alt + R` | Rename current workspace |
@@ -146,7 +149,7 @@ hub open 2         # open just the second configured app (e.g., Chrome)
 * SketchyBar 
   * SketchyBar is configured via the `sketchybarrc`
   * SketchyBar also gets configured during runtime with the `sketchybar` cli. (see `sketchybar --help`)
-* If working off of a git worktree, to test first install the worktree's version with `scripts/hub install` 
+* If working off of a git worktree, to test first install the worktree's version with `scripts/hub install` q
 
 ## Dependencies
 
