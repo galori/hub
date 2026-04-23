@@ -137,12 +137,21 @@ hub open 2         # open just the second configured app (e.g., Chrome)
 
 ## Development
 
-If working from a worktree, run `hub reboot` after making changes to get everything running from the worktree path for testing.
+* If working from a worktree, run `hub reboot` after making changes to get everything running from the worktree path for testing.
+* The AeroSpace and SketchyBar configs in this repo serve as templates with some replacements. They templates get converted to the acutal config files and placed in the right location in the system during `hub install`
+* AeroSpace
+  * AeroSpace is configured via `1aerospace.toml`
+  * See the docs here: https://github.com/nikitabobko/AeroSpace/blob/main/README.md
+  * AeroSpace can also be managed at runtime with the `aerospace` cli. (see `aerospace --help`)
+* SketchyBar 
+  * SketchyBar is configured via the `sketchybarrc`
+  * SketchyBar also gets configured during runtime with the `sketchybar` cli. (see `sketchybar --help`)
+* If working off of a git worktree, to test first install the worktree's version with `scripts/hub install` 
 
 ## Dependencies
 
-- [AeroSpace](https://github.com/nikitabobko/AeroSpace) - tiling window manager
-- [SketchyBar](https://github.com/FelixKratz/SketchyBar) - custom menu bar
+- [AeroSpace](https://github.com/nikitabobko/AeroSpace) -  MacOS Spaces alternative for managing workspaces
+- [SketchyBar](https://github.com/FelixKratz/SketchyBar) - Custom menu bar
 - [JankyBorders](https://github.com/FelixKratz/JankyBorders) - window borders
 - macOS with Homebrew
 - Swift compiler (included with Xcode Command Line Tools)
