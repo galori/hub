@@ -1,4 +1,4 @@
-# hub
+# Hub
 
 <img src="assets/hub-logo.png" width="20%" align="right" style="padding:20px; ">
 

@@ -69,7 +69,19 @@ func launchCommandForSlot(_ index: Int) -> String? {
 func openURL(_ url: URL, withLaunchCommand launch: String) {
     let escaped = url.absoluteString.replacingOccurrences(of: "'", with: "'\\''")
     let cmd = "\(launch) '\(escaped)'"
+    try? "cmd: \(cmd)\nurl: \(url.absoluteString)\n".appendLine(to: "/tmp/hub_handler.log")
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
+}
+
+extension String {
+    func appendLine(to path: String) throws {
+        let data = (self).data(using: .utf8)!
+        if let fh = FileHandle(forWritingAtPath: path) {
+            fh.seekToEndOfFile(); fh.write(data); fh.closeFile()
+        } else {
+            try data.write(to: URL(fileURLWithPath: path))
+        }
+    }
 }
 
 var hideWork: DispatchWorkItem?
@@ -121,6 +133,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func handleGetURL(_ event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {
         let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue ?? "(no URL)"
+        try? "received: \(urlString)\n".appendLine(to: "/tmp/hub_handler.log")
         showURL(urlString)
     }
 
