@@ -977,8 +977,8 @@ func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil, s
     let wsID = nextWorkspaceID()
     let name = lastPathComponent(path)
     var result = "\(name)\t\(path)\t\(repoRoot)\t\(wsID)"
-    result += "\t\(color ?? "")"
-    result += "\t\(setupCmd ?? "")"
+    result += "\t\(color ?? "-")"
+    result += "\t\(setupCmd ?? "-")"
     writeResult(result)
     dismiss()
 }

@@ -3,7 +3,9 @@ import Cocoa
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 
-let titleArg = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Output"
+let args = CommandLine.arguments
+let titleArg = args.count > 1 ? args[1] : "Output"
+let autoClose = args.contains("--auto-close")
 
 let win = NSWindow(
     contentRect: NSRect(x: 0, y: 0, width: 700, height: 400),
@@ -113,11 +115,22 @@ func appendText(_ text: String, color: NSColor? = nil) {
     textView.scrollToEndOfDocument(nil)
 }
 
+var inputExitCode: Int32 = 0
+
 DispatchQueue.global(qos: .userInitiated).async {
     while let line = readLine() {
-        DispatchQueue.main.async { appendText(line) }
+        // Last line convention: "EXIT:<code>" signals the exit code
+        if line.hasPrefix("EXIT:"), let code = Int32(line.dropFirst(5)) {
+            inputExitCode = code
+        } else {
+            DispatchQueue.main.async { appendText(line) }
+        }
     }
     DispatchQueue.main.async {
+        if autoClose && inputExitCode == 0 {
+            NSApp.terminate(nil)
+            return
+        }
         appendText("\n--- Done ---", color: NSColor(white: 1, alpha: 0.4))
     }
 }

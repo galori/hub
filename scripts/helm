@@ -287,6 +287,8 @@ build_http_handler() {
     </array>
     <key>LSHandlerRank</key>
     <string>Alternate</string>
+    <key>LSUIElement</key>
+    <true/>
 </dict>
 </plist>
 PLIST
@@ -541,9 +543,11 @@ cmd_new() {
         return
     fi
 
-    # Parse: name\tpath\troot_repo\tworkspace_id\tcolor\tsetup_cmd
+    # Parse: name\tpath\troot_repo\tworkspace_id\tcolor\tsetup_cmd ("-" = empty)
     local ws_name ws_path ws_root ws_id ws_color ws_setup_cmd
     IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color ws_setup_cmd <<< "$result"
+    [[ "$ws_color" == "-" ]] && ws_color=""
+    [[ "$ws_setup_cmd" == "-" ]] && ws_setup_cmd=""
 
     if [[ -z "$ws_name" || -z "$ws_path" || -z "$ws_id" ]]; then
         fail "Invalid dialog result"
@@ -634,7 +638,7 @@ APPLESCRIPT
     if [[ -n "$ws_setup_cmd" && -n "$ws_root" ]]; then
         local full_setup_cmd="$ws_root/$ws_setup_cmd"
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
-            ( cd "$ws_path" && eval "$full_setup_cmd" 2>&1 | "$OUTPUT_WINDOW_BIN" "Helm: Setting up workspace $ws_name" ) &
+            ( cd "$ws_path" && eval "$full_setup_cmd" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Helm: Setting up workspace $ws_name" --auto-close &
             disown
         else
             ( cd "$ws_path" && eval "$full_setup_cmd" ) &
@@ -956,6 +960,17 @@ cmd_remove() {
 
     aerospace workspace Z 2>/dev/null || true
 
+    # Attempt to close the moved windows (best-effort; some apps may not close)
+    if [[ -n "$windows" ]]; then
+        (
+            sleep 0.5
+            while IFS= read -r wid; do
+                aerospace close --window-id "$wid" 2>/dev/null || true
+            done <<< "$windows"
+        ) &
+        disown
+    fi
+
     # Background teardown piped to output_window
     if [[ "$is_worktree" == "true" && "$remove_worktree" == "true" ]]; then
         local teardown_cmd
@@ -969,7 +984,7 @@ cmd_remove() {
         fi
 
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
-            ( eval "$bg_script" 2>&1 | "$OUTPUT_WINDOW_BIN" "Helm: Removing workspace $ws_name" ) &
+            ( eval "$bg_script" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Helm: Removing workspace $ws_name" --auto-close &
             disown
         else
             ( eval "$bg_script" ) &
