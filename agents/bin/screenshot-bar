@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-OUT="${1:-/tmp/helm-bar-screenshot.png}"
+OUT="${1:-/tmp/hub-bar-screenshot.png}"
 BAR_HEIGHT=50
 
 # Get primary display width via system_profiler (main display is listed first).
@@ -17,8 +17,8 @@ fi
 
 # Fall back to trying common widths if system_profiler didn't yield a result.
 if [[ ! "$PRIMARY_WIDTH" =~ ^[0-9]+$ ]] || [ "$PRIMARY_WIDTH" -eq 0 ]; then
-    if [[ "${HELM_BAR_SCREEN_WIDTH:-}" =~ ^[0-9]+$ ]] && [ "$HELM_BAR_SCREEN_WIDTH" -gt 0 ]; then
-        PRIMARY_WIDTH="$HELM_BAR_SCREEN_WIDTH"
+    if [[ "${HUB_BAR_SCREEN_WIDTH:-}" =~ ^[0-9]+$ ]] && [ "$HUB_BAR_SCREEN_WIDTH" -gt 0 ]; then
+        PRIMARY_WIDTH="$HUB_BAR_SCREEN_WIDTH"
     else
         for W in 3456 3024 2560 1920 1440; do
             if screencapture -x -R "0,0,${W},${BAR_HEIGHT}" "$OUT" 2>/dev/null; then

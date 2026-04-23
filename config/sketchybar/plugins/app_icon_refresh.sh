@@ -2,7 +2,7 @@
 # Re-applies app slot background images to recover from startup/wake icon loading races.
 SKETCHYBAR=/opt/homebrew/bin/sketchybar
 [ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
-APPS_FILE="$HOME/.config/helm/apps.json"
+APPS_FILE="$HOME/.config/hub/apps.json"
 [ -f "$APPS_FILE" ] || exit 0
 
 APP_COUNT=$(jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)

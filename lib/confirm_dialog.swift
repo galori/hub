@@ -1,12 +1,12 @@
 import Cocoa
 
-// Confirmation dialog for helm.
+// Confirmation dialog for hub.
 // Usage: confirm_dialog "Title" "Message" ["Checkbox label"...]
 // Checkbox labels prefixed with "!" default to OFF; others default to ON.
-// Writes checkbox states to /tmp/helm-confirm-state on confirm: cb1=0/1, cb2=0/1, ...
+// Writes checkbox states to /tmp/hub-confirm-state on confirm: cb1=0/1, cb2=0/1, ...
 // Exits 0 if confirmed, 1 if cancelled.
 
-let statePath = "/tmp/helm-confirm-state"
+let statePath = "/tmp/hub-confirm-state"
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 

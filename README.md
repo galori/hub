@@ -1,10 +1,10 @@
-# helm
+# hub
 
-<img src="assets/helm-logo.png" width="20%" align="right" style="padding:20px; ">
+<img src="assets/hub-logo.png" width="20%" align="right" style="padding:20px; ">
 
 A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https://github.com/nikitabobko/AeroSpace) (tiling window manager), [SketchyBar](https://github.com/FelixKratz/SketchyBar) (custom menu bar), and [JankyBorders](https://github.com/FelixKratz/JankyBorders) (window borders) into a unified workspace manager.
 
-<img src="assets/helm-screenshot.png">
+<img src="assets/hub-screenshot.png">
 <br/>
 
 https://github.com/user-attachments/assets/931a020c-86c1-44b4-8c0b-ad8610f6ebd2
@@ -40,9 +40,9 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 ### Install
 
 ```sh
-git clone <repo-url> ~/workspace/helm
-cd ~/workspace/helm
-./scripts/helm install
+git clone <repo-url> ~/workspace/hub
+cd ~/workspace/hub
+./scripts/hub install
 ```
 
 This will:
@@ -50,12 +50,12 @@ This will:
 - Deploy the AeroSpace config to `~/.aerospace.toml`
 - Deploy the SketchyBar config to `~/.config/sketchybar/`
 - Compile Swift binaries (overlay HUD, workspace dialog)
-- Install a `helm` shell alias in your shell config
+- Install a `hub` shell alias in your shell config
 
 ### Start the environment
 
 ```sh
-helm up
+hub up
 ```
 
 Starts AeroSpace, SketchyBar, and JankyBorders. Hides the macOS Dock and menu bar for a distraction-free tiled workspace.
@@ -63,7 +63,7 @@ Starts AeroSpace, SketchyBar, and JankyBorders. Hides the macOS Dock and menu ba
 ### Stop the environment
 
 ```sh
-helm down
+hub down
 ```
 
 Stops all managed services and restores the Dock and menu bar.
@@ -74,13 +74,13 @@ Press **`Ctrl+Alt+N`** from anywhere to open the new workspace dialog.
 
 Opens a dialog to create a named workspace. Supports picking a git repo (with optional worktree creation), assigning a workspace key (1-9, A-Z), and automatically switching to it with a terminal open at the project path.
 
-CLI alternative: `helm new`
+CLI alternative: `hub new`
 
 ### List workspaces
 
 SketchyBar displays all workspace labels in the menu bar at all times.
 
-CLI alternative: `helm list` — shows a table of all defined workspaces with their ID, name, path, and root repo.
+CLI alternative: `hub list` — shows a table of all defined workspaces with their ID, name, path, and root repo.
 
 ### Remove a workspace
 
@@ -90,9 +90,9 @@ Removes the workspace from configuration, clears its sketchybar label, and moves
 
 CLI alternative:
 ```sh
-helm remove        # remove the current workspace (prompts for confirmation)
-helm remove A      # remove workspace A
-helm remove A -y   # remove without confirmation
+hub remove        # remove the current workspace (prompts for confirmation)
+hub remove A      # remove workspace A
+hub remove A -y   # remove without confirmation
 ```
 
 ### Rename a workspace
@@ -103,25 +103,25 @@ Opens a dialog to rename the workspace. Updates the sketchybar label immediately
 
 CLI alternative:
 ```sh
-helm rename        # rename the current workspace
-helm rename A      # rename workspace A
+hub rename        # rename the current workspace
+hub rename A      # rename workspace A
 ```
 
 ### Open apps in a workspace
 
 Press **`Ctrl+Alt+O`** to open all configured apps in the current workspace, or **`Ctrl+Alt+1-5`** for individual app slots.
 
-Opens the apps defined in `~/.config/helm/apps.json` in the current workspace. Skips apps already open on the workspace. New windows are automatically moved to the correct workspace.
+Opens the apps defined in `~/.config/hub/apps.json` in the current workspace. Skips apps already open on the workspace. New windows are automatically moved to the correct workspace.
 
-Default apps: iTerm2, Google Chrome, VS Code. Edit `~/.config/helm/apps.json` to customize (up to 5 slots).
+Default apps: iTerm2, Google Chrome, VS Code. Edit `~/.config/hub/apps.json` to customize (up to 5 slots).
 
 SketchyBar shows clickable app icons on the right side — full-size when open on the current workspace, dimmed when not.
 
 CLI alternative:
 ```sh
-helm open           # open all configured apps in current workspace
-helm open 1         # open just the first configured app (e.g., iTerm)
-helm open 2         # open just the second configured app (e.g., Chrome)
+hub open           # open all configured apps in current workspace
+hub open 1         # open just the first configured app (e.g., iTerm)
+hub open 2         # open just the second configured app (e.g., Chrome)
 ```
 
 ## Guiding Principles
@@ -129,11 +129,11 @@ helm open 2         # open just the second configured app (e.g., Chrome)
 - **Keyboard-first**: Everything should be keyboard-only accessible, similar to how AeroSpace is designed for keyboard use, but also usable with the mouse.
 - **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command.
 - **Minimal chrome**: Hide the Dock and menu bar. SketchyBar provides only what's needed.
-- **Single command**: `helm up` to start, `helm down` to stop. No manual config needed after install.
+- **Single command**: `hub up` to start, `hub down` to stop. No manual config needed after install.
 
 ## Development
 
-If working from a worktree, run `helm reboot` after making changes to get everything running from the worktree path for testing.
+If working from a worktree, run `hub reboot` after making changes to get everything running from the worktree path for testing.
 
 ## Dependencies
 

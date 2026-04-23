@@ -1,6 +1,6 @@
 import Cocoa
 
-// Dashboard modal for helm — reads two temp files passed as argv[1] (status) and argv[2] (keys),
+// Dashboard modal for hub — reads two temp files passed as argv[1] (status) and argv[2] (keys),
 // renders ANSI formatting side-by-side. Dismiss with Escape, Enter, Space, or Q.
 
 let app = NSApplication.shared
@@ -20,7 +20,7 @@ let bgColor    = NSColor(white: 0.08, alpha: 0.96)
 let divColor   = NSColor(white: 1, alpha: 0.08)
 let baseColor  = NSColor(red: 0.89, green: 0.89, blue: 0.89, alpha: 1)
 
-// ANSI color palette matching helm
+// ANSI color palette matching hub
 let ansiColors: [String: NSColor] = [
     "31": NSColor(red: 0.86, green: 0.38, blue: 0.36, alpha: 1), // red
     "32": NSColor(red: 0.62, green: 0.82, blue: 0.45, alpha: 1), // green

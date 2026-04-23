@@ -1,6 +1,6 @@
 import Cocoa
 
-// Status overlay HUD for helm — reads lines from stdin, displays them in a
+// Status overlay HUD for hub — reads lines from stdin, displays them in a
 // floating dark panel. Send "QUIT" to dismiss. Newlines encoded as literal "\n".
 
 let app = NSApplication.shared
@@ -53,7 +53,7 @@ func dismiss() {
 }
 
 // Title
-let titleStr = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "helm"
+let titleStr = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "hub"
 let title = NSTextField(labelWithString: titleStr)
 title.translatesAutoresizingMaskIntoConstraints = false
 title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)

@@ -1,8 +1,8 @@
 import Cocoa
 
-// Rename dialog for helm.
+// Rename dialog for hub.
 // Usage: rename_dialog "workspace_id" "current_name"
-// Writes new name to /tmp/helm-rename on success. Exits 0 if renamed, 1 if cancelled.
+// Writes new name to /tmp/hub-rename on success. Exits 0 if renamed, 1 if cancelled.
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
@@ -97,7 +97,7 @@ var exitCode: Int32 = 1
 
 func dismiss(newName: String?) {
     if let name = newName {
-        try? name.write(toFile: "/tmp/helm-rename", atomically: true, encoding: .utf8)
+        try? name.write(toFile: "/tmp/hub-rename", atomically: true, encoding: .utf8)
         exitCode = 0
     } else {
         exitCode = 1

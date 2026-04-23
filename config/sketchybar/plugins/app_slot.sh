@@ -29,9 +29,9 @@ case "$SENDER" in
         # Shift-click forces new window; plain click is smart focus-or-launch.
         # MODIFIER is set by sketchybar: "shift", "cmd", "alt", "ctrl" (or combos).
         if [[ "$MODIFIER" == *shift* ]]; then
-            __HELM_SCRIPT__ open "$SLOT" --force &
+            __HUB_SCRIPT__ open "$SLOT" --force &
         else
-            __HELM_SCRIPT__ open "$SLOT" &
+            __HUB_SCRIPT__ open "$SLOT" &
         fi
         sleep 0.12
         "$SKETCHYBAR" --animate tanh 12 --set "$NAME" \

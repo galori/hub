@@ -1,9 +1,9 @@
 import Cocoa
 
-// HTTP/HTTPS handler for helm.
-// Persistent daemon: launched by `helm up`, killed by `helm down`.
+// HTTP/HTTPS handler for hub.
+// Persistent daemon: launched by `hub up`, killed by `hub down`.
 // Receives URLs via Apple Events (GetURL), shows a brief HUD, opens the URL
-// in the browser configured in slot 2 of ~/.config/helm/apps.json.
+// in the browser configured in slot 2 of ~/.config/hub/apps.json.
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
@@ -57,7 +57,7 @@ NSLayoutConstraint.activate([
 ])
 
 func launchCommandForSlot(_ index: Int) -> String? {
-    let appsPath = NSHomeDirectory() + "/.config/helm/apps.json"
+    let appsPath = NSHomeDirectory() + "/.config/hub/apps.json"
     guard let data = try? Data(contentsOf: URL(fileURLWithPath: appsPath)),
           let apps = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
           index < apps.count,

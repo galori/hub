@@ -8,7 +8,7 @@ CURRENT="${AEROSPACE_FOCUSED_WORKSPACE:-$(aerospace list-workspaces --focused 2>
 ACTIVE=$(aerospace list-workspaces --monitor all --empty no 2>/dev/null)
 ACTIVE_LIST=" ${ACTIVE//$'\n'/ } ${CURRENT} "
 
-MAXLEN_FILE="/tmp/helm_label_maxlen"
+MAXLEN_FILE="/tmp/hub_label_maxlen"
 LABEL_MAXLEN=-1
 if [ -f "$MAXLEN_FILE" ]; then
     LABEL_MAXLEN=$(cat "$MAXLEN_FILE" 2>/dev/null || echo -1)
@@ -17,7 +17,7 @@ if ! [[ "$LABEL_MAXLEN" =~ ^-?[0-9]+$ ]]; then
     LABEL_MAXLEN=-1
 fi
 
-WS_LABELS_FILE="/tmp/helm_sketchybar_labels"
+WS_LABELS_FILE="/tmp/hub_sketchybar_labels"
 LABELED_LIST=" "
 declare -A WS_NAME_MAP WS_COLOR_MAP
 if [ -f "$WS_LABELS_FILE" ]; then

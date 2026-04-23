@@ -8,26 +8,26 @@ CONFIG_DIR="$REPO_DIR/config"
 AEROSPACE_CONFIG="$HOME/.aerospace.toml"
 SKETCHYBAR_CONFIG_DIR="$HOME/.config/sketchybar"
 OVERLAY_SRC="$LIB_DIR/overlay.swift"
-OVERLAY_BIN="$HOME/.config/helm/overlay"
+OVERLAY_BIN="$HOME/.config/hub/overlay"
 DIALOG_SRC="$LIB_DIR/new_workspace_dialog.swift"
-DIALOG_BIN="$HOME/.config/helm/new_workspace_dialog"
+DIALOG_BIN="$HOME/.config/hub/new_workspace_dialog"
 CONFIRM_SRC="$LIB_DIR/confirm_dialog.swift"
-CONFIRM_BIN="$HOME/.config/helm/confirm_dialog"
+CONFIRM_BIN="$HOME/.config/hub/confirm_dialog"
 RENAME_SRC="$LIB_DIR/rename_dialog.swift"
-RENAME_BIN="$HOME/.config/helm/rename_dialog"
+RENAME_BIN="$HOME/.config/hub/rename_dialog"
 DASHBOARD_SRC="$LIB_DIR/dashboard_dialog.swift"
-DASHBOARD_BIN="$HOME/.config/helm/dashboard_dialog"
+DASHBOARD_BIN="$HOME/.config/hub/dashboard_dialog"
 OUTPUT_WINDOW_SRC="$LIB_DIR/output_window.swift"
-OUTPUT_WINDOW_BIN="$HOME/.config/helm/output_window"
+OUTPUT_WINDOW_BIN="$HOME/.config/hub/output_window"
 HTTP_HANDLER_SRC="$LIB_DIR/http_handler.swift"
-HTTP_HANDLER_APP="$HOME/Applications/HelmHTTPHandler.app"
+HTTP_HANDLER_APP="$HOME/Applications/HubHTTPHandler.app"
 BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
-BROWSER_CTL_BIN="$HOME/.config/helm/browser_ctl"
-PREV_BROWSER_FILE="$HOME/.config/helm/prev_browser"
-HELM_BROWSER_ID="sh.helm.http-handler"
-WORKSPACES_FILE="$HOME/.config/helm/workspaces.json"
-RECENT_REPOS_FILE="$HOME/.config/helm/recent_repos.json"
-APPS_FILE="$HOME/.config/helm/apps.json"
+BROWSER_CTL_BIN="$HOME/.config/hub/browser_ctl"
+PREV_BROWSER_FILE="$HOME/.config/hub/prev_browser"
+HUB_BROWSER_ID="sh.hub.http-handler"
+WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
+RECENT_REPOS_FILE="$HOME/.config/hub/recent_repos.json"
+APPS_FILE="$HOME/.config/hub/apps.json"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
 # Colors
@@ -39,13 +39,13 @@ blue='\033[34m'
 reset='\033[0m'
 
 print_usage() {
-    echo -e "${bold}Usage:${reset} helm <command>"
+    echo -e "${bold}Usage:${reset} hub <command>"
     echo
     echo -e "${bold}Commands:${reset}"
-    echo "  install       Install helm alias, check dependencies, compile binaries, and deploy configs"
+    echo "  install       Install hub alias, check dependencies, compile binaries, and deploy configs"
     echo "  up            Start AeroSpace, SketchyBar, JankyBorders, hide the Dock and menu bar"
     echo "  down          Stop everything, restore the Dock and menu bar"
-    echo "  reboot        Stop, reinstall, and restart the helm environment"
+    echo "  reboot        Stop, reinstall, and restart the hub environment"
     echo "  new           Create a new workspace (opens dialog)"
     echo "  list          List all defined workspaces"
     echo "  status        Show current service state, workspace info, and label length"
@@ -58,24 +58,24 @@ print_usage() {
     echo "  help          Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
-    echo "  helm install        # install shell alias and dependencies"
-    echo "  helm up             # start the workspace environment"
-    echo "  helm down           # tear down the workspace environment"
-    echo "  helm new            # create a new workspace"
-    echo "  helm list           # list all workspaces"
-    echo "  helm list -v        # list with paths and root repos"
-    echo "  helm remove         # remove the current workspace"
-    echo "  helm remove A       # remove workspace A"
-    echo "  helm remove A -y    # remove workspace A without confirmation"
-    echo "  helm rename         # rename the current workspace"
-    echo "  helm rename A       # rename workspace A"
-    echo "  helm open           # interactive: focus or launch an app"
-    echo "  helm open 1         # focus app 1 (or launch if not running)"
-    echo "  helm open 1 --force # always launch a new window of app 1"
-    echo "  helm open --all     # launch any missing apps into current workspace"
+    echo "  hub install        # install shell alias and dependencies"
+    echo "  hub up             # start the workspace environment"
+    echo "  hub down           # tear down the workspace environment"
+    echo "  hub new            # create a new workspace"
+    echo "  hub list           # list all workspaces"
+    echo "  hub list -v        # list with paths and root repos"
+    echo "  hub remove         # remove the current workspace"
+    echo "  hub remove A       # remove workspace A"
+    echo "  hub remove A -y    # remove workspace A without confirmation"
+    echo "  hub rename         # rename the current workspace"
+    echo "  hub rename A       # rename workspace A"
+    echo "  hub open           # interactive: focus or launch an app"
+    echo "  hub open 1         # focus app 1 (or launch if not running)"
+    echo "  hub open 1 --force # always launch a new window of app 1"
+    echo "  hub open --all     # launch any missing apps into current workspace"
     echo
     echo -e "${bold}App launcher config:${reset}"
-    echo "  Edit ~/.config/helm/apps.json to configure up to 5 app slots."
+    echo "  Edit ~/.config/hub/apps.json to configure up to 5 app slots."
     echo "  Each entry: { \"name\": \"App Name\", \"launch\": \"<shell cmd>\", \"icon\": \"App Name\" }"
     echo "  Use {path} and {workspace} in launch commands as substitution variables."
 }
@@ -98,9 +98,9 @@ OVERLAY_PID=""
 OVERLAY_FIFO=""
 
 start_overlay() {
-    local title="${1:-helm}"
+    local title="${1:-hub}"
     if [[ -x "$OVERLAY_BIN" ]]; then
-        OVERLAY_FIFO="$(mktemp -u "${TMPDIR:-/tmp}/helm-overlay.XXXXXX")"
+        OVERLAY_FIFO="$(mktemp -u "${TMPDIR:-/tmp}/hub-overlay.XXXXXX")"
         mkfifo "$OVERLAY_FIFO" || {
             OVERLAY_FIFO=""
             return
@@ -215,7 +215,7 @@ compile_all() {
 build_http_handler() {
     local src="$HTTP_HANDLER_SRC"
     local app="$HTTP_HANDLER_APP"
-    local bin="$app/Contents/MacOS/HelmHTTPHandler"
+    local bin="$app/Contents/MacOS/HubHTTPHandler"
     local plist="$app/Contents/Info.plist"
 
     if [[ ! -f "$src" ]]; then
@@ -224,7 +224,7 @@ build_http_handler() {
     fi
 
     if [[ -f "$bin" ]] && [[ "$bin" -nt "$src" ]] && [[ "$bin" -nt "${BASH_SOURCE[0]}" ]]; then
-        info "HelmHTTPHandler.app up to date"
+        info "HubHTTPHandler.app up to date"
         return
     fi
 
@@ -237,17 +237,17 @@ build_http_handler() {
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>sh.helm.http-handler</string>
+    <string>sh.hub.http-handler</string>
     <key>CFBundleName</key>
-    <string>HelmHTTPHandler</string>
+    <string>HubHTTPHandler</string>
     <key>CFBundleDisplayName</key>
-    <string>Helm HTTP Handler</string>
+    <string>Hub HTTP Handler</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleExecutable</key>
-    <string>HelmHTTPHandler</string>
+    <string>HubHTTPHandler</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
@@ -297,16 +297,16 @@ PLIST
         # Register with Launch Services so it appears in Default Web Browser list
         /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
             -f "$app" 2>/dev/null || true
-        success "HelmHTTPHandler.app built and registered: $app"
+        success "HubHTTPHandler.app built and registered: $app"
     else
-        warn "HelmHTTPHandler.app compilation failed"
+        warn "HubHTTPHandler.app compilation failed"
     fi
 }
 
 # --- Commands ---
 
 cmd_install() {
-    echo -e "${bold}Installing helm...${reset}\n"
+    echo -e "${bold}Installing hub...${reset}\n"
 
     # --- Check dependencies ---
     echo -e "${bold}Checking dependencies...${reset}"
@@ -364,14 +364,14 @@ cmd_install() {
     echo
     echo -e "${bold}Deploying configs...${reset}"
     if [[ -f "$AEROSPACE_CONFIG" ]]; then
-        if grep -q "# AeroSpace config managed by helm" "$AEROSPACE_CONFIG" 2>/dev/null; then
-            success "aerospace.toml already managed by helm, updating"
+        if grep -q "# AeroSpace config managed by hub" "$AEROSPACE_CONFIG" 2>/dev/null; then
+            success "aerospace.toml already managed by hub, updating"
         else
             warn "existing aerospace.toml found, backing up to ${AEROSPACE_CONFIG}.bak"
             cp "$AEROSPACE_CONFIG" "${AEROSPACE_CONFIG}.bak"
         fi
     fi
-    sed "s|__HELM_SCRIPT__|$REPO_DIR/scripts/helm|g" "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
+    sed "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
     success "aerospace.toml deployed to $AEROSPACE_CONFIG"
 
     # --- Deploy sketchybar config ---
@@ -380,9 +380,9 @@ cmd_install() {
         info "removed existing sketchybar config"
     fi
     mkdir -p "$SKETCHYBAR_CONFIG_DIR/plugins"
-    sed "s|__HELM_SCRIPT__|$REPO_DIR/scripts/helm|g" "$CONFIG_DIR/sketchybar/sketchybarrc" > "$SKETCHYBAR_CONFIG_DIR/sketchybarrc"
+    sed "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" "$CONFIG_DIR/sketchybar/sketchybarrc" > "$SKETCHYBAR_CONFIG_DIR/sketchybarrc"
     for f in "$CONFIG_DIR/sketchybar/plugins/"*.sh; do
-        sed "s|__HELM_SCRIPT__|$REPO_DIR/scripts/helm|g" "$f" > "$SKETCHYBAR_CONFIG_DIR/plugins/$(basename "$f")"
+        sed "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" "$f" > "$SKETCHYBAR_CONFIG_DIR/plugins/$(basename "$f")"
     done
     chmod +x "$SKETCHYBAR_CONFIG_DIR/sketchybarrc" "$SKETCHYBAR_CONFIG_DIR/plugins/"*.sh
     success "sketchybar config deployed to $SKETCHYBAR_CONFIG_DIR"
@@ -399,7 +399,7 @@ cmd_install() {
   },
   {
     "name": "Google Chrome",
-    "launch": "open -na 'Google Chrome' --args --new-window --profile-directory=helm",
+    "launch": "open -na 'Google Chrome' --args --new-window --profile-directory=hub",
     "icon": "Google Chrome"
   },
   {
@@ -453,20 +453,20 @@ APPS_EOF
         */fish) shell_name=fish ;;
         *)
             fail "Unsupported shell: $SHELL"
-            echo "Add this alias manually: alias helm='$REPO_DIR/scripts/helm'"
+            echo "Add this alias manually: alias hub='$REPO_DIR/scripts/hub'"
             return
             ;;
     esac
     success "Detected shell: $shell_name"
 
-    local snippet_path="$REPO_DIR/.helm-shell-integration"
+    local snippet_path="$REPO_DIR/.hub-shell-integration"
     local script_path
-    script_path="$(printf '%q' "$REPO_DIR/scripts/helm")"
+    script_path="$(printf '%q' "$REPO_DIR/scripts/hub")"
 
     if [[ "$shell_name" == "fish" ]]; then
-        echo "alias helm $script_path" > "$snippet_path"
+        echo "alias hub $script_path" > "$snippet_path"
     else
-        echo "alias helm=$script_path" > "$snippet_path"
+        echo "alias hub=$script_path" > "$snippet_path"
     fi
     success "Created $snippet_path"
 
@@ -483,14 +483,14 @@ APPS_EOF
         fish) config_file="$HOME/.config/fish/config.fish" ;;
     esac
 
-    if [[ -f "$config_file" ]] && grep -q '.helm-shell-integration' "$config_file" 2>/dev/null; then
+    if [[ -f "$config_file" ]] && grep -q '.hub-shell-integration' "$config_file" 2>/dev/null; then
         warn "Already installed in $config_file"
     else
         if [[ "$shell_name" == "fish" ]]; then
             mkdir -p "$(dirname "$config_file")"
-            printf '\n# helm workspace integration\nsource %s\n' "'$snippet_path'" >> "$config_file"
+            printf '\n# hub workspace integration\nsource %s\n' "'$snippet_path'" >> "$config_file"
         else
-            printf '\n# helm workspace integration\nsource %s\n' "$snippet_path" >> "$config_file"
+            printf '\n# hub workspace integration\nsource %s\n' "$snippet_path" >> "$config_file"
         fi
         success "Added to $config_file"
     fi
@@ -517,26 +517,26 @@ APPS_EOF
     echo
     echo "Or open a new terminal."
     echo
-    echo -e "  Tip: edit ${bold}~/.config/helm/apps.json${reset} to configure your app launcher slots."
-    echo -e "  Then use ${bold}Ctrl+Alt+O${reset} or ${bold}helm open${reset} to launch apps into the current workspace."
+    echo -e "  Tip: edit ${bold}~/.config/hub/apps.json${reset} to configure your app launcher slots."
+    echo -e "  Then use ${bold}Ctrl+Alt+O${reset} or ${bold}hub open${reset} to launch apps into the current workspace."
 }
 
 cmd_new() {
     if [[ ! -x "$DIALOG_BIN" ]]; then
-        fail "new_workspace_dialog not compiled. Run: helm install"
+        fail "new_workspace_dialog not compiled. Run: hub install"
         exit 1
     fi
 
     # Clean up any stale result
-    rm -f /tmp/helm-new-workspace
+    rm -f /tmp/hub-new-workspace
 
     # Launch the dialog and wait
     "$DIALOG_BIN"
 
     # Read result
     local result
-    result="$(cat /tmp/helm-new-workspace 2>/dev/null || echo "cancel")"
-    rm -f /tmp/helm-new-workspace
+    result="$(cat /tmp/hub-new-workspace 2>/dev/null || echo "cancel")"
+    rm -f /tmp/hub-new-workspace
 
     if [[ "$result" == "cancel" || -z "$result" ]]; then
         echo "Cancelled."
@@ -638,7 +638,7 @@ APPLESCRIPT
     if [[ -n "$ws_setup_cmd" && -n "$ws_root" ]]; then
         local full_setup_cmd="$ws_root/$ws_setup_cmd"
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
-            ( cd "$ws_path" && eval "$full_setup_cmd" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Helm: Setting up workspace $ws_name" --auto-close &
+            ( cd "$ws_path" && eval "$full_setup_cmd" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Setting up workspace $ws_name" --auto-close &
             disown
         else
             ( cd "$ws_path" && eval "$full_setup_cmd" ) &
@@ -664,7 +664,7 @@ update_sketchybar_label() {
     local ws_name="$2"
     local label="$ws_id $ws_name"
     sketchybar --set "space.$ws_id" "label=$label" drawing=on 2>/dev/null || true
-    local labels_file="/tmp/helm_sketchybar_labels"
+    local labels_file="/tmp/hub_sketchybar_labels"
     if [[ -f "$WORKSPACES_FILE" ]]; then
         jq -r '.[] | .workspace_id + ":" + .name + ":" + (.color // "")' \
             "$WORKSPACES_FILE" > "$labels_file" 2>/dev/null || true
@@ -674,7 +674,7 @@ update_sketchybar_label() {
 remove_sketchybar_label() {
     local ws_id="$1"
     sketchybar --set "space.$ws_id" "label=$ws_id" drawing=off 2>/dev/null || true
-    local labels_file="/tmp/helm_sketchybar_labels"
+    local labels_file="/tmp/hub_sketchybar_labels"
     if [[ -f "$labels_file" ]]; then
         sed -i '' "/^${ws_id}:/d" "$labels_file"
     fi
@@ -708,22 +708,22 @@ cmd_rename() {
     fi
 
     if [[ ! -x "$RENAME_BIN" ]]; then
-        fail "rename_dialog not compiled. Run: helm install"
+        fail "rename_dialog not compiled. Run: hub install"
         exit 1
     fi
 
-    rm -f /tmp/helm-rename
+    rm -f /tmp/hub-rename
     "$RENAME_BIN" "$ws_id" "$ws_name"
     local dialog_exit=$?
 
-    if [[ $dialog_exit -ne 0 || ! -f /tmp/helm-rename ]]; then
+    if [[ $dialog_exit -ne 0 || ! -f /tmp/hub-rename ]]; then
         info "Rename cancelled"
         return
     fi
 
     local new_name
-    new_name="$(cat /tmp/helm-rename)"
-    rm -f /tmp/helm-rename
+    new_name="$(cat /tmp/hub-rename)"
+    rm -f /tmp/hub-rename
 
     if [[ -z "$new_name" || "$new_name" == "$ws_name" ]]; then
         info "Name unchanged"
@@ -794,7 +794,7 @@ cmd_status() {
     local compact=false
     for arg in "$@"; do [[ "$arg" == "--compact" ]] && compact=true; done
 
-    echo -e "${bold}helm status${reset}"
+    echo -e "${bold}hub status${reset}"
     echo
 
     # --- Services ---
@@ -843,7 +843,7 @@ cmd_status() {
 
     # --- Label length ---
     local maxlen=-1
-    [[ -f /tmp/helm_label_maxlen ]] && maxlen="$(cat /tmp/helm_label_maxlen 2>/dev/null || echo -1)"
+    [[ -f /tmp/hub_label_maxlen ]] && maxlen="$(cat /tmp/hub_label_maxlen 2>/dev/null || echo -1)"
     echo -e "${bold}Label length:${reset}"
     if [[ "$maxlen" -lt 0 ]]; then
         echo -e "  unlimited  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
@@ -924,10 +924,10 @@ cmd_remove() {
     local remove_worktree=true
     if [[ "$auto_yes" != "true" ]]; then
         if [[ ! -x "$CONFIRM_BIN" ]]; then
-            fail "confirm_dialog not compiled. Run: helm install"
+            fail "confirm_dialog not compiled. Run: hub install"
             exit 1
         fi
-        rm -f /tmp/helm-confirm-state
+        rm -f /tmp/hub-confirm-state
         local dialog_args=("Remove Workspace" "$confirm_msg")
         if [[ "$is_worktree" == "true" ]]; then
             dialog_args+=("Remove / teardown worktree")
@@ -938,10 +938,10 @@ cmd_remove() {
             echo "Cancelled."; return
         fi
         # Read worktree checkbox state
-        if [[ "$is_worktree" == "true" && -f /tmp/helm-confirm-state ]]; then
-            local v; v="$(grep "^cb1=" /tmp/helm-confirm-state | cut -d= -f2)"
+        if [[ "$is_worktree" == "true" && -f /tmp/hub-confirm-state ]]; then
+            local v; v="$(grep "^cb1=" /tmp/hub-confirm-state | cut -d= -f2)"
             [[ "$v" == "0" ]] && remove_worktree=false
-            rm -f /tmp/helm-confirm-state
+            rm -f /tmp/hub-confirm-state
         fi
     fi
 
@@ -984,7 +984,7 @@ cmd_remove() {
         fi
 
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
-            ( eval "$bg_script" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Helm: Removing workspace $ws_name" --auto-close &
+            ( eval "$bg_script" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Removing workspace $ws_name" --auto-close &
             disown
         else
             ( eval "$bg_script" ) &
@@ -1034,7 +1034,7 @@ open_app_slot() {
     # Smart mode: if app has windows on current workspace, cycle focus between
     # them. Otherwise fall through to launch a new window on this workspace.
     # (We intentionally do NOT jump to another workspace where this app runs —
-    # each helm workspace is self-contained, so Chrome on ws 3 ≠ Chrome on ws 10.)
+    # each hub workspace is self-contained, so Chrome on ws 3 ≠ Chrome on ws 10.)
     if [[ "$force_new" != "true" ]]; then
         local cur_wins
         cur_wins="$(aerospace list-windows --workspace "$ws_id" --format '%{window-id}|%{app-name}' 2>/dev/null \
@@ -1071,7 +1071,7 @@ open_app_slot() {
     launch_cmd="${launch_cmd//\{workspace\}/$ws_id}"
 
     # Launch the app
-    bash -c "$launch_cmd" >/dev/null 2>/tmp/helm_open_err &
+    bash -c "$launch_cmd" >/dev/null 2>/tmp/hub_open_err &
 
     # Poll for new window (up to 8 seconds)
     local new_wid=""
@@ -1117,7 +1117,7 @@ cmd_open() {
     done
 
     if [[ ! -f "$APPS_FILE" ]]; then
-        fail "No apps.json found. Run: helm install"
+        fail "No apps.json found. Run: hub install"
         exit 1
     fi
 
@@ -1203,7 +1203,7 @@ refresh_app_indicators() {
     [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
 }
 
-KEYS_CACHE="$HOME/.config/helm/keys_cache"
+KEYS_CACHE="$HOME/.config/hub/keys_cache"
 
 build_keys_output() {
     local cyan='\033[36m'
@@ -1225,7 +1225,7 @@ build_keys_output() {
             local cmd
             cmd="$(aerospace config --get "mode.${mode}.binding.${key}" 2>/dev/null)" || continue
             cmd="${cmd#exec-and-forget  }"
-            cmd="${cmd//$REPO_DIR\/scripts\/helm/helm}"
+            cmd="${cmd//$REPO_DIR\/scripts\/hub/hub}"
             printf "  ${cyan}${bold}%-28s${reset}  %s\n" "$key" "$cmd"
         done <<< "$keys"
         echo
@@ -1239,13 +1239,13 @@ cache_keys() {
 
 cmd_dashboard() {
     if [[ ! -x "$DASHBOARD_BIN" ]]; then
-        fail "dashboard_dialog not compiled. Run: helm install"
+        fail "dashboard_dialog not compiled. Run: hub install"
         exit 1
     fi
 
     local status_tmp keys_tmp
-    status_tmp="$(mktemp /tmp/helm-dashboard-status.XXXXXX)"
-    keys_tmp="$(mktemp /tmp/helm-dashboard-keys.XXXXXX)"
+    status_tmp="$(mktemp /tmp/hub-dashboard-status.XXXXXX)"
+    keys_tmp="$(mktemp /tmp/hub-dashboard-keys.XXXXXX)"
 
     cmd_status --compact > "$status_tmp"
     cmd_keys > "$keys_tmp"
@@ -1265,14 +1265,14 @@ cmd_keys() {
 
 cmd_label_length() {
     local direction="${1:-}"
-    local maxlen_file="/tmp/helm_label_maxlen"
+    local maxlen_file="/tmp/hub_label_maxlen"
     # -1 = unlimited, 0 = code only, N>0 = max N chars of name
     local current=-1
     [[ -f "$maxlen_file" ]] && current=$(cat "$maxlen_file" 2>/dev/null || echo -1)
 
     # Find longest label to cap the max
     local longest=0
-    local labels_file="/tmp/helm_sketchybar_labels"
+    local labels_file="/tmp/hub_sketchybar_labels"
     if [[ -f "$labels_file" ]]; then
         while IFS=: read -r _ name _; do
             (( ${#name} > longest )) && longest=${#name}
@@ -1309,14 +1309,14 @@ cmd_label_length() {
             else
                 echo -e "  $current chars  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
             fi
-            echo -e "  ${yellow}Usage: helm label-length [+|-|grow|shrink|<number>]${reset}"
+            echo -e "  ${yellow}Usage: hub label-length [+|-|grow|shrink|<number>]${reset}"
             return 0
             ;;
         *)
             if [[ "$direction" =~ ^[0-9]+$ ]]; then
                 current="$direction"
             else
-                fail "Usage: helm label-length [+|-|grow|shrink|<number>]"
+                fail "Usage: hub label-length [+|-|grow|shrink|<number>]"
                 return 1
             fi
             ;;
@@ -1350,7 +1350,7 @@ ensure_general_workspace() {
 }
 
 cmd_up() {
-    echo -e "${bold}Starting helm environment...${reset}\n"
+    echo -e "${bold}Starting hub environment...${reset}\n"
 
     # Show overlay while configuring system settings
     start_overlay "Configuring System Settings"
@@ -1360,26 +1360,26 @@ cmd_up() {
     toggle_menu_bar true
     info "Setting menu bar auto-hide to ON (System Settings will open briefly)..."
 
-    # Set HelmHTTPHandler as default browser, saving previous for restore
+    # Set HubHTTPHandler as default browser, saving previous for restore
     if [[ -x "$BROWSER_CTL_BIN" ]]; then
         local prev_browser
         prev_browser="$("$BROWSER_CTL_BIN" get 2>/dev/null || true)"
-        if [[ -n "$prev_browser" && "$prev_browser" != "$HELM_BROWSER_ID" ]]; then
+        if [[ -n "$prev_browser" && "$prev_browser" != "$HUB_BROWSER_ID" ]]; then
             echo "$prev_browser" > "$PREV_BROWSER_FILE"
         fi
-        "$BROWSER_CTL_BIN" set "$HELM_BROWSER_ID" 2>/dev/null || true
-        success "Default browser set to HelmHTTPHandler"
+        "$BROWSER_CTL_BIN" set "$HUB_BROWSER_ID" 2>/dev/null || true
+        success "Default browser set to HubHTTPHandler"
     else
         warn "browser_ctl not found — skipping default browser change"
     fi
 
-    # Launch HelmHTTPHandler as persistent daemon
-    if ! pgrep -qf "HelmHTTPHandler.app/Contents/MacOS/HelmHTTPHandler"; then
+    # Launch HubHTTPHandler as persistent daemon
+    if ! pgrep -qf "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler"; then
         open -a "$HTTP_HANDLER_APP" &>/dev/null &
         disown
-        success "HelmHTTPHandler started"
+        success "HubHTTPHandler started"
     else
-        success "HelmHTTPHandler already running"
+        success "HubHTTPHandler already running"
     fi
 
     # Hide the Dock
@@ -1430,10 +1430,10 @@ cmd_up() {
     cache_keys &
     disown
 
-    echo -e "${green}${bold}helm is up!${reset}"
+    echo -e "${green}${bold}hub is up!${reset}"
     echo
-    echo -e "  Tip: use ${bold}Ctrl+Alt+O${reset} to open configured apps, or ${bold}helm open${reset} from the CLI."
-    echo -e "  Edit ${bold}~/.config/helm/apps.json${reset} to customize your app slots."
+    echo -e "  Tip: use ${bold}Ctrl+Alt+O${reset} to open configured apps, or ${bold}hub open${reset} from the CLI."
+    echo -e "  Edit ${bold}~/.config/hub/apps.json${reset} to customize your app slots."
 }
 
 cmd_reboot() {
@@ -1445,7 +1445,7 @@ cmd_reboot() {
 }
 
 cmd_down() {
-    echo -e "${bold}Shutting down helm environment...${reset}\n"
+    echo -e "${bold}Shutting down hub environment...${reset}\n"
 
     # Stop borders
     if pgrep -q borders; then
@@ -1471,12 +1471,12 @@ cmd_down() {
         warn "AeroSpace was not running"
     fi
 
-    # Stop HelmHTTPHandler daemon
-    if pgrep -qf "HelmHTTPHandler.app/Contents/MacOS/HelmHTTPHandler"; then
-        pkill -f "HelmHTTPHandler.app/Contents/MacOS/HelmHTTPHandler" 2>/dev/null || true
-        success "HelmHTTPHandler stopped"
+    # Stop HubHTTPHandler daemon
+    if pgrep -qf "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler"; then
+        pkill -f "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler" 2>/dev/null || true
+        success "HubHTTPHandler stopped"
     else
-        warn "HelmHTTPHandler was not running"
+        warn "HubHTTPHandler was not running"
     fi
 
     # Restore previous default browser
@@ -1516,7 +1516,7 @@ cmd_down() {
     stop_overlay
 
     echo
-    echo -e "${green}${bold}helm shut down complete.${reset}"
+    echo -e "${green}${bold}hub shut down complete.${reset}"
 }
 
 # --- Main ---

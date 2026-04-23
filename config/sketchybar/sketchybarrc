@@ -146,7 +146,7 @@ sketchybar --add item pad_r4 right \
 
 ##### App Launcher Icons #####
 
-APPS_FILE="$HOME/.config/helm/apps.json"
+APPS_FILE="$HOME/.config/hub/apps.json"
 if [ -f "$APPS_FILE" ]; then
     APP_COUNT=$(jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)
 
@@ -340,12 +340,12 @@ default=(
 sketchybar --default "${default[@]}"
 
 # Read workspace labels from workspaces.json
-WS_LABELS_FILE="/tmp/helm_sketchybar_labels"
+WS_LABELS_FILE="/tmp/hub_sketchybar_labels"
 : > "$WS_LABELS_FILE"
 
-if [ -f "$HOME/.config/helm/workspaces.json" ]; then
+if [ -f "$HOME/.config/hub/workspaces.json" ]; then
     jq -r '.[] | .workspace_id + ":" + .name + ":" + (.color // "")' \
-        "$HOME/.config/helm/workspaces.json" > "$WS_LABELS_FILE" 2>/dev/null || true
+        "$HOME/.config/hub/workspaces.json" > "$WS_LABELS_FILE" 2>/dev/null || true
 fi
 
 ws_label() {
@@ -358,7 +358,7 @@ ws_label() {
     fi
     # -1 = unlimited, 0 = code only, N>0 = truncate at N chars
     local maxlen=-1
-    [ -f /tmp/helm_label_maxlen ] && maxlen=$(cat /tmp/helm_label_maxlen 2>/dev/null || echo -1)
+    [ -f /tmp/hub_label_maxlen ] && maxlen=$(cat /tmp/hub_label_maxlen 2>/dev/null || echo -1)
     if [ "$maxlen" -eq 0 ]; then
         echo "$n"
         return

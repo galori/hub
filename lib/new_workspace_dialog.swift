@@ -1,19 +1,19 @@
 import Cocoa
 
-// New Workspace dialog for helm.
+// New Workspace dialog for hub.
 // Keyboard-first: every action reachable via keyboard, also clickable with mouse.
-// Writes result to /tmp/helm-new-workspace as tab-separated:
+// Writes result to /tmp/hub-new-workspace as tab-separated:
 //   name\tpath\troot_repo\tworkspace_id
 // or "cancel" if cancelled.
 
-let resultPath = "/tmp/helm-new-workspace"
+let resultPath = "/tmp/hub-new-workspace"
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 let screen = NSScreen.main ?? NSScreen.screens[0]
 let sf = screen.frame
 
-// --- Colors (matching helm palette) ---
+// --- Colors (matching hub palette) ---
 let bgColor = NSColor(white: 0.08, alpha: 0.93)
 let itemBg = NSColor(red: 0.21, green: 0.22, blue: 0.27, alpha: 1)
 let itemBg2 = NSColor(red: 0.25, green: 0.27, blue: 0.31, alpha: 1)
@@ -340,7 +340,7 @@ func lastPathComponent(_ path: String) -> String {
 }
 
 func nextWorkspaceID() -> String {
-    let wsFile = NSString(string: "~/.config/helm/workspaces.json").expandingTildeInPath
+    let wsFile = NSString(string: "~/.config/hub/workspaces.json").expandingTildeInPath
     var usedIDs: Set<String> = []
     if let data = FileManager.default.contents(atPath: wsFile),
        let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
@@ -449,7 +449,7 @@ func relayout() {
 // ============================================================================
 
 func removeFromRecentPaths(_ path: String) {
-    let recentFile = NSString(string: "~/.config/helm/recent_repos.json").expandingTildeInPath
+    let recentFile = NSString(string: "~/.config/hub/recent_repos.json").expandingTildeInPath
     guard let data = FileManager.default.contents(atPath: recentFile),
           var arr = try? JSONSerialization.jsonObject(with: data) as? [String] else { return }
     arr.removeAll { $0 == path }
@@ -459,13 +459,13 @@ func removeFromRecentPaths(_ path: String) {
 }
 
 func recentPaths() -> [String] {
-    let recentFile = NSString(string: "~/.config/helm/recent_repos.json").expandingTildeInPath
+    let recentFile = NSString(string: "~/.config/hub/recent_repos.json").expandingTildeInPath
     if let data = FileManager.default.contents(atPath: recentFile),
        let arr = try? JSONSerialization.jsonObject(with: data) as? [String] {
         return arr.filter { !$0.isEmpty }
     }
     // Fall back to deriving from workspaces.json for backwards compatibility
-    let wsFile = NSString(string: "~/.config/helm/workspaces.json").expandingTildeInPath
+    let wsFile = NSString(string: "~/.config/hub/workspaces.json").expandingTildeInPath
     guard let data = FileManager.default.contents(atPath: wsFile),
           let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return [] }
     var seen = Set<String>()
