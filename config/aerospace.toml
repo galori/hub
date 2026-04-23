@@ -190,6 +190,9 @@ on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/a
     ctrl-alt-shift-4 = 'exec-and-forget __HUB_SCRIPT__ open 4 --force'
     ctrl-alt-shift-5 = 'exec-and-forget __HUB_SCRIPT__ open 5 --force'
 
+    alt-backtick = 'focus --boundaries workspace dfs-next'
+    alt-shift-backtick = 'focus --boundaries workspace dfs-prev'
+
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
 [mode.service.binding]
