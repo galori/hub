@@ -67,7 +67,8 @@ func launchCommandForSlot(_ index: Int) -> String? {
 }
 
 func openURL(_ url: URL, withLaunchCommand launch: String) {
-    let cmd = "\(launch) \(url.absoluteString)"
+    let escaped = url.absoluteString.replacingOccurrences(of: "'", with: "'\\''")
+    let cmd = "\(launch) '\(escaped)'"
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
 }
 
