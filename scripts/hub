@@ -1094,8 +1094,8 @@ open_app_slot() {
         local win_ws
         win_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${new_wid}|" | cut -d'|' -f2 || echo "")"
         if [[ "$win_ws" != "$ws_id" ]]; then
+            aerospace move-node-to-workspace --window-id "$new_wid" "$ws_id" 2>/dev/null || true
             aerospace focus --window-id "$new_wid" 2>/dev/null || true
-            aerospace move-node-to-workspace "$ws_id" 2>/dev/null || true
         fi
         [[ "$verbose" == "true" ]] && success "$app_name opened"
     else
