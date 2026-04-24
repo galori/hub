@@ -118,13 +118,28 @@ titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
 titleLabel.textColor = dimWhite
 cv.addSubview(titleLabel)
 
-let msgLabel = NSTextField(wrappingLabelWithString: messageText)
+let msgLabel = NSTextField(wrappingLabelWithString: "")
 msgLabel.translatesAutoresizingMaskIntoConstraints = false
-msgLabel.font = NSFont.systemFont(ofSize: 13, weight: .regular)
-msgLabel.textColor = NSColor(white: 1, alpha: 0.8)
 msgLabel.isEditable = false
 msgLabel.isBordered = false
 msgLabel.backgroundColor = .clear
+let normalAttrs: [NSAttributedString.Key: Any] = [
+    .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+    .foregroundColor: NSColor(white: 1, alpha: 0.8),
+]
+let highlightAttrs: [NSAttributedString.Key: Any] = [
+    .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+    .foregroundColor: NSColor(red: 0.45, green: 0.75, blue: 0.98, alpha: 1),
+]
+let msgAttributed = NSMutableAttributedString()
+var remaining = messageText
+while let range = remaining.range(of: "Z General") {
+    msgAttributed.append(NSAttributedString(string: String(remaining[..<range.lowerBound]), attributes: normalAttrs))
+    msgAttributed.append(NSAttributedString(string: "Z\u{00A0}General", attributes: highlightAttrs))
+    remaining = String(remaining[range.upperBound...])
+}
+msgAttributed.append(NSAttributedString(string: remaining, attributes: normalAttrs))
+msgLabel.attributedStringValue = msgAttributed
 cv.addSubview(msgLabel)
 
 // Build checkboxes
