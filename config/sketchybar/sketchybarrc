@@ -206,7 +206,7 @@ if [ -f "$APPS_FILE" ]; then
                    padding_left=3 \
                    padding_right=0 \
                    script="$PLUGIN_DIR/app_slot.sh" \
-                   --subscribe "app_tip.$i" mouse.entered mouse.exited mouse.clicked
+                   --subscribe "app_tip.$i" mouse.clicked
     done
 
     # Build bracket member list: app_tip.1 app_slot.1 .. app_tip.N app_slot.N
