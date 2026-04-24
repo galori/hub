@@ -162,8 +162,8 @@ on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/a
     alt-shift-semicolon = 'mode service'
 
     # cycle through active (non-empty) workspaces
-    ctrl-alt-bracketleft  = 'workspace --wrap-around prev'
-    ctrl-alt-bracketright = 'workspace --wrap-around next'
+    ctrl-alt-leftSquareBracket  = 'workspace --wrap-around prev'
+    ctrl-alt-rightSquareBracket = 'workspace --wrap-around next'
 
     # hub: dashboard (status + keys)
     ctrl-alt-slash = 'exec-and-forget __HUB_SCRIPT__ dashboard'
