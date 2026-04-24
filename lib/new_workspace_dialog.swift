@@ -481,6 +481,88 @@ func recentPaths() -> [String] {
     return paths
 }
 
+func showNoRepoName() {
+    clearContent()
+
+    let titleLabel = NSTextField(labelWithString: "New Workspace")
+    titleLabel.translatesAutoresizingMaskIntoConstraints = false
+    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    titleLabel.textColor = dimWhite
+    addView(titleLabel)
+
+    let nameLabel = makeLabel("NAME")
+    addView(nameLabel)
+    let nameField = makeField(placeholder: "workspace name")
+    addView(nameField)
+
+    let errorLabel = NSTextField(labelWithString: "")
+    errorLabel.translatesAutoresizingMaskIntoConstraints = false
+    errorLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+    errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
+    addView(errorLabel)
+
+    let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
+    addView(createBtn)
+    let backBtn = makeBtn(label: "BACK", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    addView(backBtn)
+
+    NSLayoutConstraint.activate([
+        titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
+        titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        nameLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 18),
+        nameLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        nameField.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 6),
+        nameField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        nameField.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        nameField.heightAnchor.constraint(equalToConstant: 36),
+        errorLabel.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 6),
+        errorLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        errorLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        createBtn.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
+        createBtn.trailingAnchor.constraint(equalTo: backBtn.leadingAnchor, constant: -10),
+        createBtn.heightAnchor.constraint(equalToConstant: 34),
+        createBtn.widthAnchor.constraint(equalToConstant: 100),
+        backBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
+        backBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        backBtn.heightAnchor.constraint(equalToConstant: 34),
+        backBtn.widthAnchor.constraint(equalToConstant: 100),
+        backBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
+    ])
+
+    relayout()
+    win.makeFirstResponder(nameField)
+
+    class CreateAction: NSObject {
+        let field: NSTextField
+        let errLabel: NSTextField
+        init(_ f: NSTextField, _ e: NSTextField) { field = f; errLabel = e }
+        @objc func create(_ sender: Any) { doCreate() }
+        func doCreate() {
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { errLabel.stringValue = "Enter a name"; return }
+            let wsID = nextWorkspaceID()
+            writeResult("\(name)\t-\t-\t\(wsID)\t-\t-")
+            dismiss()
+        }
+    }
+    class BackAction: NSObject {
+        @objc func back(_ sender: Any) { showPickPath() }
+    }
+
+    let createAction = CreateAction(nameField, errorLabel)
+    let backAction = BackAction()
+    createBtn.target = createAction; createBtn.action = #selector(CreateAction.create(_:))
+    backBtn.target = backAction; backBtn.action = #selector(BackAction.back(_:))
+    objc_setAssociatedObject(createBtn, "a", createAction, .OBJC_ASSOCIATION_RETAIN)
+    objc_setAssociatedObject(backBtn, "a", backAction, .OBJC_ASSOCIATION_RETAIN)
+
+    currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        if event.keyCode == 53 { showPickPath(); return nil }
+        if event.keyCode == 36 { createAction.doCreate(); return nil }
+        return event
+    }
+}
+
 func showPickPath() {
     clearContent()
 
@@ -497,6 +579,8 @@ func showPickPath() {
 
     let browseBtn = makeBtn(label: "BROWSE", shortcut: "tab", bg: NSColor(white: 0.22, alpha: 1), fg: NSColor(white: 1, alpha: 0.75))
     addView(browseBtn)
+    let noRepoBtn = makeBtn(label: "NO REPO", shortcut: "⌘↵", bg: NSColor(white: 0.18, alpha: 1), fg: NSColor(white: 1, alpha: 0.45))
+    addView(noRepoBtn)
 
     let errorLabel = NSTextField(labelWithString: "")
     errorLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -611,9 +695,13 @@ func showPickPath() {
         browseBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         browseBtn.heightAnchor.constraint(equalToConstant: 36),
         browseBtn.widthAnchor.constraint(equalToConstant: 100),
+        noRepoBtn.topAnchor.constraint(equalTo: pathField.bottomAnchor, constant: 6),
+        noRepoBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        noRepoBtn.heightAnchor.constraint(equalToConstant: 24),
+        noRepoBtn.widthAnchor.constraint(equalToConstant: 100),
         errorLabel.topAnchor.constraint(equalTo: pathField.bottomAnchor, constant: 6),
         errorLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        errorLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        errorLabel.trailingAnchor.constraint(equalTo: noRepoBtn.leadingAnchor, constant: -8),
         nextBtn.topAnchor.constraint(equalTo: prevRecentAnchor, constant: 14),
         nextBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
         nextBtn.heightAnchor.constraint(equalToConstant: 34),
@@ -651,23 +739,32 @@ func showPickPath() {
             handlePathSelected(expanded)
         }
     }
+    class NoRepoAction: NSObject {
+        @objc func noRepo(_ sender: Any) { showNoRepoName() }
+    }
     class CancelAction: NSObject {
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
     }
 
     let browseAction = BrowseAction(pathField)
     let nextAction = NextAction(pathField, errorLabel)
+    let noRepoAction = NoRepoAction()
     let cancelAction = CancelAction()
     browseBtn.target = browseAction; browseBtn.action = #selector(BrowseAction.browse(_:))
     nextBtn.target = nextAction; nextBtn.action = #selector(NextAction.next(_:))
+    noRepoBtn.target = noRepoAction; noRepoBtn.action = #selector(NoRepoAction.noRepo(_:))
     cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
     objc_setAssociatedObject(browseBtn, "a", browseAction, .OBJC_ASSOCIATION_RETAIN)
     objc_setAssociatedObject(nextBtn, "a", nextAction, .OBJC_ASSOCIATION_RETAIN)
+    objc_setAssociatedObject(noRepoBtn, "a", noRepoAction, .OBJC_ASSOCIATION_RETAIN)
     objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
-        if event.keyCode == 36 { nextAction.doNext(); return nil }
+        if event.keyCode == 36 {
+            if event.modifierFlags.contains(.command) { showNoRepoName(); return nil }
+            nextAction.doNext(); return nil
+        }
         if event.keyCode == 48 { // Tab
             let cur = win.firstResponder
             let isField = (cur is NSTextView && pathField.currentEditor() === cur)

@@ -549,13 +549,21 @@ cmd_new() {
     [[ "$ws_color" == "-" ]] && ws_color=""
     [[ "$ws_setup_cmd" == "-" ]] && ws_setup_cmd=""
 
-    if [[ -z "$ws_name" || -z "$ws_path" || -z "$ws_id" ]]; then
+    if [[ -z "$ws_name" || -z "$ws_id" ]]; then
         fail "Invalid dialog result"
         return
     fi
 
+    # "-" means no repo — treat path as home dir, no iTerm cd, no recent_repos entry
+    local no_repo=false
+    if [[ "$ws_path" == "-" || -z "$ws_path" ]]; then
+        no_repo=true
+        ws_path="$HOME"
+        ws_root=""
+    fi
+
     success "Creating workspace: $ws_name (workspace $ws_id)"
-    info "Path: $ws_path"
+    [[ "$no_repo" == "false" ]] && info "Path: $ws_path"
 
     # Save to workspaces.json
     mkdir -p "$(dirname "$WORKSPACES_FILE")"
@@ -578,14 +586,16 @@ cmd_new() {
     echo "$updated" > "$WORKSPACES_FILE"
     success "Saved to $WORKSPACES_FILE"
 
-    # Update recent_repos.json (persistent history, independent of active workspaces)
-    local recent_repo="${ws_root:-$ws_path}"
-    local existing_recent="[]"
-    if [[ -f "$RECENT_REPOS_FILE" ]]; then
-        existing_recent="$(cat "$RECENT_REPOS_FILE")"
+    # Update recent_repos.json (skip for no-repo workspaces)
+    if [[ "$no_repo" == "false" ]]; then
+        local recent_repo="${ws_root:-$ws_path}"
+        local existing_recent="[]"
+        if [[ -f "$RECENT_REPOS_FILE" ]]; then
+            existing_recent="$(cat "$RECENT_REPOS_FILE")"
+        fi
+        echo "$existing_recent" | jq --arg r "$recent_repo" \
+            '[$r] + (map(select(. != $r))) | .[0:20]' > "$RECENT_REPOS_FILE"
     fi
-    echo "$existing_recent" | jq --arg r "$recent_repo" \
-        '[$r] + (map(select(. != $r))) | .[0:20]' > "$RECENT_REPOS_FILE"
 
     # Update sketchybar label
     update_sketchybar_label "$ws_id" "$ws_name"
@@ -594,6 +604,7 @@ cmd_new() {
     aerospace workspace "$ws_id"
     success "Switched to workspace $ws_id"
 
+    if [[ "$no_repo" == "false" ]]; then
     # Open iTerm and cd to path, then ensure the window lands on $ws_id
     local iterm_before
     iterm_before="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep '|iTerm2$' | cut -d'|' -f1 || echo "")"
@@ -627,12 +638,13 @@ APPLESCRIPT
         local iterm_ws
         iterm_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${iterm_wid}|" | cut -d'|' -f2 || echo "")"
         if [[ "$iterm_ws" != "$ws_id" ]]; then
+            aerospace move-node-to-workspace --window-id "$iterm_wid" "$ws_id" 2>/dev/null || true
             aerospace focus --window-id "$iterm_wid" 2>/dev/null || true
-            aerospace move-node-to-workspace "$ws_id" 2>/dev/null || true
         fi
         aerospace workspace "$ws_id" 2>/dev/null || true
     fi
     success "Opened iTerm at $ws_path"
+    fi # no_repo
 
     # Run worktree setup command in background output_window
     if [[ -n "$ws_setup_cmd" && -n "$ws_root" ]]; then
@@ -882,24 +894,22 @@ cmd_remove() {
         fi
     fi
 
-    if [[ ! -f "$WORKSPACES_FILE" ]]; then
-        fail "No workspaces defined"
-        exit 1
-    fi
-
-    # Look up workspace info
-    local ws_info
-    ws_info="$(jq -r --arg id "$ws_id" \
-        '.[] | select(.workspace_id == $id) | [.name, .path, .root_repo] | @tsv' \
-        "$WORKSPACES_FILE" 2>/dev/null)" || true
-
-    if [[ -z "$ws_info" ]]; then
-        fail "Workspace '$ws_id' not found in workspaces.json"
-        exit 1
+    # Look up workspace info (may not exist if workspace was never registered with hub)
+    local ws_info=""
+    if [[ -f "$WORKSPACES_FILE" ]]; then
+        ws_info="$(jq -r --arg id "$ws_id" \
+            '.[] | select(.workspace_id == $id) | [.name, .path, .root_repo] | @tsv' \
+            "$WORKSPACES_FILE" 2>/dev/null)" || true
     fi
 
     local ws_name ws_path ws_root
-    IFS=$'\t' read -r ws_name ws_path ws_root <<< "$ws_info"
+    if [[ -n "$ws_info" ]]; then
+        IFS=$'\t' read -r ws_name ws_path ws_root <<< "$ws_info"
+    else
+        ws_name="$ws_id"
+        ws_path=""
+        ws_root=""
+    fi
 
     # Count windows
     local windows
@@ -911,12 +921,12 @@ cmd_remove() {
 
     local confirm_msg="Remove workspace '$ws_name' (ID: $ws_id)?"
     if [[ "$window_count" -gt 0 ]]; then
-        confirm_msg="Remove workspace '$ws_name' (ID: $ws_id)? Any open windows will be moved to the General workspace."
+        confirm_msg="Remove workspace '$ws_name' (ID: $ws_id)? Open windows will be closed. Any that don't close immediately will be moved to the Z General workspace."
     fi
 
-    # Determine if this is a worktree (path differs from root repo)
+    # Determine if this is a worktree (path differs from root repo, path exists on disk)
     local is_worktree=false
-    if [[ -n "$ws_root" && "$ws_path" != "$ws_root" && -d "$ws_path" ]]; then
+    if [[ -n "$ws_root" && "$ws_path" != "$ws_root" && "$ws_path" != "-" && -d "$ws_path" ]]; then
         is_worktree=true
     fi
 
@@ -946,9 +956,11 @@ cmd_remove() {
     fi
 
     # Instant cleanup — before any slow teardown
-    local updated
-    updated="$(jq --arg id "$ws_id" '[.[] | select(.workspace_id != $id)]' "$WORKSPACES_FILE")"
-    echo "$updated" > "$WORKSPACES_FILE"
+    if [[ -f "$WORKSPACES_FILE" ]]; then
+        local updated
+        updated="$(jq --arg id "$ws_id" '[.[] | select(.workspace_id != $id)]' "$WORKSPACES_FILE")"
+        echo "$updated" > "$WORKSPACES_FILE"
+    fi
 
     remove_sketchybar_label "$ws_id"
 
