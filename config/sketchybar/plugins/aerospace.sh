@@ -55,7 +55,7 @@ render_workspaces() {
         local lbl="$ws"
         local name="${WS_NAME_MAP[$ws]}"
         if [ -n "$name" ] && [ "$LABEL_MAXLEN" -ne 0 ]; then
-            if [ "$LABEL_MAXLEN" -gt 0 ] && [ "${#name}" -gt "$LABEL_MAXLEN" ]; then
+            if [ "$LABEL_MAXLEN" -gt 0 ] && [ "${#name}" -gt "$LABEL_MAXLEN" ] && [ "$ws" != "$CURRENT" ]; then
                 lbl="$ws ${name:0:$LABEL_MAXLEN}…"
             else
                 lbl="$ws $name"
