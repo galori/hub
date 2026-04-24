@@ -506,7 +506,6 @@ func showPickPath() {
 
     // Recent paths
     let recent = recentPaths()
-    var recentBtns: [NSButton] = []
     var recentActions: [AnyObject] = []
 
     class RecentPathAction: NSObject {
@@ -526,6 +525,15 @@ func showPickPath() {
         }
     }
 
+    class RemoveRecentAction: NSObject {
+        let path: String
+        init(_ p: String) { path = p }
+        @objc func remove(_ sender: Any) {
+            removeFromRecentPaths(path)
+            showPickPath()
+        }
+    }
+
     var prevRecentAnchor: NSLayoutYAxisAnchor = errorLabel.bottomAnchor
     if !recent.isEmpty {
         let recentLabel = makeLabel("RECENT")
@@ -538,6 +546,23 @@ func showPickPath() {
 
         for (i, rp) in recent.prefix(15).enumerated() {
             let displayPath = (rp as NSString).abbreviatingWithTildeInPath
+
+            let removeBtn = NSButton()
+            removeBtn.translatesAutoresizingMaskIntoConstraints = false
+            removeBtn.isBordered = false
+            removeBtn.wantsLayer = true
+            removeBtn.layer?.cornerRadius = 3
+            removeBtn.attributedTitle = NSAttributedString(string: "✕", attributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+                .foregroundColor: NSColor(white: 1, alpha: 0.3),
+            ])
+            removeBtn.toolTip = "Remove from recent"
+            let removeAction = RemoveRecentAction(rp)
+            recentActions.append(removeAction)
+            removeBtn.target = removeAction; removeBtn.action = #selector(RemoveRecentAction.remove(_:))
+            objc_setAssociatedObject(removeBtn, "rm\(i)", removeAction, .OBJC_ASSOCIATION_RETAIN)
+            addView(removeBtn)
+
             let btn = NSButton()
             btn.translatesAutoresizingMaskIntoConstraints = false
             btn.isBordered = false
@@ -555,13 +580,16 @@ func showPickPath() {
             objc_setAssociatedObject(btn, "rp\(i)", action, .OBJC_ASSOCIATION_RETAIN)
             addView(btn)
             NSLayoutConstraint.activate([
+                removeBtn.centerYAnchor.constraint(equalTo: btn.centerYAnchor),
+                removeBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -20),
+                removeBtn.widthAnchor.constraint(equalToConstant: 20),
+                removeBtn.heightAnchor.constraint(equalToConstant: 20),
                 btn.topAnchor.constraint(equalTo: prevRecentAnchor, constant: 2),
                 btn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 20),
-                btn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -20),
+                btn.trailingAnchor.constraint(equalTo: removeBtn.leadingAnchor, constant: -4),
                 btn.heightAnchor.constraint(equalToConstant: 26),
             ])
             prevRecentAnchor = btn.bottomAnchor
-            recentBtns.append(btn)
         }
     }
 
