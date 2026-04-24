@@ -30,7 +30,7 @@ cv.wantsLayer = true
 cv.layer?.cornerRadius = 18
 cv.layer?.masksToBounds = true
 
-let titleLabel = NSTextField(labelWithString: "URL Handler")
+let titleLabel = NSTextField(labelWithString: "[hub]")
 titleLabel.translatesAutoresizingMaskIntoConstraints = false
 titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
 titleLabel.textColor = NSColor(white: 1, alpha: 0.45)
@@ -87,7 +87,7 @@ extension String {
 var hideWork: DispatchWorkItem?
 
 func showURL(_ urlString: String) {
-    urlLabel.stringValue = "Opening \(urlString)"
+    urlLabel.stringValue = "Opening URL in current workspace: \(urlString)"
     cv.layoutSubtreeIfNeeded()
     let fittingH = max(cv.fittingSize.height + 8, 100)
     let rect = NSRect(
