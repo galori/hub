@@ -54,7 +54,7 @@ render_workspaces() {
     for ws in 1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U V W X Y Z; do
         local lbl="$ws"
         local name="${WS_NAME_MAP[$ws]}"
-        if [ -n "$name" ] && [ "$LABEL_MAXLEN" -ne 0 ]; then
+        if [ -n "$name" ] && { [ "$LABEL_MAXLEN" -ne 0 ] || [ "$ws" = "$CURRENT" ]; }; then
             if [ "$LABEL_MAXLEN" -gt 0 ] && [ "${#name}" -gt "$LABEL_MAXLEN" ] && [ "$ws" != "$CURRENT" ]; then
                 lbl="$ws ${name:0:$LABEL_MAXLEN}…"
             else
