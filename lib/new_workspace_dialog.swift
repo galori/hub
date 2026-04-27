@@ -27,6 +27,10 @@ class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
 }
 
+class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
 let dialogW: CGFloat = min(sf.width * 0.45, 600)
 let win = KeyableWindow(contentRect: NSRect(x: 0, y: 0, width: dialogW, height: 100),
                         styleMask: .borderless, backing: .buffered, defer: false)
@@ -302,6 +306,21 @@ func listWorktrees(_ path: String) -> [Worktree] {
         worktrees.append(Worktree(path: curPath, branch: curBranch, isBare: curBare))
     }
     return worktrees
+}
+
+func listGitBranches(_ repoRoot: String) -> [String] {
+    let p = Process()
+    let pipe = Pipe()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    p.arguments = ["-C", repoRoot, "branch", "--format=%(refname:short)", "--sort=-committerdate"]
+    p.standardOutput = pipe
+    p.standardError = FileHandle.nullDevice
+    try? p.run()
+    p.waitUntilExit()
+    guard p.terminationStatus == 0 else { return [] }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    guard let output = String(data: data, encoding: .utf8) else { return [] }
+    return output.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
 }
 
 func createWorktree(repoRoot: String, name: String) -> (path: String?, error: String) {
@@ -968,6 +987,166 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
     errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
     addView(errorLabel)
 
+    // --- Branch list (scrollable, filterable) ---
+    let branchesLabel = makeLabel("EXISTING BRANCHES")
+    addView(branchesLabel)
+
+    let scrollView = NSScrollView()
+    scrollView.translatesAutoresizingMaskIntoConstraints = false
+    scrollView.hasVerticalScroller = true
+    scrollView.autohidesScrollers = true
+    scrollView.drawsBackground = false
+    scrollView.wantsLayer = true
+    scrollView.layer?.backgroundColor = itemBg.cgColor
+    scrollView.layer?.cornerRadius = 6
+    addView(scrollView)
+
+    let clipView = scrollView.contentView
+    let stackContainer = FlippedView()
+    stackContainer.translatesAutoresizingMaskIntoConstraints = false
+    stackContainer.wantsLayer = false
+    scrollView.documentView = stackContainer
+
+    NSLayoutConstraint.activate([
+        stackContainer.topAnchor.constraint(equalTo: clipView.topAnchor),
+        stackContainer.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
+        stackContainer.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
+    ])
+
+    let allBranches = listGitBranches(repoRoot)
+
+    class BranchListManager: NSObject, NSTextFieldDelegate {
+        let allBranches: [String]
+        let container: NSView
+        let field: NSTextField
+        let repoRoot: String
+        let errLabel: NSTextField
+        let mgr: [String: String]?
+        var debounceTimer: Timer?
+        var branchButtons: [(branch: String, button: NSButton)] = []
+        var highlightedIndex: Int = -1
+
+        init(branches: [String], container: NSView, field: NSTextField,
+             repoRoot: String, errLabel: NSTextField, mgr: [String: String]?) {
+            self.allBranches = branches
+            self.container = container
+            self.field = field
+            self.repoRoot = repoRoot
+            self.errLabel = errLabel
+            self.mgr = mgr
+            super.init()
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            debounceTimer?.invalidate()
+            debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in
+                self?.rebuildList()
+            }
+        }
+
+        func rebuildList() {
+            for sub in container.subviews { sub.removeFromSuperview() }
+            branchButtons.removeAll()
+            highlightedIndex = -1
+            let query = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let filtered = query.isEmpty ? allBranches : allBranches.filter { $0.lowercased().contains(query) }
+            var prevAnchor: NSLayoutYAxisAnchor = container.topAnchor
+            for (i, branch) in filtered.enumerated() {
+                let btn = NSButton()
+                btn.translatesAutoresizingMaskIntoConstraints = false
+                btn.isBordered = false
+                btn.wantsLayer = true
+                btn.layer?.cornerRadius = 4
+                btn.alignment = .left
+                btn.attributedTitle = NSAttributedString(string: "  \(branch)", attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: NSColor(white: 1, alpha: 0.65),
+                ])
+                let branchCopy = branch
+                let action = BranchPickAction(branch: branchCopy, field: field, errLabel: errLabel,
+                                              repoRoot: repoRoot, mgr: mgr, listMgr: self)
+                btn.target = action; btn.action = #selector(BranchPickAction.pick(_:))
+                objc_setAssociatedObject(btn, "ba\(i)", action, .OBJC_ASSOCIATION_RETAIN)
+                container.addSubview(btn)
+                branchButtons.append((branch: branch, button: btn))
+                NSLayoutConstraint.activate([
+                    btn.topAnchor.constraint(equalTo: prevAnchor, constant: i == 0 ? 4 : 1),
+                    btn.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                    btn.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                    btn.heightAnchor.constraint(equalToConstant: 26),
+                ])
+                prevAnchor = btn.bottomAnchor
+            }
+            if !filtered.isEmpty {
+                prevAnchor.constraint(equalTo: container.bottomAnchor, constant: -4).isActive = true
+            } else {
+                container.topAnchor.constraint(equalTo: container.bottomAnchor).isActive = true
+            }
+            container.layoutSubtreeIfNeeded()
+        }
+
+        func moveHighlight(by delta: Int) {
+            guard !branchButtons.isEmpty else { return }
+            let newIndex = max(0, min(branchButtons.count - 1, highlightedIndex + delta))
+            setHighlight(newIndex)
+        }
+
+        func setHighlight(_ index: Int) {
+            if highlightedIndex >= 0 && highlightedIndex < branchButtons.count {
+                let old = branchButtons[highlightedIndex].button
+                old.layer?.backgroundColor = nil
+                old.attributedTitle = NSAttributedString(string: "  \(branchButtons[highlightedIndex].branch)", attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: NSColor(white: 1, alpha: 0.65),
+                ])
+            }
+            highlightedIndex = index
+            if index >= 0 && index < branchButtons.count {
+                let btn = branchButtons[index].button
+                btn.layer?.backgroundColor = NSColor(white: 1, alpha: 0.08).cgColor
+                btn.attributedTitle = NSAttributedString(string: "  \(branchButtons[index].branch)", attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                    .foregroundColor: NSColor.white,
+                ])
+                (btn.superview?.enclosingScrollView)?.scrollToVisible(btn.frame)
+            }
+        }
+
+        func selectHighlighted() {
+            guard highlightedIndex >= 0 && highlightedIndex < branchButtons.count else { return }
+            let branch = branchButtons[highlightedIndex].branch
+            field.stringValue = branch
+            errLabel.stringValue = ""
+        }
+    }
+
+    class BranchPickAction: NSObject {
+        let branch: String
+        let field: NSTextField
+        let errLabel: NSTextField
+        let repoRoot: String
+        let mgr: [String: String]?
+        weak var listMgr: BranchListManager?
+        init(branch: String, field: NSTextField, errLabel: NSTextField,
+             repoRoot: String, mgr: [String: String]?, listMgr: BranchListManager) {
+            self.branch = branch; self.field = field; self.errLabel = errLabel
+            self.repoRoot = repoRoot; self.mgr = mgr; self.listMgr = listMgr
+        }
+        @objc func pick(_ sender: Any) {
+            field.stringValue = branch
+            errLabel.stringValue = ""
+            win.makeFirstResponder(field)
+            listMgr?.rebuildList()
+        }
+    }
+
+    let listMgr = BranchListManager(branches: allBranches, container: stackContainer,
+                                     field: nameField, repoRoot: repoRoot,
+                                     errLabel: errorLabel, mgr: manager)
+    nameField.delegate = listMgr
+    objc_setAssociatedObject(nameField, "listMgr", listMgr, .OBJC_ASSOCIATION_RETAIN)
+
+    // --- Buttons ---
     let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
     addView(createBtn)
     let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
@@ -985,7 +1164,13 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
         errorLabel.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 6),
         errorLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         errorLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-        createBtn.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
+        branchesLabel.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
+        branchesLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        scrollView.topAnchor.constraint(equalTo: branchesLabel.bottomAnchor, constant: 6),
+        scrollView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        scrollView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        scrollView.heightAnchor.constraint(equalToConstant: 160),
+        createBtn.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 14),
         createBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
         createBtn.heightAnchor.constraint(equalToConstant: 34),
         createBtn.widthAnchor.constraint(equalToConstant: 100),
@@ -997,6 +1182,7 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
     ])
 
     relayout()
+    listMgr.rebuildList()
     win.makeFirstResponder(nameField)
 
     class CreateAction: NSObject {
@@ -1033,6 +1219,18 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
         if event.keyCode == 36 { createAction.doCreate(); return nil }
+        // Arrow keys navigate the branch list
+        if event.keyCode == 125 { listMgr.moveHighlight(by: 1); return nil }  // down
+        if event.keyCode == 126 { listMgr.moveHighlight(by: -1); return nil } // up
+        // Tab selects highlighted branch
+        if event.keyCode == 48 {
+            if listMgr.highlightedIndex >= 0 {
+                listMgr.selectHighlighted()
+                listMgr.highlightedIndex = -1
+                listMgr.rebuildList()
+            }
+            return nil
+        }
         return event
     }
 }
