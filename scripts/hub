@@ -600,9 +600,8 @@ cmd_new() {
     # Update sketchybar label
     update_sketchybar_label "$ws_id" "$ws_name"
 
-    # Switch to the workspace and ensure tiling layout
+    # Switch to the workspace
     aerospace workspace "$ws_id"
-    aerospace layout tiles 2>/dev/null || true
     success "Switched to workspace $ws_id"
 
     if [[ "$no_repo" == "false" ]]; then
@@ -667,6 +666,14 @@ APPLESCRIPT
         ) &
         disown
     fi
+
+    # Apply tiling layout explicitly to the new workspace after all window moves settle.
+    # Run in background so it doesn't block; targets the workspace by ID to avoid race conditions.
+    (
+        sleep 0.8
+        aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
+    ) &
+    disown
 
     echo
     echo -e "${green}${bold}Workspace '$ws_name' created on workspace $ws_id!${reset}"
@@ -812,7 +819,7 @@ cmd_status() {
 
     # --- Services ---
     echo -e "${bold}Services:${reset}"
-    if pgrep -q AeroSpace; then
+    if aerospace list-workspaces --all &>/dev/null; then
         echo -e "  ${green}✓${reset} AeroSpace"
     else
         echo -e "  ${red}✗${reset} AeroSpace"
@@ -1259,13 +1266,16 @@ cmd_dashboard() {
     local status_tmp keys_tmp
     status_tmp="$(mktemp /tmp/hub-dashboard-status.XXXXXX)"
     keys_tmp="$(mktemp /tmp/hub-dashboard-keys.XXXXXX)"
+    rm -f "${status_tmp}.done" "${keys_tmp}.done"
 
-    cmd_status --compact > "$status_tmp"
-    cmd_keys > "$keys_tmp"
+    # Populate files in background; write .done sentinels when each is ready
+    ( cmd_status --compact > "$status_tmp" && touch "${status_tmp}.done" ) &
+    ( cmd_keys > "$keys_tmp" && touch "${keys_tmp}.done" ) &
 
+    # Launch dialog immediately — it polls for the .done sentinels
     "$DASHBOARD_BIN" "$status_tmp" "$keys_tmp"
 
-    rm -f "$status_tmp" "$keys_tmp"
+    rm -f "$status_tmp" "${status_tmp}.done" "$keys_tmp" "${keys_tmp}.done"
 }
 
 cmd_keys() {
