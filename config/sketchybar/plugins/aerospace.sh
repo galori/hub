@@ -62,8 +62,9 @@ render_workspaces() {
         local lbl="$ws"
         local name="${WS_NAME_MAP[$ws]}"
         local repo="${WS_REPO_MAP[$ws]}"
-        # Prepend repo prefix when enabled and a repo is known for this workspace
-        if [ "$REPO_PREFIX" = "on" ] && [ -n "$repo" ] && [ -n "$name" ]; then
+        # Prepend repo prefix when enabled and the name differs from the repo
+        # (when name == repo it's the root checkout itself, just show the repo name)
+        if [ "$REPO_PREFIX" = "on" ] && [ -n "$repo" ] && [ -n "$name" ] && [ "$name" != "$repo" ]; then
             name="${repo}:${name}"
         fi
         if [ -n "$name" ] && { [ "$LABEL_MAXLEN" -ne 0 ] || [ "$ws" = "$CURRENT" ]; }; then
