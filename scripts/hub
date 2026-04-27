@@ -544,11 +544,12 @@ cmd_new() {
         return
     fi
 
-    # Parse: name\tpath\troot_repo\tworkspace_id\tcolor\tsetup_cmd ("-" = empty)
-    local ws_name ws_path ws_root ws_id ws_color ws_setup_cmd
-    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color ws_setup_cmd <<< "$result"
+    # Parse: name\tpath\troot_repo\tworkspace_id\tcolor\tsetup_cmd\tapps ("-" = empty)
+    local ws_name ws_path ws_root ws_id ws_color ws_setup_cmd ws_apps
+    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color ws_setup_cmd ws_apps <<< "$result"
     [[ "$ws_color" == "-" ]] && ws_color=""
     [[ "$ws_setup_cmd" == "-" ]] && ws_setup_cmd=""
+    [[ "$ws_apps" == "-" ]] && ws_apps=""
 
     if [[ -z "$ws_name" || -z "$ws_id" ]]; then
         fail "Invalid dialog result"
@@ -605,47 +606,13 @@ cmd_new() {
     aerospace workspace "$ws_id"
     success "Switched to workspace $ws_id"
 
-    if [[ "$no_repo" == "false" ]]; then
-    # Open iTerm and cd to path, then ensure the window lands on $ws_id
-    local iterm_before
-    iterm_before="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep '|iTerm2$' | cut -d'|' -f1 || echo "")"
-
-    osascript <<APPLESCRIPT
-tell application "iTerm"
-    activate
-    set newWindow to (create window with default profile)
-    tell current session of newWindow
-        write text "cd $(printf '%q' "$ws_path")"
-    end tell
-end tell
-APPLESCRIPT
-
-    # Poll for the new window and move it to the correct workspace if needed
-    local iterm_wid=""
-    for _ in $(seq 1 24); do
-        sleep 0.25
-        local iterm_after
-        iterm_after="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep '|iTerm2$' | cut -d'|' -f1 || echo "")"
-        while IFS= read -r wid; do
-            [[ -z "$wid" ]] && continue
-            if ! echo "$iterm_before" | grep -qxF "$wid"; then
-                iterm_wid="$wid"
-                break 2
-            fi
-        done <<< "$iterm_after"
-    done
-
-    if [[ -n "$iterm_wid" ]]; then
-        local iterm_ws
-        iterm_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${iterm_wid}|" | cut -d'|' -f2 || echo "")"
-        if [[ "$iterm_ws" != "$ws_id" ]]; then
-            aerospace move-node-to-workspace --window-id "$iterm_wid" "$ws_id" 2>/dev/null || true
-            aerospace focus --window-id "$iterm_wid" 2>/dev/null || true
-        fi
-        aerospace workspace "$ws_id" 2>/dev/null || true
+    # Open checked apps sequentially; open_app_slot handles window detection and workspace placement
+    if [[ -n "$ws_apps" ]]; then
+        IFS=',' read -ra _slots <<< "$ws_apps"
+        for _slot in "${_slots[@]}"; do
+            open_app_slot "$_slot" "$ws_id" "$ws_path" false true
+        done
     fi
-    success "Opened iTerm at $ws_path"
-    fi # no_repo
 
     # Run worktree setup command in background output_window
     if [[ -n "$ws_setup_cmd" && -n "$ws_root" ]]; then

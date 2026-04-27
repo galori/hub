@@ -567,9 +567,7 @@ func showNoRepoName() {
         func doCreate() {
             let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { errLabel.stringValue = "Enter a name"; return }
-            let wsID = nextWorkspaceID()
-            writeResult("\(name)\t-\t-\t\(wsID)\t-\t-")
-            dismiss()
+            showConfirmWorkspace(explicitName: name, path: "-", repoRoot: "")
         }
     }
     class BackAction: NSObject {
@@ -1307,16 +1305,158 @@ func showCreatingSpinner(repoRoot: String, name: String, manager: [String: Strin
 }
 
 // ============================================================================
-// STEP 3: Finalize — auto-submit with directory name as workspace name
+// STEP 3: Confirm — show app checkboxes then write result
 // ============================================================================
+func loadAppNames() -> [String] {
+    let p = NSString(string: "~/.config/hub/apps.json").expandingTildeInPath
+    guard let data = FileManager.default.contents(atPath: p),
+          let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+    else { return [] }
+    return arr.compactMap { $0["name"] as? String }
+}
+
 func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil, setupCmd: String? = nil) {
+    showConfirmWorkspace(path: path, repoRoot: repoRoot, color: color, setupCmd: setupCmd)
+}
+
+func showConfirmWorkspace(
+    explicitName: String? = nil,
+    path: String,
+    repoRoot: String,
+    color: String? = nil,
+    setupCmd: String? = nil
+) {
+    clearContent()
+
+    let wsName = explicitName ?? lastPathComponent(path)
     let wsID = nextWorkspaceID()
-    let name = lastPathComponent(path)
-    var result = "\(name)\t\(path)\t\(repoRoot)\t\(wsID)"
-    result += "\t\(color ?? "-")"
-    result += "\t\(setupCmd ?? "-")"
-    writeResult(result)
-    dismiss()
+    let appNames = loadAppNames()
+
+    let titleLabel = NSTextField(labelWithString: "Create Workspace")
+    titleLabel.translatesAutoresizingMaskIntoConstraints = false
+    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    titleLabel.textColor = dimWhite
+    addView(titleLabel)
+
+    let nameLabel = NSTextField(labelWithString: wsName)
+    nameLabel.translatesAutoresizingMaskIntoConstraints = false
+    nameLabel.font = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+    nameLabel.textColor = .white
+    addView(nameLabel)
+
+    var prevAnchor: NSLayoutYAxisAnchor = nameLabel.bottomAnchor
+
+    if path != "-" {
+        let abbreviated = (path as NSString).abbreviatingWithTildeInPath
+        let pathLabel = NSTextField(labelWithString: abbreviated)
+        pathLabel.translatesAutoresizingMaskIntoConstraints = false
+        pathLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        pathLabel.textColor = dimWhite
+        pathLabel.lineBreakMode = .byTruncatingMiddle
+        addView(pathLabel)
+        NSLayoutConstraint.activate([
+            pathLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
+            pathLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+            pathLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        ])
+        prevAnchor = pathLabel.bottomAnchor
+    }
+
+    var checkboxes: [NSButton] = []
+
+    if !appNames.isEmpty {
+        let appsLabel = makeLabel("OPEN ON CREATION")
+        addView(appsLabel)
+        NSLayoutConstraint.activate([
+            appsLabel.topAnchor.constraint(equalTo: prevAnchor, constant: 20),
+            appsLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        ])
+        prevAnchor = appsLabel.bottomAnchor
+
+        for name in appNames {
+            let cb = NSButton(checkboxWithTitle: name, target: nil, action: nil)
+            cb.translatesAutoresizingMaskIntoConstraints = false
+            cb.state = .on
+            cb.attributedTitle = NSAttributedString(string: name, attributes: [
+                .foregroundColor: NSColor(white: 1, alpha: 0.75),
+                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+            ])
+            cb.contentTintColor = accentBlue
+            addView(cb)
+            NSLayoutConstraint.activate([
+                cb.topAnchor.constraint(equalTo: prevAnchor, constant: 10),
+                cb.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+            ])
+            prevAnchor = cb.bottomAnchor
+            checkboxes.append(cb)
+        }
+    }
+
+    let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
+    addView(createBtn)
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    addView(cancelBtn)
+
+    NSLayoutConstraint.activate([
+        titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
+        titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        nameLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+        nameLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        createBtn.topAnchor.constraint(equalTo: prevAnchor, constant: 20),
+        createBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
+        createBtn.heightAnchor.constraint(equalToConstant: 34),
+        createBtn.widthAnchor.constraint(equalToConstant: 100),
+        cancelBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
+        cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        cancelBtn.heightAnchor.constraint(equalToConstant: 34),
+        cancelBtn.widthAnchor.constraint(equalToConstant: 100),
+        cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
+    ])
+
+    relayout()
+
+    class ConfirmAction: NSObject {
+        let wsID: String
+        let wsName: String
+        let path: String
+        let repoRoot: String
+        let color: String?
+        let setupCmd: String?
+        let checkboxes: [NSButton]
+        init(_ id: String, _ n: String, _ p: String, _ r: String, _ c: String?, _ s: String?, _ cbs: [NSButton]) {
+            wsID = id; wsName = n; path = p; repoRoot = r; color = c; setupCmd = s; checkboxes = cbs
+        }
+        @objc func confirm(_ sender: Any) { doConfirm() }
+        func doConfirm() {
+            var checkedSlots: [String] = []
+            for (i, cb) in checkboxes.enumerated() {
+                if cb.state == .on { checkedSlots.append("\(i + 1)") }
+            }
+            let appsField = checkedSlots.isEmpty ? "-" : checkedSlots.joined(separator: ",")
+            var result = "\(wsName)\t\(path)\t\(repoRoot)\t\(wsID)"
+            result += "\t\(color ?? "-")"
+            result += "\t\(setupCmd ?? "-")"
+            result += "\t\(appsField)"
+            writeResult(result)
+            dismiss()
+        }
+    }
+    class CancelAction: NSObject {
+        @objc func cancel(_ sender: Any) { cancelAndDismiss() }
+    }
+
+    let confirmAction = ConfirmAction(wsID, wsName, path, repoRoot, color, setupCmd, checkboxes)
+    let cancelAction = CancelAction()
+    createBtn.target = confirmAction; createBtn.action = #selector(ConfirmAction.confirm(_:))
+    cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
+    objc_setAssociatedObject(createBtn, "a", confirmAction, .OBJC_ASSOCIATION_RETAIN)
+    objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
+
+    currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if event.keyCode == 36 { confirmAction.doConfirm(); return nil }
+        return event
+    }
 }
 
 // ============================================================================
