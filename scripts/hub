@@ -55,6 +55,7 @@ print_usage() {
     echo "  keys          List all AeroSpace key bindings (main and service mode)"
     echo "  dashboard     Show status and key bindings in a full-screen modal"
     echo "  label-length  Shrink or grow workspace label max length (+/-/grow/shrink/number)"
+    echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
     echo "  help          Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
@@ -667,11 +668,14 @@ APPLESCRIPT
         disown
     fi
 
-    # Apply tiling layout explicitly to the new workspace after all window moves settle.
-    # Run in background so it doesn't block; targets the workspace by ID to avoid race conditions.
+    # Apply horizontal tiling to the new workspace after all window moves settle.
+    # flatten-workspace-tree resets the layout; layout h_tiles sets horizontal split direction.
+    # Both are targeted/scoped to ws_id to avoid acting on the wrong workspace.
     (
         sleep 0.8
         aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
+        aerospace workspace "$ws_id" 2>/dev/null || true
+        aerospace layout h_tiles 2>/dev/null || true
     ) &
     disown
 
@@ -679,25 +683,27 @@ APPLESCRIPT
     echo -e "${green}${bold}Workspace '$ws_name' created on workspace $ws_id!${reset}"
 }
 
+rebuild_labels_file() {
+    local labels_file="/tmp/hub_sketchybar_labels"
+    if [[ -f "$WORKSPACES_FILE" ]]; then
+        # Format: workspace_id:name:color:repo_basename
+        jq -r '.[] | [.workspace_id, .name, (.color // ""), ((.root_repo // "") | if . == "" then "" else (. | gsub(".*/"; "")) end)] | join(":")' \
+            "$WORKSPACES_FILE" > "$labels_file" 2>/dev/null || true
+    fi
+}
+
 update_sketchybar_label() {
     local ws_id="$1"
     local ws_name="$2"
     local label="$ws_id $ws_name"
     sketchybar --set "space.$ws_id" "label=$label" drawing=on 2>/dev/null || true
-    local labels_file="/tmp/hub_sketchybar_labels"
-    if [[ -f "$WORKSPACES_FILE" ]]; then
-        jq -r '.[] | .workspace_id + ":" + .name + ":" + (.color // "")' \
-            "$WORKSPACES_FILE" > "$labels_file" 2>/dev/null || true
-    fi
+    rebuild_labels_file
 }
 
 remove_sketchybar_label() {
     local ws_id="$1"
     sketchybar --set "space.$ws_id" "label=$ws_id" drawing=off 2>/dev/null || true
-    local labels_file="/tmp/hub_sketchybar_labels"
-    if [[ -f "$labels_file" ]]; then
-        sed -i '' "/^${ws_id}:/d" "$labels_file"
-    fi
+    rebuild_labels_file
 }
 
 cmd_rename() {
@@ -1286,6 +1292,31 @@ cmd_keys() {
     fi
 }
 
+cmd_repo_prefix() {
+    local action="${1:-toggle}"
+    local prefix_file="/tmp/hub_repo_prefix"
+    local current="off"
+    [[ -f "$prefix_file" ]] && current="$(cat "$prefix_file" 2>/dev/null || echo off)"
+    [[ "$current" != "on" ]] && current="off"
+
+    case "$action" in
+        on)  current="on" ;;
+        off) current="off" ;;
+        toggle) [[ "$current" == "on" ]] && current="off" || current="on" ;;
+        "")
+            echo -e "${bold}Repo prefix:${reset} $current"
+            echo -e "  ${yellow}Usage: hub repo-prefix [on|off|toggle]${reset}"
+            return 0
+            ;;
+        *) fail "Usage: hub repo-prefix [on|off|toggle]"; return 1 ;;
+    esac
+
+    echo "$current" > "$prefix_file"
+    rebuild_labels_file
+    local plugin="$HOME/.config/sketchybar/plugins/aerospace.sh"
+    [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
+}
+
 cmd_label_length() {
     local direction="${1:-}"
     local maxlen_file="/tmp/hub_label_maxlen"
@@ -1560,6 +1591,7 @@ case "$command" in
     keys)         cmd_keys ;;
     dashboard)    cmd_dashboard ;;
     label-length) cmd_label_length "$@" ;;
+    repo-prefix)  cmd_repo_prefix "$@" ;;
     help|-h|--help) print_usage ;;
     '')
         print_usage

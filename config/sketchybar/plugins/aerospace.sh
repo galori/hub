@@ -17,14 +17,21 @@ if ! [[ "$LABEL_MAXLEN" =~ ^-?[0-9]+$ ]]; then
     LABEL_MAXLEN=-1
 fi
 
+REPO_PREFIX_FILE="/tmp/hub_repo_prefix"
+REPO_PREFIX="off"
+if [ -f "$REPO_PREFIX_FILE" ]; then
+    REPO_PREFIX=$(cat "$REPO_PREFIX_FILE" 2>/dev/null || echo off)
+fi
+
 WS_LABELS_FILE="/tmp/hub_sketchybar_labels"
 LABELED_LIST=" "
-declare -A WS_NAME_MAP WS_COLOR_MAP
+declare -A WS_NAME_MAP WS_COLOR_MAP WS_REPO_MAP
 if [ -f "$WS_LABELS_FILE" ]; then
-    while IFS=: read -r num name color; do
+    while IFS=: read -r num name color repo; do
         LABELED_LIST+="$num "
         [ -n "$name" ] && WS_NAME_MAP["$num"]="$name"
         [ -n "$color" ] && WS_COLOR_MAP["$num"]="0xff${color#\#}"
+        [ -n "$repo" ] && WS_REPO_MAP["$num"]="$repo"
     done <"$WS_LABELS_FILE"
 fi
 
@@ -54,6 +61,11 @@ render_workspaces() {
     for ws in 1 2 3 4 5 6 7 8 9 A B C D E F G H I J K L M N O P Q R S T U V W X Y Z; do
         local lbl="$ws"
         local name="${WS_NAME_MAP[$ws]}"
+        local repo="${WS_REPO_MAP[$ws]}"
+        # Prepend repo prefix when enabled and a repo is known for this workspace
+        if [ "$REPO_PREFIX" = "on" ] && [ -n "$repo" ] && [ -n "$name" ]; then
+            name="${repo}:${name}"
+        fi
         if [ -n "$name" ] && { [ "$LABEL_MAXLEN" -ne 0 ] || [ "$ws" = "$CURRENT" ]; }; then
             if [ "$LABEL_MAXLEN" -gt 0 ] && [ "${#name}" -gt "$LABEL_MAXLEN" ] && [ "$ws" != "$CURRENT" ]; then
                 lbl="$ws ${name:0:$LABEL_MAXLEN}…"

@@ -187,6 +187,8 @@ on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/a
     # hub: shrink/grow workspace label length
     ctrl-alt-minus = 'exec-and-forget __HUB_SCRIPT__ label-length shrink'
     ctrl-alt-equal = 'exec-and-forget __HUB_SCRIPT__ label-length grow'
+    # hub: toggle repo name prefix on workspace labels
+    ctrl-alt-p = 'exec-and-forget __HUB_SCRIPT__ repo-prefix toggle'
 
     ctrl-alt-shift-1 = 'exec-and-forget __HUB_SCRIPT__ open 1 --force'
     ctrl-alt-shift-2 = 'exec-and-forget __HUB_SCRIPT__ open 2 --force'
