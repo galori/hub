@@ -155,7 +155,8 @@ func makeSpinner() -> NSProgressIndicator {
     let s = NSProgressIndicator()
     s.translatesAutoresizingMaskIntoConstraints = false
     s.style = .spinning
-    s.controlSize = .regular
+    s.controlSize = .large
+    s.appearance = NSAppearance(named: .darkAqua)
     s.startAnimation(nil)
     return s
 }

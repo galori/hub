@@ -1262,7 +1262,8 @@ func showCreatingSpinner(repoRoot: String, name: String, manager: [String: Strin
     let spinner = NSProgressIndicator()
     spinner.translatesAutoresizingMaskIntoConstraints = false
     spinner.style = .spinning
-    spinner.controlSize = .regular
+    spinner.controlSize = .large
+    spinner.appearance = NSAppearance(named: .darkAqua)
     spinner.startAnimation(nil)
     addView(spinner)
 

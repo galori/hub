@@ -115,22 +115,23 @@ func appendText(_ text: String, color: NSColor? = nil) {
     textView.scrollToEndOfDocument(nil)
 }
 
-var inputExitCode: Int32 = 0
-
 DispatchQueue.global(qos: .userInitiated).async {
     while let line = readLine() {
-        // Last line convention: "EXIT:<code>" signals the exit code
+        // "EXIT:<code>" signals completion — act immediately, don't wait for pipe closure
         if line.hasPrefix("EXIT:"), let code = Int32(line.dropFirst(5)) {
-            inputExitCode = code
-        } else {
-            DispatchQueue.main.async { appendText(line) }
-        }
-    }
-    DispatchQueue.main.async {
-        if autoClose && inputExitCode == 0 {
-            NSApp.terminate(nil)
+            DispatchQueue.main.async {
+                if autoClose && code == 0 {
+                    NSApp.terminate(nil)
+                } else {
+                    appendText("\n--- Done (exit \(code)) ---", color: NSColor(white: 1, alpha: 0.4))
+                }
+            }
             return
         }
+        DispatchQueue.main.async { appendText(line) }
+    }
+    // Pipe closed without EXIT line
+    DispatchQueue.main.async {
         appendText("\n--- Done ---", color: NSColor(white: 1, alpha: 0.4))
     }
 }
