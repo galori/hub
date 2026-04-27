@@ -123,12 +123,20 @@ class StyledField: NSTextField {
         switch event.charactersIgnoringModifiers ?? "" {
         case "a": return NSApp.sendAction(#selector(NSText.selectAll(_:)), to: target, from: self)
         case "c": return NSApp.sendAction(#selector(NSText.copy(_:)),      to: target, from: self)
-        case "v": return NSApp.sendAction(#selector(NSText.paste(_:)),     to: target, from: self)
+        case "v": return NSApp.sendAction(#selector(NSStyledField.pasteStrippingNewlines(_:)), to: self, from: self)
         case "x": return NSApp.sendAction(#selector(NSText.cut(_:)),       to: target, from: self)
         default:  return super.performKeyEquivalent(with: event)
         }
     }
+    @objc func pasteStrippingNewlines(_ sender: Any?) {
+        guard let text = NSPasteboard.general.string(forType: .string) else { return }
+        let cleaned = text.components(separatedBy: .newlines).joined()
+        if let editor = currentEditor() as? NSTextView {
+            editor.insertText(cleaned, replacementRange: editor.selectedRange())
+        }
+    }
 }
+private typealias NSStyledField = StyledField
 
 func makeField(placeholder: String, value: String = "") -> NSTextField {
     let f = StyledField()
@@ -994,11 +1002,15 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
     let scrollView = NSScrollView()
     scrollView.translatesAutoresizingMaskIntoConstraints = false
     scrollView.hasVerticalScroller = true
-    scrollView.autohidesScrollers = true
+    scrollView.autohidesScrollers = false
     scrollView.drawsBackground = false
     scrollView.wantsLayer = true
     scrollView.layer?.backgroundColor = itemBg.cgColor
     scrollView.layer?.cornerRadius = 6
+    scrollView.scrollerStyle = .legacy
+    if let scroller = scrollView.verticalScroller {
+        scroller.knobStyle = .light
+    }
     addView(scrollView)
 
     let clipView = scrollView.contentView

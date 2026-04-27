@@ -600,8 +600,9 @@ cmd_new() {
     # Update sketchybar label
     update_sketchybar_label "$ws_id" "$ws_name"
 
-    # Switch to the workspace
+    # Switch to the workspace and ensure tiling layout
     aerospace workspace "$ws_id"
+    aerospace layout tiles 2>/dev/null || true
     success "Switched to workspace $ws_id"
 
     if [[ "$no_repo" == "false" ]]; then
