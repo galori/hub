@@ -203,6 +203,11 @@ cv.addSubview(divider)
 // --- Panes ---
 let baseFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
 
+let statusPane = NSView()
+statusPane.translatesAutoresizingMaskIntoConstraints = false
+let keysPane = NSView()
+keysPane.translatesAutoresizingMaskIntoConstraints = false
+
 let statusSpinner = makeSpinner()
 let (statusScroll, statusTextView) = makeScrollPane()
 statusScroll.isHidden = true
@@ -211,9 +216,10 @@ let keysSpinner = makeSpinner()
 let (keysScroll, keysTextView) = makeScrollPane()
 keysScroll.isHidden = true
 
-for v in [statusSpinner, statusScroll, keysSpinner, keysScroll] as [NSView] {
-    cv.addSubview(v)
-}
+cv.addSubview(statusPane)
+cv.addSubview(keysPane)
+for v in [statusSpinner, statusScroll] as [NSView] { statusPane.addSubview(v) }
+for v in [keysSpinner, keysScroll] as [NSView] { keysPane.addSubview(v) }
 
 // --- Constraints ---
 let titleH: CGFloat = 40
@@ -243,21 +249,33 @@ NSLayoutConstraint.activate([
     hint.centerYAnchor.constraint(equalTo: titleBar.centerYAnchor),
     hint.trailingAnchor.constraint(equalTo: titleBar.trailingAnchor, constant: -pad),
 
-    // Status pane (left)
-    statusSpinner.centerXAnchor.constraint(equalTo: statusScroll.centerXAnchor),
-    statusSpinner.topAnchor.constraint(equalTo: titleBorder.bottomAnchor, constant: 40),
-    statusScroll.topAnchor.constraint(equalTo: titleBorder.bottomAnchor, constant: 8),
-    statusScroll.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: pad),
-    statusScroll.trailingAnchor.constraint(equalTo: divider.leadingAnchor, constant: -pad/2),
-    statusScroll.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -pad/2),
+    // Status pane container (left)
+    statusPane.topAnchor.constraint(equalTo: titleBorder.bottomAnchor, constant: 8),
+    statusPane.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: pad),
+    statusPane.trailingAnchor.constraint(equalTo: divider.leadingAnchor, constant: -pad/2),
+    statusPane.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -pad/2),
+    // Spinner centered in pane
+    statusSpinner.centerXAnchor.constraint(equalTo: statusPane.centerXAnchor),
+    statusSpinner.topAnchor.constraint(equalTo: statusPane.topAnchor, constant: 40),
+    // Scroll fills pane
+    statusScroll.topAnchor.constraint(equalTo: statusPane.topAnchor),
+    statusScroll.leadingAnchor.constraint(equalTo: statusPane.leadingAnchor),
+    statusScroll.trailingAnchor.constraint(equalTo: statusPane.trailingAnchor),
+    statusScroll.bottomAnchor.constraint(equalTo: statusPane.bottomAnchor),
 
-    // Keys pane (right)
-    keysSpinner.centerXAnchor.constraint(equalTo: keysScroll.centerXAnchor),
-    keysSpinner.topAnchor.constraint(equalTo: titleBorder.bottomAnchor, constant: 40),
-    keysScroll.topAnchor.constraint(equalTo: titleBorder.bottomAnchor, constant: 8),
-    keysScroll.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: pad/2),
-    keysScroll.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -pad),
-    keysScroll.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -pad/2),
+    // Keys pane container (right)
+    keysPane.topAnchor.constraint(equalTo: titleBorder.bottomAnchor, constant: 8),
+    keysPane.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: pad/2),
+    keysPane.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -pad),
+    keysPane.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -pad/2),
+    // Spinner centered in pane
+    keysSpinner.centerXAnchor.constraint(equalTo: keysPane.centerXAnchor),
+    keysSpinner.topAnchor.constraint(equalTo: keysPane.topAnchor, constant: 40),
+    // Scroll fills pane
+    keysScroll.topAnchor.constraint(equalTo: keysPane.topAnchor),
+    keysScroll.leadingAnchor.constraint(equalTo: keysPane.leadingAnchor),
+    keysScroll.trailingAnchor.constraint(equalTo: keysPane.trailingAnchor),
+    keysScroll.bottomAnchor.constraint(equalTo: keysPane.bottomAnchor),
 ])
 
 // --- Show immediately ---
