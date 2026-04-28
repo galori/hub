@@ -625,7 +625,7 @@ cmd_new() {
         local full_setup_cmd="$ws_root/$ws_setup_cmd"
         local _wrap="source \"\$HOME/.zshrc\" 2>/dev/null; cd $(printf '%q' "$ws_path") && $full_setup_cmd"
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
-            ( /bin/zsh --no-rcs -c "$_wrap" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Setting up workspace $ws_name" --auto-close &
+            ( set +e; /bin/zsh --no-rcs -c "$_wrap" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Setting up workspace $ws_name" --auto-close &
             disown
         else
             ( /bin/zsh --no-rcs -c "$_wrap" ) &
@@ -983,7 +983,7 @@ cmd_remove() {
         fi
 
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
-            ( /bin/zsh --no-rcs -c "$bg_script" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Removing workspace $ws_name" --auto-close &
+            ( set +e; /bin/zsh --no-rcs -c "$bg_script" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Removing workspace $ws_name" --auto-close &
             disown
         else
             ( eval "$bg_script" ) &
