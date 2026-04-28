@@ -3,6 +3,19 @@ import Cocoa
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 
+// Minimal menu so Cmd+C (copy) and Cmd+W (close) are handled
+let menuBar = NSMenu()
+let appMenuItem = NSMenuItem(); menuBar.addItem(appMenuItem)
+let appMenu = NSMenu(); appMenuItem.submenu = appMenu
+appMenu.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+let fileMenuItem = NSMenuItem(); menuBar.addItem(fileMenuItem)
+let fileMenu = NSMenu(title: "File"); fileMenuItem.submenu = fileMenu
+fileMenu.addItem(NSMenuItem(title: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w"))
+let editMenuItem = NSMenuItem(); menuBar.addItem(editMenuItem)
+let editMenu = NSMenu(title: "Edit"); editMenuItem.submenu = editMenu
+editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
+app.mainMenu = menuBar
+
 let args = CommandLine.arguments
 let titleArg = args.count > 1 ? args[1] : "Output"
 let autoClose = args.contains("--auto-close")

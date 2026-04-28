@@ -977,13 +977,13 @@ cmd_remove() {
 
         local bg_script
         if [[ -n "$teardown_cmd" ]]; then
-            bg_script="(cd $(printf '%q' "$ws_path") && eval $(printf '%q' "$ws_root/$teardown_cmd")); git -C $(printf '%q' "$ws_root") worktree remove $(printf '%q' "$ws_path") --force 2>/dev/null; git -C $(printf '%q' "$ws_root") worktree prune 2>/dev/null"
+            bg_script="source \"\$HOME/.zshrc\" 2>/dev/null; cd $(printf '%q' "$ws_path") && eval $(printf '%q' "$ws_root/$teardown_cmd"); git -C $(printf '%q' "$ws_root") worktree remove $(printf '%q' "$ws_path") --force 2>/dev/null; git -C $(printf '%q' "$ws_root") worktree prune 2>/dev/null"
         else
             bg_script="git -C $(printf '%q' "$ws_root") worktree remove $(printf '%q' "$ws_path") --force 2>/dev/null; git -C $(printf '%q' "$ws_root") worktree prune 2>/dev/null"
         fi
 
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
-            ( eval "$bg_script" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Removing workspace $ws_name" --auto-close &
+            ( /bin/zsh --no-rcs -c "$bg_script" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Removing workspace $ws_name" --auto-close &
             disown
         else
             ( eval "$bg_script" ) &
