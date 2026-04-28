@@ -405,7 +405,7 @@ cmd_install() {
   },
   {
     "name": "Code",
-    "launch": "code --new-window {path}",
+    "launch": "/usr/local/bin/code --new-window {path}",
     "icon": "Code"
   }
 ]
