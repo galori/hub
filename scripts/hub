@@ -917,8 +917,14 @@ cmd_remove() {
         is_worktree=true
     fi
 
+    local ws_branch=""
+    if [[ "$is_worktree" == "true" ]]; then
+        ws_branch="$(git -C "$ws_path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+    fi
+
     # Confirm: show GUI dialog unless -y
     local remove_worktree=true
+    local delete_branch=false
     if [[ "$auto_yes" != "true" ]]; then
         if [[ ! -x "$CONFIRM_BIN" ]]; then
             fail "confirm_dialog not compiled. Run: hub install"
@@ -928,16 +934,20 @@ cmd_remove() {
         local dialog_args=("Remove Workspace" "$confirm_msg")
         if [[ "$is_worktree" == "true" ]]; then
             dialog_args+=("Remove / teardown worktree")
+            dialog_args+=("!Delete branch")
         fi
         local dialog_exit=0
         "$CONFIRM_BIN" "${dialog_args[@]}" || dialog_exit=$?
         if [[ "$dialog_exit" -ne 0 ]]; then
             echo "Cancelled."; return
         fi
-        # Read worktree checkbox state
+        # Read worktree checkbox states
         if [[ "$is_worktree" == "true" && -f /tmp/hub-confirm-state ]]; then
-            local v; v="$(grep "^cb1=" /tmp/hub-confirm-state | cut -d= -f2)"
-            [[ "$v" == "0" ]] && remove_worktree=false
+            local v1 v2
+            v1="$(grep "^cb1=" /tmp/hub-confirm-state | cut -d= -f2)"
+            v2="$(grep "^cb2=" /tmp/hub-confirm-state | cut -d= -f2)"
+            [[ "$v1" == "0" ]] && remove_worktree=false
+            [[ "$v2" == "1" ]] && delete_branch=true
             rm -f /tmp/hub-confirm-state
         fi
     fi
@@ -980,6 +990,9 @@ cmd_remove() {
             bg_script="source \"\$HOME/.zshrc\" 2>/dev/null; cd $(printf '%q' "$ws_path") && eval $(printf '%q' "$ws_root/$teardown_cmd"); git -C $(printf '%q' "$ws_root") worktree remove $(printf '%q' "$ws_path") --force 2>/dev/null; git -C $(printf '%q' "$ws_root") worktree prune 2>/dev/null"
         else
             bg_script="git -C $(printf '%q' "$ws_root") worktree remove $(printf '%q' "$ws_path") --force 2>/dev/null; git -C $(printf '%q' "$ws_root") worktree prune 2>/dev/null"
+        fi
+        if [[ "$delete_branch" == "true" && -n "$ws_branch" ]]; then
+            bg_script+=" ; git -C $(printf '%q' "$ws_root") branch -D $(printf '%q' "$ws_branch") 2>/dev/null"
         fi
 
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
