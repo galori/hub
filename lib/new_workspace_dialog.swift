@@ -1433,7 +1433,7 @@ func showConfirmWorkspace(
                 if cb.state == .on { checkedSlots.append("\(i + 1)") }
             }
             let appsField = checkedSlots.isEmpty ? "-" : checkedSlots.joined(separator: ",")
-            var result = "\(wsName)\t\(path)\t\(repoRoot)\t\(wsID)"
+            var result = "\(wsName)\t\(path)\t\(repoRoot.isEmpty ? "-" : repoRoot)\t\(wsID)"
             result += "\t\(color ?? "-")"
             result += "\t\(setupCmd ?? "-")"
             result += "\t\(appsField)"
