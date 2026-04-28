@@ -114,6 +114,7 @@ class StyledField: NSTextField {
                 .backgroundColor: NSColor(white: 0.38, alpha: 1),
                 .foregroundColor: NSColor.white,
             ]
+            tv.insertionPointColor = .white
         }
         return r
     }
@@ -1049,19 +1050,23 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
 
         func controlTextDidChange(_ obj: Notification) {
             debounceTimer?.invalidate()
-            debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in
-                self?.rebuildList()
+            let query = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: false) { [weak self] _ in
+                guard let self = self else { return }
+                DispatchQueue.global(qos: .userInteractive).async {
+                    let filtered = query.isEmpty ? self.allBranches : self.allBranches.filter { $0.lowercased().contains(query) }
+                    DispatchQueue.main.async { self.rebuildList(filtered: filtered) }
+                }
             }
         }
 
-        func rebuildList() {
+        func rebuildList(filtered: [String]? = nil) {
+            let branches = filtered ?? allBranches
             for sub in container.subviews { sub.removeFromSuperview() }
             branchButtons.removeAll()
             highlightedIndex = -1
-            let query = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let filtered = query.isEmpty ? allBranches : allBranches.filter { $0.lowercased().contains(query) }
             var prevAnchor: NSLayoutYAxisAnchor = container.topAnchor
-            for (i, branch) in filtered.enumerated() {
+            for (i, branch) in branches.enumerated() {
                 let btn = NSButton()
                 btn.translatesAutoresizingMaskIntoConstraints = false
                 btn.isBordered = false
@@ -1087,7 +1092,7 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
                 ])
                 prevAnchor = btn.bottomAnchor
             }
-            if !filtered.isEmpty {
+            if !branches.isEmpty {
                 prevAnchor.constraint(equalTo: container.bottomAnchor, constant: -4).isActive = true
             } else {
                 container.topAnchor.constraint(equalTo: container.bottomAnchor).isActive = true
