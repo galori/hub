@@ -1047,13 +1047,13 @@ open_app_slot() {
             done <<< "$cur_wins"
             [[ -z "$target" ]] && target="$first"
             aerospace focus --window-id "$target" 2>/dev/null || true
-            [[ "$verbose" == "true" ]] && success "$app_name focused"
+            [[ "$verbose" == "true" ]] && success "$app_name focused" || true
             return 0
         fi
         # Fall through: no window on this workspace, launch one here
     fi
 
-    [[ "$verbose" == "true" ]] && info "Opening $app_name..."
+    [[ "$verbose" == "true" ]] && info "Opening $app_name..." || true
 
     # Snapshot existing window IDs for this app
     local before_ids
@@ -1090,9 +1090,9 @@ open_app_slot() {
             aerospace move-node-to-workspace --window-id "$new_wid" "$ws_id" 2>/dev/null || true
             aerospace focus --window-id "$new_wid" 2>/dev/null || true
         fi
-        [[ "$verbose" == "true" ]] && success "$app_name opened"
+        [[ "$verbose" == "true" ]] && success "$app_name opened" || true
     else
-        [[ "$verbose" == "true" ]] && warn "$app_name: window did not appear in time"
+        [[ "$verbose" == "true" ]] && warn "$app_name: window did not appear in time" || true
     fi
 }
 
