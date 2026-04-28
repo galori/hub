@@ -1651,6 +1651,10 @@ case "$command" in
         print_usage
         ;;
     *)
+        ext="hub-$command"
+        if command -v "$ext" &>/dev/null; then
+            exec "$ext" "$@"
+        fi
         fail "Unknown command: $command"
         echo
         print_usage
