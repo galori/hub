@@ -153,6 +153,7 @@ for info in checkboxInfos {
         .font: NSFont.systemFont(ofSize: 12, weight: .regular),
     ])
     cb.contentTintColor = NSColor(red: 0.10, green: 0.45, blue: 0.91, alpha: 1)
+    cb.appearance = NSAppearance(named: .aqua)
     cv.addSubview(cb)
     NSLayoutConstraint.activate([
         cb.topAnchor.constraint(equalTo: prevAnchor, constant: 14),
