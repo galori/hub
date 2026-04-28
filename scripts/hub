@@ -617,14 +617,18 @@ cmd_new() {
         done
     fi
 
-    # Run worktree setup command in background output_window
+    # Run worktree setup command in background output_window.
+    # Use zsh --no-rcs + manual source of ~/.zshrc so user-exported env vars
+    # (e.g. BUNDLE_WITHOUT) are available when hub is launched from AeroSpace
+    # with a minimal environment, without the interactive-shell noise from zsh -i.
     if [[ -n "$ws_setup_cmd" && -n "$ws_root" ]]; then
         local full_setup_cmd="$ws_root/$ws_setup_cmd"
+        local _wrap="source \"\$HOME/.zshrc\" 2>/dev/null; cd $(printf '%q' "$ws_path") && $full_setup_cmd"
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
-            ( cd "$ws_path" && eval "$full_setup_cmd" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Setting up workspace $ws_name" --auto-close &
+            ( /bin/zsh --no-rcs -c "$_wrap" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Setting up workspace $ws_name" --auto-close &
             disown
         else
-            ( cd "$ws_path" && eval "$full_setup_cmd" ) &
+            ( /bin/zsh --no-rcs -c "$_wrap" ) &
             disown
         fi
 
