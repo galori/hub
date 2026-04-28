@@ -606,11 +606,14 @@ cmd_new() {
     aerospace workspace "$ws_id"
     success "Switched to workspace $ws_id"
 
-    # Open checked apps sequentially; open_app_slot handles window detection and workspace placement
+    # Open checked apps sequentially; collect new window IDs for layout arrangement
+    local _opened_wids=()
     if [[ -n "$ws_apps" ]]; then
         IFS=',' read -ra _slots <<< "$ws_apps"
         for _slot in "${_slots[@]}"; do
+            OPEN_APP_SLOT_WID=""
             open_app_slot "$_slot" "$ws_id" "$ws_path" false true
+            [[ -n "$OPEN_APP_SLOT_WID" ]] && _opened_wids+=("$OPEN_APP_SLOT_WID") || true
         done
     fi
 
@@ -635,16 +638,15 @@ cmd_new() {
         disown
     fi
 
-    # Apply horizontal tiling to the new workspace after all window moves settle.
-    # flatten-workspace-tree resets the layout; layout h_tiles sets horizontal split direction.
-    # Both are targeted/scoped to ws_id to avoid acting on the wrong workspace.
-    (
-        sleep 0.8
-        aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
-        aerospace workspace "$ws_id" 2>/dev/null || true
-        aerospace layout h_tiles 2>/dev/null || true
-    ) &
-    disown
+    # Arrange windows in the new workspace based on count
+    if [[ ${#_opened_wids[@]} -ge 1 ]]; then
+        local _wids_copy=("${_opened_wids[@]}")
+        (
+            sleep 0.3
+            arrange_workspace_windows "$ws_id" "${_wids_copy[@]}"
+        ) &
+        disown
+    fi
 
     echo
     echo -e "${green}${bold}Workspace '$ws_name' created on workspace $ws_id!${reset}"
@@ -1007,6 +1009,72 @@ get_workspace_path() {
     fi
 }
 
+# arrange_workspace_windows WS_ID WID1 WID2 ... WIDN
+# Arranges N windows into a structured layout based on count:
+#   1: single window (no-op after h_tiles)
+#   2: W1 | W2  (flat h_tiles)
+#   3: W1 | W2 (W2 and W3 stacked vertically in right column)
+#         W3
+#   4: W1  W3
+#      W2  W4  (two columns of two)
+#   5: W1  W3
+#      W2  W4
+#         W5  (left col 2, right col 3)
+arrange_workspace_windows() {
+    local ws_id="$1"; shift
+    local wids=("$@")
+    local n=${#wids[@]}
+    [[ $n -lt 2 ]] && return 0
+
+    # Flatten and switch to the workspace first
+    aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
+    aerospace workspace "$ws_id" 2>/dev/null || true
+
+    # After flatten, windows are in order they were added; focus each one to confirm DFS order.
+    # We want them in order W1..Wn left-to-right in h_tiles as our starting point.
+    # Focus W1 first, then set h_tiles.
+    aerospace focus --window-id "${wids[0]}" 2>/dev/null || true
+    aerospace layout h_tiles 2>/dev/null || true
+
+    if [[ $n -eq 2 ]]; then
+        : # flat h_tiles is the goal
+    elif [[ $n -eq 3 ]]; then
+        # After h_tiles: W1 | W2 | W3
+        # Focus W3, join-with left → W3 merges with W2 under a shared parent
+        aerospace focus --window-id "${wids[2]}" 2>/dev/null || true
+        aerospace join-with left 2>/dev/null || true
+        aerospace layout v_tiles 2>/dev/null || true
+    elif [[ $n -eq 4 ]]; then
+        # Goal: (W1/W2) | (W3/W4)
+        # After h_tiles flatten: W1 W2 W3 W4 are side by side.
+        # Stack W1+W2: focus W2, join-with left → W2 lands with W1
+        aerospace focus --window-id "${wids[1]}" 2>/dev/null || true
+        aerospace join-with left 2>/dev/null || true
+        aerospace layout v_tiles 2>/dev/null || true
+        # Stack W3+W4: focus W4, join-with left → W4 lands with W3
+        aerospace focus --window-id "${wids[3]}" 2>/dev/null || true
+        aerospace join-with left 2>/dev/null || true
+        aerospace layout v_tiles 2>/dev/null || true
+    elif [[ $n -eq 5 ]]; then
+        # Goal: (W1/W2) | (W3/W4/W5)
+        # Stack left column W1+W2
+        aerospace focus --window-id "${wids[1]}" 2>/dev/null || true
+        aerospace join-with left 2>/dev/null || true
+        aerospace layout v_tiles 2>/dev/null || true
+        # Stack right column W3+W4
+        aerospace focus --window-id "${wids[3]}" 2>/dev/null || true
+        aerospace join-with left 2>/dev/null || true
+        aerospace layout v_tiles 2>/dev/null || true
+        # Add W5 to the right column: join-with left puts it with the W3/W4 container
+        aerospace focus --window-id "${wids[4]}" 2>/dev/null || true
+        aerospace join-with left 2>/dev/null || true
+        aerospace layout v_tiles 2>/dev/null || true
+    fi
+
+    # Return focus to first window
+    aerospace focus --window-id "${wids[0]}" 2>/dev/null || true
+}
+
 open_app_slot() {
     local slot="$1"
     local ws_id="$2"
@@ -1091,8 +1159,10 @@ open_app_slot() {
             aerospace focus --window-id "$new_wid" 2>/dev/null || true
         fi
         [[ "$verbose" == "true" ]] && success "$app_name opened" || true
+        OPEN_APP_SLOT_WID="$new_wid"
     else
         [[ "$verbose" == "true" ]] && warn "$app_name: window did not appear in time" || true
+        OPEN_APP_SLOT_WID=""
     fi
 }
 
