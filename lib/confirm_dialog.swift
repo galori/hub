@@ -63,13 +63,77 @@ for i in 3..<CommandLine.arguments.count {
     }
 }
 
-var checkboxButtons: [NSButton] = []
+// Custom checkbox: always-visible border, works on dark background
+class CustomCheckbox: NSView {
+    var isChecked: Bool { didSet { needsDisplay = true } }
+    var label: String
+    var onChange: (() -> Void)?
+
+    init(label: String, checked: Bool) {
+        self.label = label
+        self.isChecked = checked
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        let click = NSClickGestureRecognizer(target: self, action: #selector(toggle))
+        addGestureRecognizer(click)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc func toggle() { isChecked.toggle(); onChange?() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let boxSize: CGFloat = 16
+        let boxY = (bounds.height - boxSize) / 2
+        let boxRect = NSRect(x: 0, y: boxY, width: boxSize, height: boxSize)
+        let path = NSBezierPath(roundedRect: boxRect, xRadius: 3, yRadius: 3)
+
+        if isChecked {
+            NSColor(red: 0.10, green: 0.45, blue: 0.91, alpha: 1).setFill()
+            path.fill()
+            // Checkmark
+            let check = NSBezierPath()
+            check.move(to: NSPoint(x: boxRect.minX + 3.5, y: boxRect.midY))
+            check.line(to: NSPoint(x: boxRect.minX + 6.5, y: boxRect.minY + 3.5))
+            check.line(to: NSPoint(x: boxRect.maxX - 3, y: boxRect.maxY - 3.5))
+            check.lineWidth = 1.8
+            check.lineCapStyle = .round
+            check.lineJoinStyle = .round
+            NSColor.white.setStroke()
+            check.stroke()
+        } else {
+            NSColor(white: 0.08, alpha: 1).setFill()
+            path.fill()
+            NSColor(white: 1, alpha: 0.5).setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+        }
+
+        // Label
+        let labelX = boxSize + 8
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor(white: 1, alpha: 0.7),
+            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+        ]
+        let str = NSAttributedString(string: label, attributes: attrs)
+        let strSize = str.size()
+        str.draw(at: NSPoint(x: labelX, y: (bounds.height - strSize.height) / 2))
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .regular)]
+        let w = (label as NSString).size(withAttributes: attrs).width
+        return NSSize(width: 16 + 8 + w, height: 20)
+    }
+}
+
+var customCheckboxes: [CustomCheckbox] = []
 
 func dismiss(confirmed: Bool) {
     if confirmed {
         var lines: [String] = []
-        for (i, cb) in checkboxButtons.enumerated() {
-            lines.append("cb\(i+1)=\(cb.state == .on ? 1 : 0)")
+        for (i, cb) in customCheckboxes.enumerated() {
+            lines.append("cb\(i+1)=\(cb.isChecked ? 1 : 0)")
         }
         try? lines.joined(separator: "\n").write(toFile: statePath, atomically: true, encoding: .utf8)
     }
@@ -145,22 +209,14 @@ cv.addSubview(msgLabel)
 // Build checkboxes
 var prevAnchor: NSLayoutYAxisAnchor = msgLabel.bottomAnchor
 for info in checkboxInfos {
-    let cb = NSButton(checkboxWithTitle: info.label, target: nil, action: nil)
-    cb.translatesAutoresizingMaskIntoConstraints = false
-    cb.state = info.defaultOn ? .on : .off
-    cb.attributedTitle = NSAttributedString(string: info.label, attributes: [
-        .foregroundColor: NSColor(white: 1, alpha: 0.7),
-        .font: NSFont.systemFont(ofSize: 12, weight: .regular),
-    ])
-    cb.contentTintColor = NSColor(red: 0.10, green: 0.45, blue: 0.91, alpha: 1)
-    cb.appearance = NSAppearance(named: .aqua)
+    let cb = CustomCheckbox(label: info.label, checked: info.defaultOn)
     cv.addSubview(cb)
     NSLayoutConstraint.activate([
         cb.topAnchor.constraint(equalTo: prevAnchor, constant: 14),
         cb.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
     ])
     prevAnchor = cb.bottomAnchor
-    checkboxButtons.append(cb)
+    customCheckboxes.append(cb)
 }
 
 let confirmBtn = makeBtn("REMOVE", shortcut: "enter", bg: accentRed, fg: .white, bold: true)
