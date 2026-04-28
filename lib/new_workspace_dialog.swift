@@ -1213,7 +1213,9 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
                 showNamingWorkspace(path: match.path, repoRoot: root, color: color)
                 return
             }
-            showCreatingSpinner(repoRoot: root, name: name, manager: mgr)
+            let worktreesDir = (root as NSString).appendingPathComponent("worktrees")
+            let expectedPath = (worktreesDir as NSString).appendingPathComponent(name)
+            showNamingWorkspace(path: expectedPath, repoRoot: root, setupCmd: mgr?["setup"], pendingWorktreeName: name)
         }
     }
     class CancelAction: NSObject {
@@ -1246,9 +1248,9 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
 }
 
 // ============================================================================
-// STEP 2b.5: Creating Worktree Spinner
+// STEP 3b: Creating Worktree Spinner (after confirmation)
 // ============================================================================
-func showCreatingSpinner(repoRoot: String, name: String, manager: [String: String]? = nil) {
+func showCreatingWorktreeAndFinish(repoRoot: String, name: String, result confirmedResult: String) {
     clearContent()
 
     let titleLabel = NSTextField(labelWithString: "Creating Worktree")
@@ -1286,10 +1288,10 @@ func showCreatingSpinner(repoRoot: String, name: String, manager: [String: Strin
     relayout()
 
     DispatchQueue.global(qos: .userInitiated).async {
-        let result = createWorktree(repoRoot: repoRoot, name: name)
+        let wtResult = createWorktree(repoRoot: repoRoot, name: name)
         DispatchQueue.main.async {
-            guard let path = result.path else {
-                let errMsg = result.error.isEmpty ? "Failed to create worktree" : "Failed to create worktree:\n\(result.error)"
+            guard wtResult.path != nil else {
+                let errMsg = wtResult.error.isEmpty ? "Failed to create worktree" : "Failed to create worktree:\n\(wtResult.error)"
                 statusLabel.stringValue = errMsg
                 statusLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
                 spinner.stopAnimation(nil)
@@ -1299,7 +1301,8 @@ func showCreatingSpinner(repoRoot: String, name: String, manager: [String: Strin
                 }
                 return
             }
-            showNamingWorkspace(path: path, repoRoot: repoRoot, setupCmd: manager?["setup"])
+            writeResult(confirmedResult)
+            dismiss()
         }
     }
 }
@@ -1315,8 +1318,8 @@ func loadAppNames() -> [String] {
     return arr.compactMap { $0["name"] as? String }
 }
 
-func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil, setupCmd: String? = nil) {
-    showConfirmWorkspace(path: path, repoRoot: repoRoot, color: color, setupCmd: setupCmd)
+func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil, setupCmd: String? = nil, pendingWorktreeName: String? = nil) {
+    showConfirmWorkspace(path: path, repoRoot: repoRoot, color: color, setupCmd: setupCmd, pendingWorktreeName: pendingWorktreeName)
 }
 
 func showConfirmWorkspace(
@@ -1324,7 +1327,8 @@ func showConfirmWorkspace(
     path: String,
     repoRoot: String,
     color: String? = nil,
-    setupCmd: String? = nil
+    setupCmd: String? = nil,
+    pendingWorktreeName: String? = nil
 ) {
     clearContent()
 
@@ -1422,9 +1426,10 @@ func showConfirmWorkspace(
         let repoRoot: String
         let color: String?
         let setupCmd: String?
+        let pendingWorktreeName: String?
         let checkboxes: [NSButton]
-        init(_ id: String, _ n: String, _ p: String, _ r: String, _ c: String?, _ s: String?, _ cbs: [NSButton]) {
-            wsID = id; wsName = n; path = p; repoRoot = r; color = c; setupCmd = s; checkboxes = cbs
+        init(_ id: String, _ n: String, _ p: String, _ r: String, _ c: String?, _ s: String?, _ wt: String?, _ cbs: [NSButton]) {
+            wsID = id; wsName = n; path = p; repoRoot = r; color = c; setupCmd = s; pendingWorktreeName = wt; checkboxes = cbs
         }
         @objc func confirm(_ sender: Any) { doConfirm() }
         func doConfirm() {
@@ -1437,15 +1442,19 @@ func showConfirmWorkspace(
             result += "\t\(color ?? "-")"
             result += "\t\(setupCmd ?? "-")"
             result += "\t\(appsField)"
-            writeResult(result)
-            dismiss()
+            if let wtName = pendingWorktreeName {
+                showCreatingWorktreeAndFinish(repoRoot: repoRoot, name: wtName, result: result)
+            } else {
+                writeResult(result)
+                dismiss()
+            }
         }
     }
     class CancelAction: NSObject {
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
     }
 
-    let confirmAction = ConfirmAction(wsID, wsName, path, repoRoot, color, setupCmd, checkboxes)
+    let confirmAction = ConfirmAction(wsID, wsName, path, repoRoot, color, setupCmd, pendingWorktreeName, checkboxes)
     let cancelAction = CancelAction()
     createBtn.target = confirmAction; createBtn.action = #selector(ConfirmAction.confirm(_:))
     cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
