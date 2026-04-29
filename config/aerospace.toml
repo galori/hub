@@ -161,9 +161,9 @@ on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/a
     # See: https://nikitabobko.github.io/AeroSpace/commands#mode
     alt-shift-semicolon = 'mode service'
 
-    # cycle through active (non-empty) workspaces
-    ctrl-alt-leftSquareBracket  = 'workspace --wrap-around prev'
-    ctrl-alt-rightSquareBracket = 'workspace --wrap-around next'
+    # cycle through hub-registered workspaces only
+    ctrl-alt-leftSquareBracket  = 'exec-and-forget __HUB_SCRIPT__ prev'
+    ctrl-alt-rightSquareBracket = 'exec-and-forget __HUB_SCRIPT__ next'
 
     # hub: dashboard (status + keys)
     ctrl-alt-slash = 'exec-and-forget __HUB_SCRIPT__ dashboard'

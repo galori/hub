@@ -740,6 +740,56 @@ cmd_rename() {
     success "Renamed workspace $ws_id: '$ws_name' → '$new_name'"
 }
 
+cmd_next() { _cycle_hub_workspace 1; }
+cmd_prev() { _cycle_hub_workspace -1; }
+
+_cycle_hub_workspace() {
+    local dir="$1"
+
+    local all_ids=("1" "2" "3" "4" "5" "6" "7" "8" "9"
+                   "A" "B" "C" "D" "E" "F" "G" "I" "M"
+                   "N" "O" "P" "Q" "R" "S" "T" "U" "V" "W" "X" "Y" "Z")
+
+    local registered=()
+    if [[ -f "$WORKSPACES_FILE" ]]; then
+        while IFS= read -r id; do
+            [[ -n "$id" ]] && registered+=("$id")
+        done < <(jq -r '.[].workspace_id' "$WORKSPACES_FILE" 2>/dev/null)
+    fi
+
+    local ordered=()
+    for id in "${all_ids[@]}"; do
+        for reg in "${registered[@]}"; do
+            if [[ "$id" == "$reg" ]]; then
+                ordered+=("$id")
+                break
+            fi
+        done
+    done
+
+    [[ ${#ordered[@]} -eq 0 ]] && return
+
+    local current
+    current="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+
+    local idx=-1
+    for i in "${!ordered[@]}"; do
+        if [[ "${ordered[$i]}" == "$current" ]]; then
+            idx=$i
+            break
+        fi
+    done
+
+    local target_idx
+    if [[ $idx -eq -1 ]]; then
+        target_idx=$(( dir == 1 ? 0 : ${#ordered[@]} - 1 ))
+    else
+        target_idx=$(( (idx + dir + ${#ordered[@]}) % ${#ordered[@]} ))
+    fi
+
+    aerospace workspace "${ordered[$target_idx]}"
+}
+
 cmd_list() {
     local verbose=false
     for arg in "$@"; do
@@ -1638,6 +1688,8 @@ case "$command" in
     status)   cmd_status ;;
     remove)   cmd_remove "$@" ;;
     rename)   cmd_rename "$@" ;;
+    next)     cmd_next ;;
+    prev)     cmd_prev ;;
     open)     cmd_open "$@" ;;
     up)       cmd_up ;;
     down)     cmd_down ;;
