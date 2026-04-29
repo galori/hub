@@ -159,6 +159,63 @@ func makeField(placeholder: String, value: String = "") -> NSTextField {
     return f
 }
 
+class CustomCheckbox: NSView {
+    var isChecked: Bool { didSet { needsDisplay = true } }
+    var label: String
+    var fontSize: CGFloat
+
+    init(label: String, checked: Bool, fontSize: CGFloat = 13) {
+        self.label = label
+        self.isChecked = checked
+        self.fontSize = fontSize
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
+        addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(toggle)))
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    @objc func toggle() { isChecked.toggle() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let boxSize: CGFloat = 16
+        let boxY = (bounds.height - boxSize) / 2
+        let boxRect = NSRect(x: 0, y: boxY, width: boxSize, height: boxSize)
+        let path = NSBezierPath(roundedRect: boxRect, xRadius: 3, yRadius: 3)
+        if isChecked {
+            NSColor(red: 0.20, green: 0.45, blue: 0.85, alpha: 1).setFill()
+            path.fill()
+            let check = NSBezierPath()
+            check.move(to: NSPoint(x: boxRect.minX + 3.5, y: boxRect.midY))
+            check.line(to: NSPoint(x: boxRect.minX + 6.5, y: boxRect.minY + 3.5))
+            check.line(to: NSPoint(x: boxRect.maxX - 3, y: boxRect.maxY - 3.5))
+            check.lineWidth = 1.8
+            check.lineCapStyle = .round
+            check.lineJoinStyle = .round
+            NSColor.white.setStroke()
+            check.stroke()
+        } else {
+            NSColor(white: 0.08, alpha: 1).setFill()
+            path.fill()
+            NSColor(white: 1, alpha: 0.5).setStroke()
+            path.lineWidth = 1.5
+            path.stroke()
+        }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .foregroundColor: NSColor(white: 1, alpha: 0.75),
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
+        ]
+        let str = NSAttributedString(string: label, attributes: attrs)
+        str.draw(at: NSPoint(x: boxSize + 8, y: (bounds.height - str.size().height) / 2))
+    }
+
+    override var intrinsicContentSize: NSSize {
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: fontSize, weight: .regular)]
+        let w = (label as NSString).size(withAttributes: attrs).width
+        return NSSize(width: 16 + 8 + w, height: 22)
+    }
+}
+
 func makeBtn(label: String, shortcut: String? = nil, bg: NSColor, fg: NSColor, bold: Bool = false) -> NSButton {
     let b = NSButton()
     b.translatesAutoresizingMaskIntoConstraints = false
@@ -1371,7 +1428,7 @@ func showConfirmWorkspace(
         prevAnchor = pathLabel.bottomAnchor
     }
 
-    var checkboxes: [NSButton] = []
+    var checkboxes: [CustomCheckbox] = []
 
     if !appNames.isEmpty {
         let appsLabel = makeLabel("OPEN ON CREATION")
@@ -1383,14 +1440,7 @@ func showConfirmWorkspace(
         prevAnchor = appsLabel.bottomAnchor
 
         for name in appNames {
-            let cb = NSButton(checkboxWithTitle: name, target: nil, action: nil)
-            cb.translatesAutoresizingMaskIntoConstraints = false
-            cb.state = .on
-            cb.attributedTitle = NSAttributedString(string: name, attributes: [
-                .foregroundColor: NSColor(white: 1, alpha: 0.75),
-                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
-            ])
-            cb.contentTintColor = accentBlue
+            let cb = CustomCheckbox(label: name, checked: true)
             addView(cb)
             NSLayoutConstraint.activate([
                 cb.topAnchor.constraint(equalTo: prevAnchor, constant: 10),
@@ -1432,15 +1482,15 @@ func showConfirmWorkspace(
         let color: String?
         let setupCmd: String?
         let pendingWorktreeName: String?
-        let checkboxes: [NSButton]
-        init(_ id: String, _ n: String, _ p: String, _ r: String, _ c: String?, _ s: String?, _ wt: String?, _ cbs: [NSButton]) {
+        let checkboxes: [CustomCheckbox]
+        init(_ id: String, _ n: String, _ p: String, _ r: String, _ c: String?, _ s: String?, _ wt: String?, _ cbs: [CustomCheckbox]) {
             wsID = id; wsName = n; path = p; repoRoot = r; color = c; setupCmd = s; pendingWorktreeName = wt; checkboxes = cbs
         }
         @objc func confirm(_ sender: Any) { doConfirm() }
         func doConfirm() {
             var checkedSlots: [String] = []
             for (i, cb) in checkboxes.enumerated() {
-                if cb.state == .on { checkedSlots.append("\(i + 1)") }
+                if cb.isChecked { checkedSlots.append("\(i + 1)") }
             }
             let appsField = checkedSlots.isEmpty ? "-" : checkedSlots.joined(separator: ",")
             var result = "\(wsName)\t\(path)\t\(repoRoot.isEmpty ? "-" : repoRoot)\t\(wsID)"
