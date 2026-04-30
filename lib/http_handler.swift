@@ -56,39 +56,21 @@ NSLayoutConstraint.activate([
     urlLabel.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -22),
 ])
 
-func launchCommandForSlot(_ index: Int) -> (name: String, command: String)? {
+func launchCommandForSlot(_ index: Int) -> String? {
     let appsPath = NSHomeDirectory() + "/.config/hub/apps.json"
     guard let data = try? Data(contentsOf: URL(fileURLWithPath: appsPath)),
           let apps = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-          index < apps.count
+          index < apps.count,
+          let launch = apps[index]["launch"] as? String
     else { return nil }
-    let slot = apps[index]
-    guard let name = slot["name"] as? String else { return nil }
-    guard let command = (slot["url_launch"] as? String) ?? (slot["launch"] as? String) else { return nil }
-    return (name, command)
+    return launch
 }
 
-func focusApp(_ appName: String) {
-    let escapedName = appName.replacingOccurrences(of: "\"", with: "\\\"")
-    let process = Process()
-    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    process.arguments = ["-e", "tell application \"\(escapedName)\" to activate"]
-    try? process.run()
-}
-
-func openURL(_ url: URL, appName: String, withLaunchCommand launch: String) {
-    let urlString = url.absoluteString
-    let cmd: String
-    if launch.contains("{url}") {
-        let escaped = urlString.replacingOccurrences(of: "'", with: "'\\''")
-        cmd = launch.replacingOccurrences(of: "{url}", with: escaped)
-    } else {
-        let escaped = urlString.replacingOccurrences(of: "'", with: "'\\''")
-        cmd = "\(launch) '\(escaped)'"
-    }
-    try? "cmd: \(cmd)\nurl: \(urlString)\n".appendLine(to: "/tmp/hub_handler.log")
+func openURL(_ url: URL, withLaunchCommand launch: String) {
+    let escaped = url.absoluteString.replacingOccurrences(of: "'", with: "'\\''")
+    let cmd = "\(launch) '\(escaped)'"
+    try? "cmd: \(cmd)\nurl: \(url.absoluteString)\n".appendLine(to: "/tmp/hub_handler.log")
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
-    focusApp(appName)
 }
 
 extension String {
@@ -123,8 +105,8 @@ func showURL(_ urlString: String) {
         }
     }
 
-    if let url = URL(string: urlString), let slot = launchCommandForSlot(1) {
-        openURL(url, appName: slot.name, withLaunchCommand: slot.command)
+    if let url = URL(string: urlString), let launch = launchCommandForSlot(1) {
+        openURL(url, withLaunchCommand: launch)
     }
 
     hideWork?.cancel()
