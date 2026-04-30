@@ -78,7 +78,8 @@ print_usage() {
     echo -e "${bold}App launcher config:${reset}"
     echo "  Edit ~/.config/hub/apps.json to configure up to 5 app slots."
     echo "  Each entry: { \"name\": \"App Name\", \"launch\": \"<shell cmd>\", \"icon\": \"App Name\" }"
-    echo "  Use {path} and {workspace} in launch commands as substitution variables."
+    echo "  Optional: \"url_launch\" for URL handlers (supports {url} placeholder)."
+    echo "  Use {path}, {workspace}, and {url} as substitution variables."
 }
 
 success() { echo -e "  ${green}✓${reset} $1"; }
@@ -401,7 +402,7 @@ cmd_install() {
   {
     "name": "Safari",
     "launch": "open -na \"Safari\"",
-    "url_launch": "osascript -e 'tell application \"Safari\" to make new document with properties {URL:\"{url}\"}'",
+    "url_launch": "osascript -e 'tell application \"Safari\" to activate' -e 'tell application \"Safari\" to make new document with properties {URL:\"{url}\"}'",
     "icon": "Safari"
   },
   {

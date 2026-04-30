@@ -56,17 +56,27 @@ NSLayoutConstraint.activate([
     urlLabel.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -22),
 ])
 
-func launchCommandForSlot(_ index: Int) -> String? {
+func launchCommandForSlot(_ index: Int) -> (name: String, command: String)? {
     let appsPath = NSHomeDirectory() + "/.config/hub/apps.json"
     guard let data = try? Data(contentsOf: URL(fileURLWithPath: appsPath)),
           let apps = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
           index < apps.count
     else { return nil }
     let slot = apps[index]
-    return (slot["url_launch"] as? String) ?? (slot["launch"] as? String)
+    guard let name = slot["name"] as? String else { return nil }
+    guard let command = (slot["url_launch"] as? String) ?? (slot["launch"] as? String) else { return nil }
+    return (name, command)
 }
 
-func openURL(_ url: URL, withLaunchCommand launch: String) {
+func focusApp(_ appName: String) {
+    let escapedName = appName.replacingOccurrences(of: "\"", with: "\\\"")
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+    process.arguments = ["-e", "tell application \"\(escapedName)\" to activate"]
+    try? process.run()
+}
+
+func openURL(_ url: URL, appName: String, withLaunchCommand launch: String) {
     let urlString = url.absoluteString
     let cmd: String
     if launch.contains("{url}") {
@@ -78,6 +88,7 @@ func openURL(_ url: URL, withLaunchCommand launch: String) {
     }
     try? "cmd: \(cmd)\nurl: \(urlString)\n".appendLine(to: "/tmp/hub_handler.log")
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
+    focusApp(appName)
 }
 
 extension String {
@@ -112,8 +123,8 @@ func showURL(_ urlString: String) {
         }
     }
 
-    if let url = URL(string: urlString), let launch = launchCommandForSlot(1) {
-        openURL(url, withLaunchCommand: launch)
+    if let url = URL(string: urlString), let slot = launchCommandForSlot(1) {
+        openURL(url, appName: slot.name, withLaunchCommand: slot.command)
     }
 
     hideWork?.cancel()
