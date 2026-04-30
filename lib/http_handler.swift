@@ -60,16 +60,23 @@ func launchCommandForSlot(_ index: Int) -> String? {
     let appsPath = NSHomeDirectory() + "/.config/hub/apps.json"
     guard let data = try? Data(contentsOf: URL(fileURLWithPath: appsPath)),
           let apps = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-          index < apps.count,
-          let launch = apps[index]["launch"] as? String
+          index < apps.count
     else { return nil }
-    return launch
+    let slot = apps[index]
+    return (slot["url_launch"] as? String) ?? (slot["launch"] as? String)
 }
 
 func openURL(_ url: URL, withLaunchCommand launch: String) {
-    let escaped = url.absoluteString.replacingOccurrences(of: "'", with: "'\\''")
-    let cmd = "\(launch) '\(escaped)'"
-    try? "cmd: \(cmd)\nurl: \(url.absoluteString)\n".appendLine(to: "/tmp/hub_handler.log")
+    let urlString = url.absoluteString
+    let cmd: String
+    if launch.contains("{url}") {
+        let escaped = urlString.replacingOccurrences(of: "'", with: "'\\''")
+        cmd = launch.replacingOccurrences(of: "{url}", with: escaped)
+    } else {
+        let escaped = urlString.replacingOccurrences(of: "'", with: "'\\''")
+        cmd = "\(launch) '\(escaped)'"
+    }
+    try? "cmd: \(cmd)\nurl: \(urlString)\n".appendLine(to: "/tmp/hub_handler.log")
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
 }
 
