@@ -401,7 +401,7 @@ cmd_install() {
   },
   {
     "name": "Google Chrome",
-    "launch": "open -na 'Google Chrome' --args --new-window --profile-directory=ws2",
+    "launch": "open -na 'Google Chrome' --args --new-window --profile-directory=hub",
     "icon": "Google Chrome"
   },
   {
