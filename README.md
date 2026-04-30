@@ -120,7 +120,7 @@ Press **`Ctrl+Alt+O`** to open all configured apps in the current workspace, or 
 
 Opens the apps defined in `~/.config/hub/apps.json` in the current workspace. Skips apps already open on the workspace. New windows are automatically moved to the correct workspace.
 
-Default apps: iTerm2, Google Chrome, VS Code. Edit `~/.config/hub/apps.json` to customize (up to 5 slots).
+Default apps: iTerm2, Safari, VS Code. Edit `~/.config/hub/apps.json` to customize (up to 5 slots).
 
 SketchyBar shows clickable app icons on the right side — full-size when open on the current workspace, dimmed when not.
 
@@ -128,7 +128,7 @@ CLI alternative:
 ```sh
 hub open           # open all configured apps in current workspace
 hub open 1         # open just the first configured app (e.g., iTerm)
-hub open 2         # open just the second configured app (e.g., Chrome)
+hub open 2         # open just the second configured app (e.g., Safari)
 ```
 
 ## Guiding Principles

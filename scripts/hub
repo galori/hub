@@ -399,9 +399,9 @@ cmd_install() {
     "icon": "iTerm2"
   },
   {
-    "name": "Google Chrome",
-    "launch": "open -na 'Google Chrome' --args --new-window --profile-directory=hub",
-    "icon": "Google Chrome"
+    "name": "Safari",
+    "launch": "open -na \"Safari\"",
+    "icon": "Safari"
   },
   {
     "name": "Code",
@@ -1162,7 +1162,7 @@ open_app_slot() {
     # Smart mode: if app has windows on current workspace, cycle focus between
     # them. Otherwise fall through to launch a new window on this workspace.
     # (We intentionally do NOT jump to another workspace where this app runs —
-    # each hub workspace is self-contained, so Chrome on ws 3 ≠ Chrome on ws 10.)
+    # each hub workspace is self-contained, so Safari on ws 3 ≠ Safari on ws 10.)
     if [[ "$force_new" != "true" ]]; then
         local cur_wins
         cur_wins="$(aerospace list-windows --workspace "$ws_id" --format '%{window-id}|%{app-name}' 2>/dev/null \
