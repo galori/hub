@@ -400,7 +400,7 @@ cmd_install() {
   },
   {
     "name": "Safari",
-    "launch": "open -na \"Safari\"",
+    "launch": "sh -c 'osascript -e \"tell application \\\"Safari\\\" to make new document with properties {URL: \\\"$1\\\"}\"' --",
     "icon": "Safari"
   },
   {
