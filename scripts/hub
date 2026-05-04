@@ -1109,16 +1109,30 @@ get_workspace_path() {
 # Called with just the workspace ID; queries AeroSpace for current window list.
 arrange_after_open() {
     local ws_id="$1"
+    # Flatten to a single h-split so all windows are direct siblings.
+    aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
     local wids=()
     while IFS= read -r wid; do
         [[ -n "$wid" ]] && wids+=("$wid")
     done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
     local n=${#wids[@]}
     [[ $n -lt 2 || $n -gt 4 ]] && return 0
-    # list-windows returns newest-first (descending window ID); reverse to oldest-first
-    # so arrange_workspace_windows receives windows in the order they were opened.
+
+    # AeroSpace places new windows next to the focused window, which may put the newest
+    # window between two existing ones (e.g. [W1, W3, W2] instead of [W1, W2, W3]).
+    # Fix: focus the newest window (highest ID) and move it right until it's at the end,
+    # so spatial order matches open order before arrange_workspace_windows runs.
+    local newest_wid
+    newest_wid="$(printf '%s\n' "${wids[@]}" | sort -n | tail -1)"
+    aerospace focus --window-id "$newest_wid" 2>/dev/null || true
+    for ((i=0; i<n; i++)); do aerospace move right 2>/dev/null || true; done
+
+    # Re-read spatial order after the reposition
     local ordered=()
-    for ((i=n-1; i>=0; i--)); do ordered+=("${wids[$i]}"); done
+    while IFS= read -r wid; do
+        [[ -n "$wid" ]] && ordered+=("$wid")
+    done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
+
     arrange_workspace_windows "$ws_id" "${ordered[@]}"
 }
 
