@@ -1115,7 +1115,11 @@ arrange_after_open() {
     done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
     local n=${#wids[@]}
     [[ $n -lt 2 || $n -gt 4 ]] && return 0
-    arrange_workspace_windows "$ws_id" "${wids[@]}"
+    # list-windows returns newest-first (descending window ID); reverse to oldest-first
+    # so arrange_workspace_windows receives windows in the order they were opened.
+    local ordered=()
+    for ((i=n-1; i>=0; i--)); do ordered+=("${wids[$i]}"); done
+    arrange_workspace_windows "$ws_id" "${ordered[@]}"
 }
 
 arrange_workspace_windows() {
