@@ -1109,14 +1109,14 @@ get_workspace_path() {
 # Called with just the workspace ID; queries AeroSpace for current window list.
 arrange_after_open() {
     local ws_id="$1"
-    # Flatten to a single h-split so all windows are direct siblings.
-    aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
     local wids=()
     while IFS= read -r wid; do
         [[ -n "$wid" ]] && wids+=("$wid")
     done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
     local n=${#wids[@]}
     [[ $n -lt 2 || $n -gt 4 ]] && return 0
+    # Flatten to a single h-split so all windows are direct siblings.
+    aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
 
     # AeroSpace places new windows next to the focused window, which may put the newest
     # window between two existing ones (e.g. [W1, W3, W2] instead of [W1, W2, W3]).
