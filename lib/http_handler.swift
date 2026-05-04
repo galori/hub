@@ -66,11 +66,39 @@ func launchCommandForSlot(_ index: Int) -> String? {
     return launch
 }
 
+func hubScriptPath() -> String? {
+    let path = NSHomeDirectory() + "/.config/hub/hub_path"
+    guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+    return content.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func focusedWorkspaceID() -> String? {
+    let aerospace = FileManager.default.fileExists(atPath: "/opt/homebrew/bin/aerospace")
+        ? "/opt/homebrew/bin/aerospace" : "/usr/local/bin/aerospace"
+    let p = Process()
+    p.launchPath = aerospace
+    p.arguments = ["list-workspaces", "--focused"]
+    let pipe = Pipe()
+    p.standardOutput = pipe
+    p.standardError = Pipe()
+    try? p.run()
+    p.waitUntilExit()
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    let out = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return out.isEmpty ? nil : out
+}
+
 func openURL(_ url: URL, withLaunchCommand launch: String) {
     let escaped = url.absoluteString.replacingOccurrences(of: "'", with: "'\\''")
     let cmd = "\(launch) '\(escaped)'"
     try? "cmd: \(cmd)\nurl: \(url.absoluteString)\n".appendLine(to: "/tmp/hub_handler.log")
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
+
+    // Arrange workspace tiling after the browser window opens
+    if let hub = hubScriptPath(), let wsID = focusedWorkspaceID() {
+        let arrangeCmd = "sleep 1.5 && '\(hub)' arrange-open-window '\(wsID)'"
+        Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", arrangeCmd])
+    }
 }
 
 extension String {

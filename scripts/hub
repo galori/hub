@@ -376,6 +376,9 @@ cmd_install() {
     sed "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
     success "aerospace.toml deployed to $AEROSPACE_CONFIG"
 
+    # Write hub script path for runtime use by HubHTTPHandler and other compiled binaries
+    echo "$REPO_DIR/scripts/hub" > "$HOME/.config/hub/hub_path"
+
     # --- Deploy sketchybar config ---
     if [[ -d "$SKETCHYBAR_CONFIG_DIR" ]]; then
         rm -rf "$SKETCHYBAR_CONFIG_DIR"
@@ -1088,6 +1091,20 @@ get_workspace_path() {
 #   5: W1  W3
 #      W2  W4
 #         W5  (left col 2, right col 3)
+# After opening a new window on a workspace, re-arrange all windows to match the
+# standard tiling layout (2=side-by-side, 3=right-column-split, 4=two-column-pairs).
+# Called with just the workspace ID; queries AeroSpace for current window list.
+arrange_after_open() {
+    local ws_id="$1"
+    local wids=()
+    while IFS= read -r wid; do
+        [[ -n "$wid" ]] && wids+=("$wid")
+    done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
+    local n=${#wids[@]}
+    [[ $n -lt 2 || $n -gt 4 ]] && return 0
+    arrange_workspace_windows "$ws_id" "${wids[@]}"
+}
+
 arrange_workspace_windows() {
     local ws_id="$1"; shift
     local wids=("$@")
@@ -1273,12 +1290,22 @@ cmd_open() {
 
     # If called from a keybinding (no terminal), just run silently
     if [[ ! -t 0 && ! -t 1 ]]; then
+        local _opened=false
         if [[ -n "$slot" ]]; then
+            OPEN_APP_SLOT_WID=""
             open_app_slot "$slot" "$ws_id" "$ws_path" false "$force_new"
+            [[ -n "$OPEN_APP_SLOT_WID" ]] && _opened=true
         else
             for ((i=1; i<=app_count; i++)); do
+                OPEN_APP_SLOT_WID=""
                 open_app_slot "$i" "$ws_id" "$ws_path" false "$force_new"
+                [[ -n "$OPEN_APP_SLOT_WID" ]] && _opened=true
             done
+        fi
+        if [[ "$_opened" == "true" ]]; then
+            local _ws_id_copy="$ws_id"
+            (sleep 0.2; arrange_after_open "$_ws_id_copy") &
+            disown
         fi
         refresh_app_indicators
         return
@@ -1313,18 +1340,29 @@ cmd_open() {
         esac
     fi
 
+    local _opened=false
     if [[ "$open_all" == "true" ]]; then
         for ((i=1; i<=app_count; i++)); do
+            OPEN_APP_SLOT_WID=""
             open_app_slot "$i" "$ws_id" "$ws_path" true "$force_new"
+            [[ -n "$OPEN_APP_SLOT_WID" ]] && _opened=true
         done
     else
+        OPEN_APP_SLOT_WID=""
         open_app_slot "$slot" "$ws_id" "$ws_path" true "$force_new"
+        [[ -n "$OPEN_APP_SLOT_WID" ]] && _opened=true
     fi
 
     # Only refocus original workspace after launching new windows — smart-open
     # may have intentionally jumped to another workspace.
     if [[ "$force_new" == "true" || "$open_all" == "true" ]]; then
         aerospace workspace "$ws_id" 2>/dev/null || true
+    fi
+
+    if [[ "$_opened" == "true" ]]; then
+        local _ws_id_copy="$ws_id"
+        (sleep 0.2; arrange_after_open "$_ws_id_copy") &
+        disown
     fi
     refresh_app_indicators
 }
@@ -1699,6 +1737,7 @@ case "$command" in
     dashboard)    cmd_dashboard ;;
     label-length) cmd_label_length "$@" ;;
     repo-prefix)  cmd_repo_prefix "$@" ;;
+    arrange-open-window) arrange_after_open "${1:-}" ;;
     help|-h|--help) print_usage ;;
     '')
         print_usage
