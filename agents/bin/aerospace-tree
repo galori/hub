@@ -128,24 +128,43 @@ def bounding_box(windows: list[Window]) -> Rect:
     return Rect(min(xs), min(ys), max(rights) - min(xs), max(bottoms) - min(ys))
 
 
-def find_split(windows):
+def slice_by_cuts(windows, cuts, get_lo, get_hi):
+    """Partition windows into ordered groups using a sorted list of cut coordinates."""
+    groups = []
+    remaining = list(windows)
+    for cut in cuts:
+        group = [w for w in remaining if get_hi(w) <= cut + TOLERANCE]
+        remaining = [w for w in remaining if get_lo(w) >= cut - TOLERANCE]
+        if group:
+            groups.append(group)
+    if remaining:
+        groups.append(remaining)
+    return groups
+
+
+def find_groups(windows):
+    """
+    Find all clean cuts along one axis and return (axis, [group, ...]).
+    Tries h-split (vertical cuts) first, then v-split (horizontal cuts).
+    Returns None if no clean partition exists.
+    """
     if len(windows) < 2:
         return None
     box = bounding_box(windows)
 
-    # Vertical cut: find a right-edge that cleanly partitions
-    for cut in sorted({w.rect.right for w in windows if abs(w.rect.right - box.right) > TOLERANCE}):
-        left  = [w for w in windows if w.rect.right <= cut + TOLERANCE]
-        right = [w for w in windows if w.rect.x    >= cut - TOLERANCE]
-        if left and right and len(left) + len(right) == len(windows):
-            return ("h", cut, left, right)
+    # Collect all right-edges that aren't the bbox right — each is a candidate column boundary
+    h_cuts = sorted({w.rect.right for w in windows if abs(w.rect.right - box.right) > TOLERANCE})
+    if h_cuts:
+        groups = slice_by_cuts(windows, h_cuts, lambda w: w.rect.x, lambda w: w.rect.right)
+        if len(groups) >= 2 and sum(len(g) for g in groups) == len(windows):
+            return ("h", groups)
 
-    # Horizontal cut: find a bottom-edge that cleanly partitions
-    for cut in sorted({w.rect.bottom for w in windows if abs(w.rect.bottom - box.bottom) > TOLERANCE}):
-        top    = [w for w in windows if w.rect.bottom <= cut + TOLERANCE]
-        bottom = [w for w in windows if w.rect.y      >= cut - TOLERANCE]
-        if top and bottom and len(top) + len(bottom) == len(windows):
-            return ("v", cut, top, bottom)
+    # Collect all bottom-edges that aren't the bbox bottom
+    v_cuts = sorted({w.rect.bottom for w in windows if abs(w.rect.bottom - box.bottom) > TOLERANCE})
+    if v_cuts:
+        groups = slice_by_cuts(windows, v_cuts, lambda w: w.rect.y, lambda w: w.rect.bottom)
+        if len(groups) >= 2 and sum(len(g) for g in groups) == len(windows):
+            return ("v", groups)
 
     return None
 
@@ -153,12 +172,11 @@ def find_split(windows):
 def build_tree(windows: list[Window]) -> Node:
     if len(windows) == 1:
         return Node(window=windows[0])
-    split = find_split(windows)
-    if split is None:
-        # Can't find a clean cut — fall back to flat list
+    result = find_groups(windows)
+    if result is None:
         return Node(split="h", children=[Node(window=w) for w in windows])
-    axis, _coord, group_a, group_b = split
-    return Node(split=axis, children=[build_tree(group_a), build_tree(group_b)])
+    axis, groups = result
+    return Node(split=axis, children=[build_tree(g) for g in groups])
 
 
 # ── aerospace CLI helpers ─────────────────────────────────────────────────────

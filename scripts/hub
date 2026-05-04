@@ -47,7 +47,8 @@ print_usage() {
     echo "  down          Stop everything, restore the Dock and menu bar"
     echo "  reboot        Stop, reinstall, and restart the hub environment"
     echo "  new           Create a new workspace (opens dialog)"
-    echo "  list          List all defined workspaces"
+    echo "  list          List all defined workspaces
+  tree          Show the tiling tree for a workspace"
     echo "  status        Show current service state, workspace info, and label length"
     echo "  remove        Remove a workspace (current or by ID)"
     echo "  rename        Rename a workspace (current or by ID)"
@@ -74,6 +75,9 @@ print_usage() {
     echo "  hub open 1         # focus app 1 (or launch if not running)"
     echo "  hub open 1 --force # always launch a new window of app 1"
     echo "  hub open --all     # launch any missing apps into current workspace"
+    echo "  hub tree           # show tiling tree for the focused workspace"
+    echo "  hub tree --all     # show tiling tree for all non-empty workspaces"
+    echo "  hub tree --workspace A  # show tiling tree for workspace A"
     echo
     echo -e "${bold}App launcher config:${reset}"
     echo "  Edit ~/.config/hub/apps.json to configure up to 5 app slots."
@@ -841,6 +845,15 @@ cmd_list() {
             printf "%-4s  %s\n" "$ws_id" "$ws_name"
         done
     fi
+}
+
+cmd_tree() {
+    local tool
+    tool="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../agents/bin/aerospace-tree"
+    if [[ ! -x "$tool" ]]; then
+        fail "aerospace-tree not found at $tool"
+    fi
+    "$tool" "$@"
 }
 
 cmd_status() {
@@ -1724,6 +1737,7 @@ case "$command" in
     install)  cmd_install ;;
     new)      cmd_new ;;
     list)     cmd_list "$@" ;;
+    tree)     cmd_tree "$@" ;;
     status)   cmd_status ;;
     remove)   cmd_remove "$@" ;;
     rename)   cmd_rename "$@" ;;
