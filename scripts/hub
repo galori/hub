@@ -655,11 +655,7 @@ cmd_new() {
 
     # Arrange windows in the new workspace based on count
     if [[ ${#_opened_wids[@]} -ge 1 ]]; then
-        local _wids_copy=("${_opened_wids[@]}")
-        (
-            sleep 0.3
-            arrange_workspace_windows "$ws_id" "${_wids_copy[@]}"
-        ) &
+        (sleep 0.3; arrange_workspace "$ws_id") &
         disown
     fi
 
@@ -1093,69 +1089,6 @@ get_workspace_path() {
     fi
 }
 
-# arrange_workspace_windows WS_ID WID1 WID2 ... WIDN
-# Arranges N windows into a structured layout based on count:
-#   1: single window (no-op after h_tiles)
-#   2: W1 | W2  (flat h_tiles)
-#   3: W1 | W2 (W2 and W3 stacked vertically in right column)
-#         W3
-#   4: W1  W3
-#      W2  W4  (two columns of two)
-#   5: W1  W3
-#      W2  W4
-#         W5  (left col 2, right col 3)
-# After opening a new window on a workspace, re-arrange all windows to match the
-# standard tiling layout (2=side-by-side, 3=right-column-split, 4=two-column-pairs).
-# Called with just the workspace ID; queries AeroSpace for current window list.
-arrange_after_open() {
-    local ws_id="$1"
-    local wids=()
-    while IFS= read -r wid; do
-        [[ -n "$wid" ]] && wids+=("$wid")
-    done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
-    local n=${#wids[@]}
-    [[ $n -lt 2 || $n -gt 4 ]] && return 0
-
-    # Flatten to a single h-split so all windows are direct siblings.
-    aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
-    # Ensure workspace is focused so geometry is available (off-screen workspaces have bogus x/y).
-    aerospace workspace "$ws_id" 2>/dev/null || true
-    # Force horizontal layout so "move right" means left-to-right and geometry reflects a flat h-split.
-    aerospace focus --window-id "${wids[0]}" 2>/dev/null || true
-    aerospace layout h_tiles 2>/dev/null || true
-
-    # Read spatial left-to-right order from geometry (list-windows order is NOT spatial after flatten).
-    local ordered
-    ordered="$(spatial_order_ltr "$ws_id")"
-    local ord_arr=()
-    while IFS= read -r wid; do
-        [[ -n "$wid" ]] && ord_arr+=("$wid")
-    done <<< "$ordered"
-
-    # Move the newest window (highest ID) rightward until it's last.
-    local newest_wid newest_idx=0
-    newest_wid="$(printf '%s\n' "${ord_arr[@]}" | sort -n | tail -1)"
-    for ((i=0; i<${#ord_arr[@]}; i++)); do
-        [[ "${ord_arr[$i]}" == "$newest_wid" ]] && newest_idx=$i && break
-    done
-    local moves=$(( ${#ord_arr[@]} - 1 - newest_idx ))
-
-    # Construct final order without re-querying geometry: existing L-to-R order
-    # minus the newest, plus newest at the end.
-    local final_arr=()
-    for w in "${ord_arr[@]}"; do
-        [[ "$w" != "$newest_wid" ]] && final_arr+=("$w")
-    done
-    final_arr+=("$newest_wid")
-
-    if (( moves > 0 )); then
-        aerospace focus --window-id "$newest_wid" 2>/dev/null || true
-        for ((i=0; i<moves; i++)); do aerospace move right 2>/dev/null || true; done
-    fi
-
-    arrange_workspace_windows "$ws_id" "${final_arr[@]}"
-}
-
 # Return window-ids in left-to-right spatial order, one per line.
 # aerospace list-windows returns windows in a non-spatial (creation-ish) order
 # after flatten, so we sort by x-coordinate from CGWindowList instead.
@@ -1169,19 +1102,36 @@ spatial_order_ltr() {
     "$SPATIAL_ORDER_BIN" "${wids[@]}" 2>/dev/null || true
 }
 
-arrange_workspace_windows() {
-    local ws_id="$1"; shift
-    local wids=("$@")
-    local n=${#wids[@]}
-    [[ $n -lt 2 ]] && return 0
+# arrange_workspace WS_ID [NEWEST_WID]
+# Arranges all windows on WS_ID into a structured layout:
+#   2: W1 | W2  (flat h_tiles)
+#   3: W1 | (W2/W3 stacked vertically)
+#   4: (W1/W2) | (W3/W4)  (two columns of two)
+#   5: (W1/W2) | (W3/W4/W5)
+# When NEWEST_WID is provided, moves it to the rightmost position before
+# applying the layout (handles the "just opened" case).
+# Outside that range (1 window, >5 windows) is a no-op.
+arrange_workspace() {
+    local ws_id="$1" newest_wid="${2:-}"
 
-    # Flatten and switch to the workspace first
+    # Guard on count before doing any AeroSpace mutations.
+    local wids=()
+    while IFS= read -r wid; do
+        [[ -n "$wid" ]] && wids+=("$wid")
+    done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
+    local n=${#wids[@]}
+    [[ $n -lt 2 || $n -gt 5 ]] && return 0
+
+    # Flatten to a single h-split so all windows are direct siblings.
     aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
+    # Ensure workspace is focused so geometry is available (off-screen workspaces have bogus x/y).
     aerospace workspace "$ws_id" 2>/dev/null || true
+
+    # Force horizontal layout so geometry reflects a flat h-split.
     aerospace focus --window-id "${wids[0]}" 2>/dev/null || true
     aerospace layout h_tiles 2>/dev/null || true
 
-    # list-windows returns a non-spatial order after flatten; use geometry to get true L-to-R order.
+    # Read spatial left-to-right order from geometry (list-windows is NOT spatial after flatten).
     local ordered
     ordered="$(spatial_order_ltr "$ws_id")"
     local w=()
@@ -1190,9 +1140,27 @@ arrange_workspace_windows() {
     done <<< "$ordered"
     [[ ${#w[@]} -lt 2 ]] && return 0
 
-    if [[ $n -eq 2 ]]; then
-        : # flat h_tiles is the goal
-    elif [[ $n -eq 3 ]]; then
+    # If a newest window was specified, move it to the rightmost position.
+    if [[ -n "$newest_wid" ]]; then
+        local newest_idx=0
+        for ((i=0; i<${#w[@]}; i++)); do
+            [[ "${w[$i]}" == "$newest_wid" ]] && newest_idx=$i && break
+        done
+        local moves=$(( ${#w[@]} - 1 - newest_idx ))
+        if (( moves > 0 )); then
+            aerospace focus --window-id "$newest_wid" 2>/dev/null || true
+            for ((i=0; i<moves; i++)); do aerospace move right 2>/dev/null || true; done
+        fi
+        # Re-read spatial order after the move (geometry has changed).
+        ordered="$(spatial_order_ltr "$ws_id")"
+        w=()
+        while IFS= read -r wid; do
+            [[ -n "$wid" ]] && w+=("$wid")
+        done <<< "$ordered"
+        [[ ${#w[@]} -lt 2 ]] && return 0
+    fi
+
+    if [[ $n -eq 3 ]]; then
         # Goal: W1 | (W2/W3)
         aerospace focus --window-id "${w[2]}" 2>/dev/null || true
         aerospace join-with left 2>/dev/null || true
@@ -1218,9 +1186,27 @@ arrange_workspace_windows() {
         aerospace layout v_tiles 2>/dev/null || true
     fi
 
-    # Return focus to leftmost window
+    # Return focus to leftmost window.
     aerospace focus --window-id "${w[0]}" 2>/dev/null || true
 }
+
+# arrange_after_open WS_ID — moves the newest (highest ID) window rightmost, then arranges.
+# Only acts on workspaces with 2-4 windows (same range as before).
+arrange_after_open() {
+    local ws_id="$1"
+    local wids=()
+    while IFS= read -r wid; do
+        [[ -n "$wid" ]] && wids+=("$wid")
+    done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
+    local n=${#wids[@]}
+    [[ $n -lt 2 || $n -gt 4 ]] && return 0
+    local newest_wid
+    newest_wid="$(printf '%s\n' "${wids[@]}" | sort -n | tail -1)"
+    arrange_workspace "$ws_id" "$newest_wid"
+}
+
+# arrange_workspace_windows WS_ID WID... — arranges by current geometry, ignoring the wid list.
+arrange_workspace_windows() { local ws_id="$1"; arrange_workspace "$ws_id"; }
 
 open_app_slot() {
     local slot="$1"
