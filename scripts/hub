@@ -963,9 +963,8 @@ cmd_remove() {
     if [[ -n "$ws_info" ]]; then
         IFS=$'\t' read -r ws_name ws_path ws_root <<< "$ws_info"
     else
-        ws_name="$ws_id"
-        ws_path=""
-        ws_root=""
+        fail "Workspace '$ws_id' not found"
+        exit 1
     fi
 
     # Count windows

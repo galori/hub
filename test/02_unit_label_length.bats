@@ -6,54 +6,18 @@ load helpers/stubs
 REPO_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 HUB_SCRIPT="$REPO_DIR/scripts/hub"
 
-setup() {
-    setup_stubs
-    export MAXLEN_FILE="$HOME/.config/hub/label_maxlen"
-    export LABELS_FILE="$HOME/.config/hub/sketchybar_labels"
-
-    # Stub aerospace plugin so cmd_label_length's final plugin call is harmless
-    make_stub "$HOME/.config/sketchybar/plugins/aerospace.sh" "" 0
-    mkdir -p "$HOME/.config/sketchybar/plugins"
-    cat > "$HOME/.config/sketchybar/plugins/aerospace.sh" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-    chmod +x "$HOME/.config/sketchybar/plugins/aerospace.sh"
-}
-
-teardown() {
-    teardown_stubs
-}
-
-run_label_length() {
-    # Runs cmd_label_length with custom tmp files via env override
-    bash -c "
-        source '$HUB_SCRIPT' >/dev/null 2>&1
-        # Patch the file paths used inside cmd_label_length
-        cmd_label_length \"\$@\"
-    " -- "$@" 2>/dev/null
-    # Read the value that was written
-    cat /tmp/hub_label_maxlen 2>/dev/null || echo "-1"
-}
-
-# Helper: set up current value in the real tempfile location
 set_current() {
-    echo "$1" > /tmp/hub_label_maxlen
+    echo "$1" > "$HOME/.config/hub/label_maxlen"
 }
 
 set_labels() {
     # Each arg is a "ID:Name:" line
-    printf '%s\n' "$@" > /tmp/hub_sketchybar_labels
-}
-
-cleanup_tmp() {
-    rm -f /tmp/hub_label_maxlen /tmp/hub_sketchybar_labels
+    printf '%s\n' "$@" > "$HOME/.config/hub/sketchybar_labels"
 }
 
 setup() {
     setup_stubs
-    cleanup_tmp
-    mkdir -p "$HOME/.config/sketchybar/plugins"
+    mkdir -p "$HOME/.config/hub" "$HOME/.config/sketchybar/plugins"
     cat > "$HOME/.config/sketchybar/plugins/aerospace.sh" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -63,7 +27,6 @@ SH
 
 teardown() {
     teardown_stubs
-    cleanup_tmp
 }
 
 # ---------------------------------------------------------------------------
@@ -73,21 +36,21 @@ teardown() {
 @test "label-length grow from 4 increments by 2" {
     set_current 4
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length +" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "6" ]]
 }
 
 @test "label-length grow from unlimited stays unlimited" {
     set_current -1
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length +" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "-1" ]]
 }
 
 @test "label-length grow accepts 'grow' alias" {
     set_current 2
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length grow" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "4" ]]
 }
 
@@ -95,7 +58,7 @@ teardown() {
     set_labels "1:Hello:" "2:World:"
     set_current 3   # longest=5, 3+2=5 >= 5 → -1
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length +" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "-1" ]]
 }
 
@@ -106,14 +69,14 @@ teardown() {
 @test "label-length shrink from 6 decrements by 2" {
     set_current 6
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length -" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "4" ]]
 }
 
 @test "label-length shrink clamps to 0" {
     set_current 1
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length -" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "0" ]]
 }
 
@@ -121,22 +84,22 @@ teardown() {
     set_labels "1:Hello:" "2:World:"   # longest = 5
     set_current -1
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length -" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "3" ]]  # 5 - 2
 }
 
 @test "label-length shrink from unlimited with no labels stays at 0" {
-    rm -f /tmp/hub_sketchybar_labels
+    rm -f "$HOME/.config/hub/sketchybar_labels"
     set_current -1
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length -" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "-1" ]]  # longest=0, no change
 }
 
 @test "label-length shrink accepts 'shrink' alias" {
     set_current 8
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length shrink" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "6" ]]
 }
 
@@ -146,14 +109,14 @@ teardown() {
 
 @test "label-length accepts explicit number" {
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length 10" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "10" ]]
 }
 
 @test "label-length number >= longest resets to unlimited" {
     set_labels "1:Hi:" "2:There:"   # longest = 5
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length 99" >/dev/null 2>&1
-    result="$(cat /tmp/hub_label_maxlen)"
+    result="$(cat "$HOME/.config/hub/label_maxlen")"
     [[ "$result" == "-1" ]]
 }
 
