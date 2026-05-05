@@ -194,8 +194,9 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     ctrl-alt-equal = 'exec-and-forget __HUB_SCRIPT__ label-length grow'
     ctrl-alt-shift-minus = 'exec-and-forget __HUB_SCRIPT__ label-length min'
     ctrl-alt-shift-equal = 'exec-and-forget __HUB_SCRIPT__ label-length max'
-    # hub: toggle bar height (notch avoidance)
+    # hub: toggle bar height (notch avoidance) / reload bar
     ctrl-alt-shift-b = 'exec-and-forget __HUB_SCRIPT__ bar-height toggle'
+    ctrl-alt-b = 'exec-and-forget __HUB_SCRIPT__ bar-reload'
     # hub: toggle repo name prefix on workspace labels
     ctrl-alt-p = 'exec-and-forget __HUB_SCRIPT__ repo-prefix toggle'
 
