@@ -1648,6 +1648,9 @@ cmd_up() {
         success "AeroSpace started"
     fi
 
+    # Rebuild workspace labels cache (/tmp is cleared on reboot)
+    rebuild_labels_file
+
     # Ensure sketchybar is running and reload config
     if ! pgrep -q sketchybar; then
         sketchybar &>/dev/null &
