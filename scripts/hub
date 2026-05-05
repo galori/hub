@@ -57,7 +57,8 @@ print_usage() {
     echo "  open          Open configured apps in current workspace"
     echo "  keys          List all AeroSpace key bindings (main and service mode)"
     echo "  dashboard     Show status and key bindings in a full-screen modal"
-    echo "  label-length  Shrink or grow workspace label max length (+/-/grow/shrink/number)"
+    echo "  label-length  Shrink or grow workspace label max length (+/-/grow/shrink/min/max/number)"
+    echo "  bar-height    Toggle bar height for notch avoidance (tall/normal/toggle)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
     echo "  help          Show this help"
     echo
@@ -1544,6 +1545,12 @@ cmd_label_length() {
                 (( current < 0 )) && current=0
             fi
             ;;
+        min)
+            current=0
+            ;;
+        max)
+            current=-1
+            ;;
         "")
             # No argument: display current label length
             echo -e "${bold}Label length:${reset}"
@@ -1554,14 +1561,14 @@ cmd_label_length() {
             else
                 echo -e "  $current chars  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
             fi
-            echo -e "  ${yellow}Usage: hub label-length [+|-|grow|shrink|<number>]${reset}"
+            echo -e "  ${yellow}Usage: hub label-length [+|-|grow|shrink|min|max|<number>]${reset}"
             return 0
             ;;
         *)
             if [[ "$direction" =~ ^[0-9]+$ ]]; then
                 current="$direction"
             else
-                fail "Usage: hub label-length [+|-|grow|shrink|<number>]"
+                fail "Usage: hub label-length [+|-|grow|shrink|min|max|<number>]"
                 return 1
             fi
             ;;
@@ -1577,6 +1584,48 @@ cmd_label_length() {
 
     local plugin="$HOME/.config/sketchybar/plugins/aerospace.sh"
     [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
+}
+
+cmd_bar_height() {
+    local action="${1:-}"
+    local state_file="$HOME/.config/hub/bar_tall"
+    local is_tall=false
+    [[ -f "$state_file" ]] && is_tall=true
+
+    case "$action" in
+        tall)
+            touch "$state_file"
+            sed -i '' 's/outer\.top =.*/outer.top =        90/' "$AEROSPACE_CONFIG"
+            sketchybar --reload
+            aerospace reload-config
+            ;;
+        normal)
+            rm -f "$state_file"
+            sed -i '' 's/outer\.top =.*/outer.top =        50/' "$AEROSPACE_CONFIG"
+            sketchybar --reload
+            aerospace reload-config
+            ;;
+        toggle)
+            if $is_tall; then
+                cmd_bar_height normal
+            else
+                cmd_bar_height tall
+            fi
+            ;;
+        "")
+            echo -e "${bold}Bar height:${reset}"
+            if $is_tall; then
+                echo -e "  tall (notch-avoidance mode)"
+            else
+                echo -e "  normal"
+            fi
+            echo -e "  ${yellow}Usage: hub bar-height [tall|normal|toggle]${reset}"
+            ;;
+        *)
+            fail "Usage: hub bar-height [tall|normal|toggle]"
+            return 1
+            ;;
+    esac
 }
 
 ensure_general_workspace() {
@@ -1788,6 +1837,7 @@ case "$command" in
     keys)         cmd_keys ;;
     dashboard)    cmd_dashboard ;;
     label-length) cmd_label_length "$@" ;;
+    bar-height)   cmd_bar_height "$@" ;;
     repo-prefix)  cmd_repo_prefix "$@" ;;
     arrange-open-window) arrange_after_open "${1:-}" ;;
     help|-h|--help) print_usage ;;
