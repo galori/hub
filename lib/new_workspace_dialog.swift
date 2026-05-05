@@ -1404,13 +1404,16 @@ func showConfirmWorkspace(
     titleLabel.textColor = dimWhite
     addView(titleLabel)
 
-    let nameLabel = NSTextField(labelWithString: wsName)
-    nameLabel.translatesAutoresizingMaskIntoConstraints = false
-    nameLabel.font = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
-    nameLabel.textColor = .white
-    addView(nameLabel)
+    let nameField = makeField(placeholder: "workspace name", value: wsName)
+    addView(nameField)
 
-    var prevAnchor: NSLayoutYAxisAnchor = nameLabel.bottomAnchor
+    let nameErrorLabel = NSTextField(labelWithString: "")
+    nameErrorLabel.translatesAutoresizingMaskIntoConstraints = false
+    nameErrorLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+    nameErrorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
+    addView(nameErrorLabel)
+
+    var prevAnchor: NSLayoutYAxisAnchor = nameErrorLabel.bottomAnchor
 
     if path != "-" {
         let abbreviated = (path as NSString).abbreviatingWithTildeInPath
@@ -1421,11 +1424,13 @@ func showConfirmWorkspace(
         pathLabel.lineBreakMode = .byTruncatingMiddle
         addView(pathLabel)
         NSLayoutConstraint.activate([
-            pathLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 4),
+            pathLabel.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 4),
             pathLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
             pathLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+            nameErrorLabel.topAnchor.constraint(equalTo: pathLabel.bottomAnchor, constant: 2),
         ])
-        prevAnchor = pathLabel.bottomAnchor
+    } else {
+        nameErrorLabel.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 4).isActive = true
     }
 
     var checkboxes: [CustomCheckbox] = []
@@ -1459,8 +1464,12 @@ func showConfirmWorkspace(
     NSLayoutConstraint.activate([
         titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
         titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        nameLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
-        nameLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        nameField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+        nameField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        nameField.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        nameField.heightAnchor.constraint(equalToConstant: 36),
+        nameErrorLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        nameErrorLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         createBtn.topAnchor.constraint(equalTo: prevAnchor, constant: 20),
         createBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
         createBtn.heightAnchor.constraint(equalToConstant: 34),
@@ -1476,18 +1485,22 @@ func showConfirmWorkspace(
 
     class ConfirmAction: NSObject {
         let wsID: String
-        let wsName: String
+        let nameField: NSTextField
+        let nameErrLabel: NSTextField
         let path: String
         let repoRoot: String
         let color: String?
         let setupCmd: String?
         let pendingWorktreeName: String?
         let checkboxes: [CustomCheckbox]
-        init(_ id: String, _ n: String, _ p: String, _ r: String, _ c: String?, _ s: String?, _ wt: String?, _ cbs: [CustomCheckbox]) {
-            wsID = id; wsName = n; path = p; repoRoot = r; color = c; setupCmd = s; pendingWorktreeName = wt; checkboxes = cbs
+        init(_ id: String, _ nf: NSTextField, _ ne: NSTextField, _ p: String, _ r: String, _ c: String?, _ s: String?, _ wt: String?, _ cbs: [CustomCheckbox]) {
+            wsID = id; nameField = nf; nameErrLabel = ne; path = p; repoRoot = r; color = c; setupCmd = s; pendingWorktreeName = wt; checkboxes = cbs
         }
         @objc func confirm(_ sender: Any) { doConfirm() }
         func doConfirm() {
+            let wsName = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !wsName.isEmpty else { nameErrLabel.stringValue = "Enter a name"; return }
+            nameErrLabel.stringValue = ""
             var checkedSlots: [String] = []
             for (i, cb) in checkboxes.enumerated() {
                 if cb.isChecked { checkedSlots.append("\(i + 1)") }
@@ -1509,12 +1522,14 @@ func showConfirmWorkspace(
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
     }
 
-    let confirmAction = ConfirmAction(wsID, wsName, path, repoRoot, color, setupCmd, pendingWorktreeName, checkboxes)
+    let confirmAction = ConfirmAction(wsID, nameField, nameErrorLabel, path, repoRoot, color, setupCmd, pendingWorktreeName, checkboxes)
     let cancelAction = CancelAction()
     createBtn.target = confirmAction; createBtn.action = #selector(ConfirmAction.confirm(_:))
     cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
     objc_setAssociatedObject(createBtn, "a", confirmAction, .OBJC_ASSOCIATION_RETAIN)
     objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
+
+    win.makeFirstResponder(nameField)
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
