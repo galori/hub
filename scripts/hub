@@ -1597,16 +1597,14 @@ cmd_bar_height() {
         tall)
             touch "$state_file"
             sed -i '' 's/outer\.top =.*/outer.top =        90/' "$AEROSPACE_CONFIG"
-            sketchybar --reload
             aerospace reload-config
-            (sleep 3 && sketchybar --reload) &
+            (sleep 2 && sketchybar --reload) &
             ;;
         normal)
             rm -f "$state_file"
             sed -i '' 's/outer\.top =.*/outer.top =        50/' "$AEROSPACE_CONFIG"
-            sketchybar --reload
             aerospace reload-config
-            (sleep 3 && sketchybar --reload) &
+            (sleep 2 && sketchybar --reload) &
             ;;
         toggle)
             if $is_tall; then
