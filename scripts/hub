@@ -1115,35 +1115,69 @@ arrange_after_open() {
     done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
     local n=${#wids[@]}
     [[ $n -lt 2 || $n -gt 4 ]] && return 0
+
     # Flatten to a single h-split so all windows are direct siblings.
     aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
+    # Ensure workspace is focused so geometry is available (off-screen workspaces have bogus x/y).
+    aerospace workspace "$ws_id" 2>/dev/null || true
+    # Force horizontal layout so "move right" means left-to-right and geometry reflects a flat h-split.
+    aerospace focus --window-id "${wids[0]}" 2>/dev/null || true
+    aerospace layout h_tiles 2>/dev/null || true
 
-    # Read spatial order post-flatten (list-windows gives DFS = left-to-right order).
-    local flat=()
+    # Read spatial left-to-right order from geometry (list-windows order is NOT spatial after flatten).
+    local ordered
+    ordered="$(spatial_order_ltr "$ws_id")"
+    local ord_arr=()
     while IFS= read -r wid; do
-        [[ -n "$wid" ]] && flat+=("$wid")
-    done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
+        [[ -n "$wid" ]] && ord_arr+=("$wid")
+    done <<< "$ordered"
 
-    # Move the newest window (highest ID) to the rightmost position.
-    # Compute exact moves = (n-1) - current_index so we never wrap.
+    # Move the newest window (highest ID) rightward until it's last.
     local newest_wid newest_idx=0
-    newest_wid="$(printf '%s\n' "${flat[@]}" | sort -n | tail -1)"
-    for ((i=0; i<${#flat[@]}; i++)); do
-        [[ "${flat[$i]}" == "$newest_wid" ]] && newest_idx=$i && break
+    newest_wid="$(printf '%s\n' "${ord_arr[@]}" | sort -n | tail -1)"
+    for ((i=0; i<${#ord_arr[@]}; i++)); do
+        [[ "${ord_arr[$i]}" == "$newest_wid" ]] && newest_idx=$i && break
     done
-    local moves=$(( ${#flat[@]} - 1 - newest_idx ))
+    local moves=$(( ${#ord_arr[@]} - 1 - newest_idx ))
     if (( moves > 0 )); then
         aerospace focus --window-id "$newest_wid" 2>/dev/null || true
         for ((i=0; i<moves; i++)); do aerospace move right 2>/dev/null || true; done
     fi
 
     # Re-read spatial order after reposition
-    local ordered=()
+    ordered="$(spatial_order_ltr "$ws_id")"
+    local final_arr=()
     while IFS= read -r wid; do
-        [[ -n "$wid" ]] && ordered+=("$wid")
-    done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
+        [[ -n "$wid" ]] && final_arr+=("$wid")
+    done <<< "$ordered"
 
-    arrange_workspace_windows "$ws_id" "${ordered[@]}"
+    arrange_workspace_windows "$ws_id" "${final_arr[@]}"
+}
+
+# Return window-ids in left-to-right spatial order, one per line, using
+# window geometry (which is authoritative — list-windows returns non-spatial order).
+spatial_order_ltr() {
+    local ws_id="$1"
+    local tree_bin="$SCRIPT_DIR/../agents/bin/aerospace-tree"
+    [[ ! -x "$tree_bin" ]] && tree_bin="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../agents/bin/aerospace-tree"
+    "$tree_bin" --workspace "$ws_id" --json 2>/dev/null | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+# Flatten all windows with geometry, sort by x coordinate
+wins = []
+def walk(node):
+    if node.get("type") == "window":
+        r = node.get("rect") or {}
+        wins.append((r.get("x", 0), node["window-id"]))
+    else:
+        for c in node.get("children", []):
+            walk(c)
+for ws, tree in data.items():
+    walk(tree)
+wins.sort(key=lambda p: p[0])
+for _, wid in wins:
+    print(wid)
+' 2>/dev/null || true
 }
 
 arrange_workspace_windows() {
@@ -1155,50 +1189,48 @@ arrange_workspace_windows() {
     # Flatten and switch to the workspace first
     aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
     aerospace workspace "$ws_id" 2>/dev/null || true
-
-    # After flatten, windows are in order they were added; focus each one to confirm DFS order.
-    # We want them in order W1..Wn left-to-right in h_tiles as our starting point.
-    # Focus W1 first, then set h_tiles.
     aerospace focus --window-id "${wids[0]}" 2>/dev/null || true
     aerospace layout h_tiles 2>/dev/null || true
+
+    # list-windows returns a non-spatial order after flatten; use geometry to get true L-to-R order.
+    local ordered
+    ordered="$(spatial_order_ltr "$ws_id")"
+    local w=()
+    while IFS= read -r wid; do
+        [[ -n "$wid" ]] && w+=("$wid")
+    done <<< "$ordered"
+    [[ ${#w[@]} -lt 2 ]] && return 0
 
     if [[ $n -eq 2 ]]; then
         : # flat h_tiles is the goal
     elif [[ $n -eq 3 ]]; then
-        # After h_tiles: W1 | W2 | W3
-        # Focus W3, join-with left → W3 merges with W2 under a shared parent
-        aerospace focus --window-id "${wids[2]}" 2>/dev/null || true
+        # Goal: W1 | (W2/W3)
+        aerospace focus --window-id "${w[2]}" 2>/dev/null || true
         aerospace join-with left 2>/dev/null || true
         aerospace layout v_tiles 2>/dev/null || true
     elif [[ $n -eq 4 ]]; then
         # Goal: (W1/W2) | (W3/W4)
-        # After h_tiles flatten: W1 W2 W3 W4 are side by side.
-        # Stack W1+W2: focus W2, join-with left → W2 lands with W1
-        aerospace focus --window-id "${wids[1]}" 2>/dev/null || true
+        aerospace focus --window-id "${w[1]}" 2>/dev/null || true
         aerospace join-with left 2>/dev/null || true
         aerospace layout v_tiles 2>/dev/null || true
-        # Stack W3+W4: focus W4, join-with left → W4 lands with W3
-        aerospace focus --window-id "${wids[3]}" 2>/dev/null || true
+        aerospace focus --window-id "${w[3]}" 2>/dev/null || true
         aerospace join-with left 2>/dev/null || true
         aerospace layout v_tiles 2>/dev/null || true
     elif [[ $n -eq 5 ]]; then
         # Goal: (W1/W2) | (W3/W4/W5)
-        # Stack left column W1+W2
-        aerospace focus --window-id "${wids[1]}" 2>/dev/null || true
+        aerospace focus --window-id "${w[1]}" 2>/dev/null || true
         aerospace join-with left 2>/dev/null || true
         aerospace layout v_tiles 2>/dev/null || true
-        # Stack right column W3+W4
-        aerospace focus --window-id "${wids[3]}" 2>/dev/null || true
+        aerospace focus --window-id "${w[3]}" 2>/dev/null || true
         aerospace join-with left 2>/dev/null || true
         aerospace layout v_tiles 2>/dev/null || true
-        # Add W5 to the right column: join-with left puts it with the W3/W4 container
-        aerospace focus --window-id "${wids[4]}" 2>/dev/null || true
+        aerospace focus --window-id "${w[4]}" 2>/dev/null || true
         aerospace join-with left 2>/dev/null || true
         aerospace layout v_tiles 2>/dev/null || true
     fi
 
-    # Return focus to first window
-    aerospace focus --window-id "${wids[0]}" 2>/dev/null || true
+    # Return focus to leftmost window
+    aerospace focus --window-id "${w[0]}" 2>/dev/null || true
 }
 
 open_app_slot() {
