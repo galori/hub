@@ -8,7 +8,8 @@ CURRENT="${AEROSPACE_FOCUSED_WORKSPACE:-$(aerospace list-workspaces --focused 2>
 ACTIVE=$(aerospace list-workspaces --monitor all --empty no 2>/dev/null)
 ACTIVE_LIST=" ${ACTIVE//$'\n'/ } ${CURRENT} "
 
-MAXLEN_FILE="/tmp/hub_label_maxlen"
+HUB_CONFIG_DIR="$HOME/.config/hub"
+MAXLEN_FILE="$HUB_CONFIG_DIR/label_maxlen"
 LABEL_MAXLEN=-1
 if [ -f "$MAXLEN_FILE" ]; then
     LABEL_MAXLEN=$(cat "$MAXLEN_FILE" 2>/dev/null || echo -1)
@@ -17,13 +18,13 @@ if ! [[ "$LABEL_MAXLEN" =~ ^-?[0-9]+$ ]]; then
     LABEL_MAXLEN=-1
 fi
 
-REPO_PREFIX_FILE="/tmp/hub_repo_prefix"
+REPO_PREFIX_FILE="$HUB_CONFIG_DIR/repo_prefix"
 REPO_PREFIX="off"
 if [ -f "$REPO_PREFIX_FILE" ]; then
     REPO_PREFIX=$(cat "$REPO_PREFIX_FILE" 2>/dev/null || echo off)
 fi
 
-WS_LABELS_FILE="/tmp/hub_sketchybar_labels"
+WS_LABELS_FILE="$HUB_CONFIG_DIR/sketchybar_labels"
 LABELED_LIST=" "
 declare -A WS_NAME_MAP WS_COLOR_MAP WS_REPO_MAP
 if [ -f "$WS_LABELS_FILE" ]; then

@@ -668,7 +668,7 @@ cmd_new() {
 }
 
 rebuild_labels_file() {
-    local labels_file="/tmp/hub_sketchybar_labels"
+    local labels_file="$HOME/.config/hub/sketchybar_labels"
     if [[ -f "$WORKSPACES_FILE" ]]; then
         # Format: workspace_id:name:color:repo_basename
         jq -r '.[] | [.workspace_id, .name, (.color // ""), ((.root_repo // "") | if . == "" then "" else (. | gsub(".*/"; "")) end)] | join(":")' \
@@ -1502,7 +1502,7 @@ cmd_keys() {
 
 cmd_repo_prefix() {
     local action="${1:-toggle}"
-    local prefix_file="/tmp/hub_repo_prefix"
+    local prefix_file="$HOME/.config/hub/repo_prefix"
     local current="off"
     [[ -f "$prefix_file" ]] && current="$(cat "$prefix_file" 2>/dev/null || echo off)"
     [[ "$current" != "on" ]] && current="off"
@@ -1527,14 +1527,14 @@ cmd_repo_prefix() {
 
 cmd_label_length() {
     local direction="${1:-}"
-    local maxlen_file="/tmp/hub_label_maxlen"
+    local maxlen_file="$HOME/.config/hub/label_maxlen"
     # -1 = unlimited, 0 = code only, N>0 = max N chars of name
     local current=-1
     [[ -f "$maxlen_file" ]] && current=$(cat "$maxlen_file" 2>/dev/null || echo -1)
 
     # Find longest label to cap the max
     local longest=0
-    local labels_file="/tmp/hub_sketchybar_labels"
+    local labels_file="$HOME/.config/hub/sketchybar_labels"
     if [[ -f "$labels_file" ]]; then
         while IFS=: read -r _ name _; do
             (( ${#name} > longest )) && longest=${#name}
