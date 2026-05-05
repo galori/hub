@@ -851,12 +851,10 @@ cmd_list() {
 }
 
 cmd_tree() {
-    local tool
-    tool="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../agents/bin/aerospace-tree"
-    if [[ ! -x "$tool" ]]; then
-        fail "aerospace-tree not found at $tool"
+    if [[ ! -x "$SPATIAL_ORDER_BIN" ]]; then
+        fail "spatial_order binary not found at $SPATIAL_ORDER_BIN — run: hub install"
     fi
-    "$tool" "$@"
+    "$SPATIAL_ORDER_BIN" --tree "$@"
 }
 
 cmd_status() {

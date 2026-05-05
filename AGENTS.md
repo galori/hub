@@ -21,9 +21,8 @@
 - `lib/output_window.swift` - Generic text output window used by `hub tree` (compiled to `~/.config/hub/output_window`)
 - `lib/http_handler.swift` - HTTP/HTTPS URL handler daemon; receives Apple Events, shows HUD, opens URL in slot-2 browser (compiled to `~/.config/hub/http_handler`)
 - `lib/browser_ctl.swift` - Browser control helper for focus/tab management (compiled to `~/.config/hub/browser_ctl`)
-- `lib/spatial_order.swift` - CGWindowList geometry helper; takes window IDs as args, prints them sorted left-to-right by x-coordinate (compiled to `~/.config/hub/spatial_order`)
+- `lib/spatial_order.swift` - CGWindowList geometry helper; in default mode takes window IDs as args and prints them sorted left-to-right; in `--tree` mode reconstructs and prints the AeroSpace tiling tree (compiled to `~/.config/hub/spatial_order`)
 - `lib/hide_menu_bar.applescript` - Menu bar toggle via System Settings UI automation
-- `agents/bin/aerospace-tree` - Debug tool: prints the AeroSpace window tree for a workspace (Python, requires `python3`)
 - `~/.config/hub/apps.json` - App launcher configuration (up to 5 slots, created by install)
 
 ## Principles
