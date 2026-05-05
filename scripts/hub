@@ -1118,16 +1118,26 @@ arrange_after_open() {
     # Flatten to a single h-split so all windows are direct siblings.
     aerospace flatten-workspace-tree --workspace "$ws_id" 2>/dev/null || true
 
-    # AeroSpace places new windows next to the focused window, which may put the newest
-    # window between two existing ones (e.g. [W1, W3, W2] instead of [W1, W2, W3]).
-    # Fix: focus the newest window (highest ID) and move it right until it's at the end,
-    # so spatial order matches open order before arrange_workspace_windows runs.
-    local newest_wid
-    newest_wid="$(printf '%s\n' "${wids[@]}" | sort -n | tail -1)"
-    aerospace focus --window-id "$newest_wid" 2>/dev/null || true
-    for ((i=0; i<n-1; i++)); do aerospace move right 2>/dev/null || true; done
+    # Read spatial order post-flatten (list-windows gives DFS = left-to-right order).
+    local flat=()
+    while IFS= read -r wid; do
+        [[ -n "$wid" ]] && flat+=("$wid")
+    done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
 
-    # Re-read spatial order after the reposition
+    # Move the newest window (highest ID) to the rightmost position.
+    # Compute exact moves = (n-1) - current_index so we never wrap.
+    local newest_wid newest_idx=0
+    newest_wid="$(printf '%s\n' "${flat[@]}" | sort -n | tail -1)"
+    for ((i=0; i<${#flat[@]}; i++)); do
+        [[ "${flat[$i]}" == "$newest_wid" ]] && newest_idx=$i && break
+    done
+    local moves=$(( ${#flat[@]} - 1 - newest_idx ))
+    if (( moves > 0 )); then
+        aerospace focus --window-id "$newest_wid" 2>/dev/null || true
+        for ((i=0; i<moves; i++)); do aerospace move right 2>/dev/null || true; done
+    fi
+
+    # Re-read spatial order after reposition
     local ordered=()
     while IFS= read -r wid; do
         [[ -n "$wid" ]] && ordered+=("$wid")
