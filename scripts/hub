@@ -23,6 +23,8 @@ HTTP_HANDLER_SRC="$LIB_DIR/http_handler.swift"
 HTTP_HANDLER_APP="$HOME/Applications/HubHTTPHandler.app"
 BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
 BROWSER_CTL_BIN="$HOME/.config/hub/browser_ctl"
+SPATIAL_ORDER_SRC="$LIB_DIR/spatial_order.swift"
+SPATIAL_ORDER_BIN="$HOME/.config/hub/spatial_order"
 PREV_BROWSER_FILE="$HOME/.config/hub/prev_browser"
 HUB_BROWSER_ID="sh.hub.http-handler"
 WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
@@ -215,6 +217,7 @@ compile_all() {
     compile_swift "dashboard_dialog" "$DASHBOARD_SRC" "$DASHBOARD_BIN"
     compile_swift "browser_ctl" "$BROWSER_CTL_SRC" "$BROWSER_CTL_BIN"
     compile_swift "output_window" "$OUTPUT_WINDOW_SRC" "$OUTPUT_WINDOW_BIN"
+    compile_swift "spatial_order" "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
     build_http_handler
 }
 
@@ -1139,45 +1142,34 @@ arrange_after_open() {
         [[ "${ord_arr[$i]}" == "$newest_wid" ]] && newest_idx=$i && break
     done
     local moves=$(( ${#ord_arr[@]} - 1 - newest_idx ))
+
+    # Construct final order without re-querying geometry: existing L-to-R order
+    # minus the newest, plus newest at the end.
+    local final_arr=()
+    for w in "${ord_arr[@]}"; do
+        [[ "$w" != "$newest_wid" ]] && final_arr+=("$w")
+    done
+    final_arr+=("$newest_wid")
+
     if (( moves > 0 )); then
         aerospace focus --window-id "$newest_wid" 2>/dev/null || true
         for ((i=0; i<moves; i++)); do aerospace move right 2>/dev/null || true; done
     fi
 
-    # Re-read spatial order after reposition
-    ordered="$(spatial_order_ltr "$ws_id")"
-    local final_arr=()
-    while IFS= read -r wid; do
-        [[ -n "$wid" ]] && final_arr+=("$wid")
-    done <<< "$ordered"
-
     arrange_workspace_windows "$ws_id" "${final_arr[@]}"
 }
 
-# Return window-ids in left-to-right spatial order, one per line, using
-# window geometry (which is authoritative — list-windows returns non-spatial order).
+# Return window-ids in left-to-right spatial order, one per line.
+# aerospace list-windows returns windows in a non-spatial (creation-ish) order
+# after flatten, so we sort by x-coordinate from CGWindowList instead.
 spatial_order_ltr() {
     local ws_id="$1"
-    local tree_bin="$SCRIPT_DIR/../agents/bin/aerospace-tree"
-    [[ ! -x "$tree_bin" ]] && tree_bin="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../agents/bin/aerospace-tree"
-    "$tree_bin" --workspace "$ws_id" --json 2>/dev/null | python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-# Flatten all windows with geometry, sort by x coordinate
-wins = []
-def walk(node):
-    if node.get("type") == "window":
-        r = node.get("rect") or {}
-        wins.append((r.get("x", 0), node["window-id"]))
-    else:
-        for c in node.get("children", []):
-            walk(c)
-for ws, tree in data.items():
-    walk(tree)
-wins.sort(key=lambda p: p[0])
-for _, wid in wins:
-    print(wid)
-' 2>/dev/null || true
+    local wids=()
+    while IFS= read -r wid; do
+        [[ -n "$wid" ]] && wids+=("$wid")
+    done < <(aerospace list-windows --workspace "$ws_id" --format '%{window-id}' 2>/dev/null || true)
+    [[ ${#wids[@]} -eq 0 ]] && return 0
+    "$SPATIAL_ORDER_BIN" "${wids[@]}" 2>/dev/null || true
 }
 
 arrange_workspace_windows() {
