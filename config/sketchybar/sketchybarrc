@@ -2,10 +2,9 @@ PLUGIN_DIR="$CONFIG_DIR/plugins"
 
 ##### Bar Height (notch avoidance) #####
 BAR_HEIGHT=40
-BAR_ITEM_Y_OFFSET=0
+BAR_Y_OFFSET=0
 if [ -f "$HOME/.config/hub/bar_tall" ]; then
-    BAR_HEIGHT=80
-    BAR_ITEM_Y_OFFSET=20
+    BAR_Y_OFFSET=40
 fi
 
 ##### Color Palette #####
@@ -25,6 +24,7 @@ TRANSPARENT=0x00000000
 ##### Bar Appearance #####
 sketchybar --bar position=top \
                  height=$BAR_HEIGHT \
+                 y_offset=$BAR_Y_OFFSET \
                  blur_radius=30 \
                  color=$BAR_COLOR \
                  shadow=on \
@@ -45,7 +45,6 @@ default=(
   label.padding_right=4
   background.height=28
   background.corner_radius=9
-  y_offset=$BAR_ITEM_Y_OFFSET
 )
 sketchybar --default "${default[@]}"
 
@@ -345,7 +344,6 @@ default=(
   background.border_width=2
   background.corner_radius=9
   background.height=28
-  y_offset=$BAR_ITEM_Y_OFFSET
 )
 sketchybar --default "${default[@]}"
 
