@@ -9,15 +9,21 @@
 
 ## Project Structure
 
-- `scripts/hub` - Main shell script (install, up, down, new, list, remove, rename, open commands)
+- `scripts/hub` - Main shell script (install, up, down, new, list, remove, rename, open, tree commands)
 - `config/aerospace.toml` - AeroSpace config template (`__HUB_SCRIPT__` placeholder replaced during install)
 - `config/sketchybar/` - SketchyBar config and plugin scripts
 - `config/sketchybar/plugins/app_launcher.sh` - Updates app icon visual state on workspace change
-- `lib/overlay.swift` - Status overlay HUD (compiled to ~/.config/hub/overlay)
-- `lib/new_workspace_dialog.swift` - Workspace creation dialog (compiled to ~/.config/hub/new_workspace_dialog)
-- `lib/confirm_dialog.swift` - Confirmation dialog (compiled to ~/.config/hub/confirm_dialog)
-- `lib/rename_dialog.swift` - Rename dialog (compiled to ~/.config/hub/rename_dialog)
+- `lib/overlay.swift` - Status overlay HUD (compiled to `~/.config/hub/overlay`)
+- `lib/new_workspace_dialog.swift` - Workspace creation dialog (compiled to `~/.config/hub/new_workspace_dialog`)
+- `lib/confirm_dialog.swift` - Confirmation dialog (compiled to `~/.config/hub/confirm_dialog`)
+- `lib/rename_dialog.swift` - Rename dialog (compiled to `~/.config/hub/rename_dialog`)
+- `lib/dashboard_dialog.swift` - Dashboard/status overlay dialog (compiled to `~/.config/hub/dashboard_dialog`)
+- `lib/output_window.swift` - Generic text output window used by `hub tree` (compiled to `~/.config/hub/output_window`)
+- `lib/http_handler.swift` - HTTP/HTTPS URL handler daemon; receives Apple Events, shows HUD, opens URL in slot-2 browser (compiled to `~/.config/hub/http_handler`)
+- `lib/browser_ctl.swift` - Browser control helper for focus/tab management (compiled to `~/.config/hub/browser_ctl`)
+- `lib/spatial_order.swift` - CGWindowList geometry helper; takes window IDs as args, prints them sorted left-to-right by x-coordinate (compiled to `~/.config/hub/spatial_order`)
 - `lib/hide_menu_bar.applescript` - Menu bar toggle via System Settings UI automation
+- `agents/bin/aerospace-tree` - Debug tool: prints the AeroSpace window tree for a workspace (Python, requires `python3`)
 - `~/.config/hub/apps.json` - App launcher configuration (up to 5 slots, created by install)
 
 ## Principles
