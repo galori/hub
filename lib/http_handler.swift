@@ -93,12 +93,7 @@ func openURL(_ url: URL, withLaunchCommand launch: String) {
     let cmd = "\(launch) '\(escaped)'"
     try? "cmd: \(cmd)\nurl: \(url.absoluteString)\n".appendLine(to: "/tmp/hub_handler.log")
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
-
-    // Arrange workspace tiling after the browser window opens
-    if let hub = hubScriptPath(), let wsID = focusedWorkspaceID() {
-        let arrangeCmd = "sleep 1.5 && '\(hub)' arrange-open-window '\(wsID)'"
-        Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", arrangeCmd])
-    }
+    // Arrange is handled by the on-window-detected callback in aerospace.toml
 }
 
 extension String {
