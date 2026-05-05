@@ -1125,7 +1125,7 @@ arrange_after_open() {
     local newest_wid
     newest_wid="$(printf '%s\n' "${wids[@]}" | sort -n | tail -1)"
     aerospace focus --window-id "$newest_wid" 2>/dev/null || true
-    for ((i=0; i<n; i++)); do aerospace move right 2>/dev/null || true; done
+    for ((i=0; i<n-1; i++)); do aerospace move right 2>/dev/null || true; done
 
     # Re-read spatial order after the reposition
     local ordered=()
