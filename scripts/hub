@@ -332,7 +332,7 @@ extract_app_icons() {
         local icns
         icns=$(find "${app_path}Contents/Resources" -maxdepth 1 -name "*.icns" 2>/dev/null | head -1)
         [ -z "$icns" ] && continue
-        sips -s format png "$icns" --out "$out" --resampleHeightWidthMax 128 &>/dev/null && count=$((count+1))
+        sips -s format png "$icns" --out "$out" --resampleHeightWidthMax 36 &>/dev/null && count=$((count+1))
     done < <(jq -r '.[].icon // .[].name' "$APPS_FILE" 2>/dev/null)
     [ "$count" -gt 0 ] && success "Extracted $count app icon(s) to $ICONS_DIR"
 }
