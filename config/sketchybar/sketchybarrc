@@ -159,10 +159,19 @@ APPS_FILE="$HOME/.config/hub/apps.json"
 if [ -f "$APPS_FILE" ]; then
     APP_COUNT=$(jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)
 
+    ICONS_DIR="$HOME/.config/hub/icons"
+
     # Only add app slots that have configured apps.
     for ((i=APP_COUNT; i>=1; i--)); do
         IDX=$((i-1))
         APP_ICON=$(jq -r --argjson i "$IDX" '.[$i] | .icon // .name' "$APPS_FILE" 2>/dev/null || echo "")
+        # Use pre-extracted PNG if available; otherwise fall back to live app icon
+        ICON_PNG="$ICONS_DIR/${APP_ICON}.png"
+        if [ -f "$ICON_PNG" ]; then
+            BG_IMAGE="$ICON_PNG"
+        else
+            BG_IMAGE="app.$APP_ICON"
+        fi
         sketchybar --add item "app_slot.$i" right \
                    --set "app_slot.$i" \
                    drawing=on \
@@ -182,7 +191,7 @@ if [ -f "$APPS_FILE" ]; then
                    label.padding_right=0 \
                    background.drawing=on \
                    background.color=0x00000000 \
-                   background.image="app.$APP_ICON" \
+                   background.image="$BG_IMAGE" \
                    background.image.scale=0.78 \
                    background.image.padding_left=0 \
                    background.image.padding_right=0 \

@@ -30,6 +30,7 @@ HUB_BROWSER_ID="sh.hub.http-handler"
 WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
 RECENT_REPOS_FILE="$HOME/.config/hub/recent_repos.json"
 APPS_FILE="$HOME/.config/hub/apps.json"
+ICONS_DIR="$HOME/.config/hub/icons"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
 # Colors
@@ -316,6 +317,26 @@ PLIST
 
 # --- Commands ---
 
+extract_app_icons() {
+    mkdir -p "$ICONS_DIR"
+    local count=0
+    while IFS= read -r icon_name; do
+        [ -z "$icon_name" ] && continue
+        local out="$ICONS_DIR/${icon_name}.png"
+        # Use osascript to resolve the app path by display name (same lookup SketchyBar uses)
+        local app_path
+        app_path=$(osascript -e "POSIX path of (path to application \"$icon_name\")" 2>/dev/null || true)
+        [ -z "$app_path" ] && continue
+        app_path="${app_path%$'\n'}"
+        # Find the icns file inside the bundle
+        local icns
+        icns=$(find "${app_path}Contents/Resources" -maxdepth 1 -name "*.icns" 2>/dev/null | head -1)
+        [ -z "$icns" ] && continue
+        sips -s format png "$icns" --out "$out" --resampleHeightWidthMax 128 &>/dev/null && count=$((count+1))
+    done < <(jq -r '.[].icon // .[].name' "$APPS_FILE" 2>/dev/null)
+    [ "$count" -gt 0 ] && success "Extracted $count app icon(s) to $ICONS_DIR"
+}
+
 cmd_install() {
     echo -e "${bold}Installing hub...${reset}\n"
 
@@ -428,6 +449,9 @@ APPS_EOF
         info "apps.json already exists — edit it to customize your app slots:"
         info "  $APPS_FILE"
     fi
+
+    # --- Extract app icons for sketchybar (works even when apps are not running) ---
+    extract_app_icons
 
     # --- Global gitignore for worktrees/ ---
     echo

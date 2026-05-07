@@ -36,5 +36,5 @@
 
 ## Agent Tools
 
-- `agents/bin/screenshot-bar` - Captures a screenshot of just the sketchybar region (top of screen). Use to visually verify sketchybar layout changes. Outputs a PNG path: `agents/bin/screenshot-bar [output.png]`
+- `agents/bin/screenshot-bar` - Captures a screenshot of just the sketchybar region (top of screen). **MUST be used to visually confirm the bar looks correct after any sketchybar-related change** — layout, icons, spacing, colors. Run it, read the PNG, and verify before committing. Outputs a PNG path: `agents/bin/screenshot-bar [output.png]`
 

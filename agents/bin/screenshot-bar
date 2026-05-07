@@ -7,6 +7,7 @@ set -euo pipefail
 
 OUT="${1:-/tmp/hub-bar-screenshot.png}"
 BAR_HEIGHT=50
+[ -f "$HOME/.config/hub/bar_tall" ] && BAR_HEIGHT=90
 
 # Get primary display width via system_profiler (main display is listed first).
 PRIMARY_WIDTH=""

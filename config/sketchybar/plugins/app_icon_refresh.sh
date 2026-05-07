@@ -8,11 +8,19 @@ APPS_FILE="$HOME/.config/hub/apps.json"
 APP_COUNT=$(jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)
 [ "$APP_COUNT" -eq 0 ] && exit 0
 
+ICONS_DIR="$HOME/.config/hub/icons"
+
 ARGS=()
 for ((i=1; i<=APP_COUNT; i++)); do
     IDX=$((i-1))
     APP_ICON=$(jq -r --argjson i "$IDX" '.[$i] | .icon // .name' "$APPS_FILE" 2>/dev/null)
-    [ -n "$APP_ICON" ] && ARGS+=(--set "app_slot.$i" "background.image=app.$APP_ICON")
+    [ -z "$APP_ICON" ] && continue
+    ICON_PNG="$ICONS_DIR/${APP_ICON}.png"
+    if [ -f "$ICON_PNG" ]; then
+        ARGS+=(--set "app_slot.$i" "background.image=$ICON_PNG")
+    else
+        ARGS+=(--set "app_slot.$i" "background.image=app.$APP_ICON")
+    fi
 done
 
 # After the one-shot startup run, disable periodic polling.
