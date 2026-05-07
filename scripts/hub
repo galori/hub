@@ -328,9 +328,14 @@ extract_app_icons() {
         app_path=$(osascript -e "POSIX path of (path to application \"$icon_name\")" 2>/dev/null || true)
         [ -z "$app_path" ] && continue
         app_path="${app_path%$'\n'}"
-        # Find the icns file inside the bundle
-        local icns
-        icns=$(find "${app_path}Contents/Resources" -maxdepth 1 -name "*.icns" 2>/dev/null | head -1)
+        # Use the icon declared in Info.plist; fall back to first icns found
+        local icns_name icns
+        icns_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "${app_path}Contents/Info.plist" 2>/dev/null || true)
+        [[ "$icns_name" != *.icns ]] && icns_name="${icns_name}.icns"
+        icns="${app_path}Contents/Resources/${icns_name}"
+        if [ ! -f "$icns" ]; then
+            icns=$(find "${app_path}Contents/Resources" -maxdepth 1 -name "*.icns" 2>/dev/null | head -1)
+        fi
         [ -z "$icns" ] && continue
         sips -s format png "$icns" --out "$out" --resampleHeightWidthMax 36 &>/dev/null && count=$((count+1))
     done < <(jq -r '.[].icon // .[].name' "$APPS_FILE" 2>/dev/null)
