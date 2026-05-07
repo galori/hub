@@ -409,6 +409,9 @@ cmd_install() {
         fi
     fi
     sed "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
+    if [[ -f "$HOME/.config/hub/bar_tall" ]]; then
+        sed -i '' 's/outer\.top =.*/outer.top =        95/' "$AEROSPACE_CONFIG"
+    fi
     success "aerospace.toml deployed to $AEROSPACE_CONFIG"
 
     # Write hub script path for runtime use by HubHTTPHandler and other compiled binaries
@@ -1625,7 +1628,7 @@ cmd_bar_height() {
     case "$action" in
         tall)
             touch "$state_file"
-            sed -i '' 's/outer\.top =.*/outer.top =        90/' "$AEROSPACE_CONFIG"
+            sed -i '' 's/outer\.top =.*/outer.top =        95/' "$AEROSPACE_CONFIG"
             aerospace reload-config
             (sleep 2 && sketchybar --reload) &
             ;;
