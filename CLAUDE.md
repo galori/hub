@@ -9,15 +9,21 @@ IMPORTANT: You MUST follow these steps after completing any set of changes.
 
 ## REQUIRED: When testing/interacting with the live UI
 
-The user is typically working in a separate workspace while you run tests. If
-you trigger a popup, dialog, or take a screenshot of a transient UI element,
-the user may Cmd-Tab, click, or switch workspaces mid-test and invalidate your
-result. To signal "don't touch", raise the testing banner before doing any of:
+Only raise the testing banner when your actions will visibly affect the user's
+screen or could disrupt their work. The banner itself is disruptive — use it
+only when necessary.
 
-- Opening a transient UI (popup, dialog, HUD)
-- Taking timing-sensitive screenshots with `agents/bin/screenshot-bar` or `screencapture`
+**Raise the banner for:**
+- Restarting AeroSpace, SketchyBar, or hub (causes visible bar flicker/reload)
+- Opening a transient UI (dialog, HUD, popup) that appears on screen
 - Triggering keyboard-shortcut-driven flows where focus matters
-- Multi-step verifications where intermediate state must persist
+- Multi-step verifications where intermediate visible state must persist
+
+**Do NOT raise the banner for:**
+- Taking screenshots with `agents/bin/screenshot-bar` (passive, non-disruptive)
+- Editing files, running `hub install` when it won't restart visible services
+- Running shell commands, compiling, reading logs
+- Anything the user won't see or feel
 
 **Lifecycle:**
 
@@ -34,7 +40,7 @@ hub testing-banner run -- your-command --with args
 ```
 
 Rules:
-- Raise the banner BEFORE the first test action, not after.
+- Raise the banner BEFORE the first disruptive action, not after.
 - ALWAYS call `stop` when done, including on error paths. The banner is
   obtrusive by design — leaving it up is worse than never raising it.
 - Keep the message short (under ~40 chars). It's a signal, not a log.

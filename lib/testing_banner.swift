@@ -15,8 +15,8 @@ let msg = CommandLine.arguments.count > 1
     ? CommandLine.arguments[1]
     : "Claude Code is testing hub"
 
-let bannerW: CGFloat = 320
-let bannerH: CGFloat = 48
+let bannerW: CGFloat = 360
+let bannerH: CGFloat = 96
 let margin: CGFloat = 16
 // Top-right corner, sitting just below the bar area.
 let barClearance: CGFloat = 100
@@ -43,25 +43,31 @@ cv.layer?.borderColor = NSColor(red: 0.99, green: 0.58, blue: 0.38, alpha: 0.75)
 let spinner = NSProgressIndicator()
 spinner.translatesAutoresizingMaskIntoConstraints = false
 spinner.style = .spinning
-spinner.controlSize = .small
+spinner.controlSize = .regular
 spinner.appearance = NSAppearance(named: .darkAqua)
 spinner.startAnimation(nil)
 cv.addSubview(spinner)
 
-let label = NSTextField(labelWithString: msg)
+let label = NSTextField(wrappingLabelWithString: msg)
 label.translatesAutoresizingMaskIntoConstraints = false
-label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+label.isEditable = false
+label.isBordered = false
+label.backgroundColor = .clear
+label.font = NSFont.systemFont(ofSize: 13, weight: .medium)
 label.textColor = NSColor(white: 1, alpha: 0.9)
-label.lineBreakMode = .byTruncatingTail
+label.lineBreakMode = .byWordWrapping
+label.maximumNumberOfLines = 3
 cv.addSubview(label)
 
 NSLayoutConstraint.activate([
-    spinner.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 14),
+    spinner.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 24),
     spinner.centerYAnchor.constraint(equalTo: cv.centerYAnchor),
-    spinner.widthAnchor.constraint(equalToConstant: 16),
-    spinner.heightAnchor.constraint(equalToConstant: 16),
-    label.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 10),
-    label.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -14),
+    spinner.widthAnchor.constraint(equalToConstant: 22),
+    spinner.heightAnchor.constraint(equalToConstant: 22),
+    label.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 18),
+    label.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -24),
+    label.topAnchor.constraint(greaterThanOrEqualTo: cv.topAnchor, constant: 18),
+    label.bottomAnchor.constraint(lessThanOrEqualTo: cv.bottomAnchor, constant: -18),
     label.centerYAnchor.constraint(equalTo: cv.centerYAnchor),
 ])
 

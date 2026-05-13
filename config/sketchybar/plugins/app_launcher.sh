@@ -73,12 +73,42 @@ while IFS= read -r app; do
     $already || EXTRA_APPS+=("$app")
 done <<< "$WS_APPS"
 
+ICONS_DIR="$HOME/.config/hub/icons"
+mkdir -p "$ICONS_DIR"
+
+# Extract a 36px PNG icon for an app on demand. Returns 0 if the cached file
+# exists (or was just produced), nonzero otherwise.
+ensure_icon_png() {
+    local name="$1"
+    local out="$ICONS_DIR/${name}.png"
+    [ -f "$out" ] && return 0
+    local app_path
+    app_path=$(osascript -e "POSIX path of (path to application \"$name\")" 2>/dev/null || true)
+    app_path="${app_path%$'\n'}"
+    [ -z "$app_path" ] && return 1
+    local icns_name icns
+    icns_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "${app_path}Contents/Info.plist" 2>/dev/null || true)
+    [[ "$icns_name" != *.icns ]] && icns_name="${icns_name}.icns"
+    icns="${app_path}Contents/Resources/${icns_name}"
+    if [ ! -f "$icns" ]; then
+        icns=$(find "${app_path}Contents/Resources" -maxdepth 1 -name "*.icns" 2>/dev/null | head -1)
+    fi
+    [ -z "$icns" ] && return 1
+    sips -s format png "$icns" --out "$out" --resampleHeightWidthMax 36 &>/dev/null || return 1
+    return 0
+}
+
 WS_WIN_COUNT=8
 for ((i=1; i<=WS_WIN_COUNT; i++)); do
     idx=$((i-1))
     if [ "$idx" -lt "${#EXTRA_APPS[@]}" ]; then
         app="${EXTRA_APPS[$idx]}"
-        ARGS+=(--set "ws_win.$i" drawing=on "background.image=app.$app" background.image.scale=0.78 "label=$app")
+        # Prefer pre-extracted PNG (correct size); fall back to live app icon lookup
+        if ensure_icon_png "$app"; then
+            ARGS+=(--set "ws_win.$i" drawing=on "background.image=$ICONS_DIR/${app}.png" background.image.scale=1.0 "label=$app")
+        else
+            ARGS+=(--set "ws_win.$i" drawing=on "background.image=app.$app" background.image.scale=0.78 "label=$app")
+        fi
     else
         ARGS+=(--set "ws_win.$i" drawing=off)
     fi

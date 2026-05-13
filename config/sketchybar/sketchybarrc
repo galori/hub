@@ -74,6 +74,9 @@ sketchybar --add item pad_r1 right \
            --set pad_r1 width=8 icon.drawing=off label.drawing=off background.drawing=off
 
 # Volume (with popup slider)
+# Popup items ignore the global y_offset (they float above the bar), so counteract
+# BAR_ITEM_Y_OFFSET by setting the slider row's own y_offset to its inverse.
+VOLUME_POPUP_Y_OFFSET=$(( -BAR_ITEM_Y_OFFSET ))
 sketchybar --add item volume right \
            --set volume icon.color=$BLUE \
                         icon.font="Hack Nerd Font:Bold:16.0" \
@@ -82,6 +85,9 @@ sketchybar --add item volume right \
                         script="$PLUGIN_DIR/volume.sh" \
                         click_script="sketchybar --set volume popup.drawing=toggle" \
                         popup.align=center \
+                        popup.horizontal=on \
+                        popup.y_offset=$VOLUME_POPUP_Y_OFFSET \
+                        popup.height=40 \
                         popup.background.color=$ITEM_BG \
                         popup.background.corner_radius=9 \
                         popup.background.border_width=2 \
@@ -89,17 +95,43 @@ sketchybar --add item volume right \
                         popup.blur_radius=20 \
            --subscribe volume volume_change
 
-sketchybar --add slider volume_slider popup.volume 120 \
+# Mute icon on the left of the slider — click to mute/unmute
+sketchybar --add item volume_mute_icon popup.volume \
+           --set volume_mute_icon icon=󰖁 \
+                                  icon.color=$WHITE \
+                                  icon.font="Hack Nerd Font:Bold:13.0" \
+                                  icon.padding_left=10 \
+                                  icon.padding_right=0 \
+                                  label.drawing=off \
+                                  background.drawing=off \
+                                  y_offset=0 \
+                                  click_script="$PLUGIN_DIR/volume_mute.sh"
+
+sketchybar --add slider volume_slider popup.volume 160 \
            --set volume_slider slider.highlight_color=$BLUE \
                                slider.background.height=6 \
                                slider.background.corner_radius=3 \
                                slider.background.color=$GREY \
                                "slider.knob=●" \
                                slider.knob.color=$WHITE \
-                               background.padding_left=10 \
-                               background.padding_right=10 \
-                               click_script='osascript -e "set volume output volume $PERCENTAGE"' \
+                               background.padding_left=4 \
+                               background.padding_right=4 \
+                               background.height=28 \
+                               y_offset=0 \
+                               click_script="$PLUGIN_DIR/volume_set.sh" \
            --subscribe volume_slider mouse.clicked
+
+# Max-volume icon on the right of the slider — click to set to 100%
+sketchybar --add item volume_max_icon popup.volume \
+           --set volume_max_icon icon=󰕾 \
+                                 icon.color=$WHITE \
+                                 icon.font="Hack Nerd Font:Bold:13.0" \
+                                 icon.padding_left=0 \
+                                 icon.padding_right=10 \
+                                 label.drawing=off \
+                                 background.drawing=off \
+                                 y_offset=0 \
+                                 click_script="$PLUGIN_DIR/volume_max.sh"
 
 sketchybar --add bracket volume_bracket volume \
            --set volume_bracket background.color=$ITEM_BG \
