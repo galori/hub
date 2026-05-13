@@ -234,7 +234,7 @@ if [ -f "$APPS_FILE" ]; then
                    padding_left=0 \
                    padding_right=0 \
                    script="$PLUGIN_DIR/app_slot.sh" \
-                   --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked
+                   --subscribe "app_slot.$i" mouse.entered mouse.exited mouse.clicked space_change front_app_switched
         sketchybar --add item "app_tip.$i" right \
                    --set "app_tip.$i" \
                    drawing=on \

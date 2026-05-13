@@ -28,6 +28,9 @@ SPATIAL_ORDER_BIN="$HOME/.config/hub/spatial_order"
 TESTING_BANNER_SRC="$LIB_DIR/testing_banner.swift"
 TESTING_BANNER_BIN="$HOME/.config/hub/testing_banner"
 TESTING_BANNER_PIDFILE="$HOME/.config/hub/testing_banner.pid"
+PROGRESS_BANNER_SRC="$LIB_DIR/progress_banner.swift"
+PROGRESS_BANNER_BIN="$HOME/.config/hub/progress_banner"
+PROGRESS_BANNER_PIDFILE="$HOME/.config/hub/progress_banner.pid"
 PREV_BROWSER_FILE="$HOME/.config/hub/prev_browser"
 HUB_BROWSER_ID="sh.hub.http-handler"
 WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
@@ -209,6 +212,47 @@ cmd_testing_banner() {
     esac
 }
 
+# --- Progress banner: user-facing HUD shown during hub workspace setup ---
+# progress_banner_start [msg]  — launch the banner
+# progress_banner_update msg   — update the message while running
+# progress_banner_stop         — dismiss the banner
+
+progress_banner_start() {
+    local msg="${1:-Setting up workspace…}"
+    [[ ! -x "$PROGRESS_BANNER_BIN" ]] && return 0
+    progress_banner_stop 2>/dev/null || true
+    local fifo
+    fifo="$(mktemp -u "${TMPDIR:-/tmp}/hub-progress-banner.XXXXXX")"
+    mkfifo "$fifo"
+    (sleep 86400 > "$fifo") &
+    local holder_pid=$!
+    "$PROGRESS_BANNER_BIN" "$msg" < "$fifo" >/dev/null 2>&1 &
+    local banner_pid=$!
+    disown "$banner_pid" "$holder_pid" 2>/dev/null || true
+    mkdir -p "$(dirname "$PROGRESS_BANNER_PIDFILE")"
+    printf "%s\n%s\n%s\n" "$banner_pid" "$holder_pid" "$fifo" > "$PROGRESS_BANNER_PIDFILE"
+}
+
+progress_banner_update() {
+    local msg="$1"
+    [[ ! -f "$PROGRESS_BANNER_PIDFILE" ]] && return 0
+    local _pid _hpid fifo
+    { read -r _pid; read -r _hpid; read -r fifo; } < "$PROGRESS_BANNER_PIDFILE"
+    [[ -n "$fifo" && -p "$fifo" ]] && printf "%s\n" "$msg" > "$fifo" || true
+}
+
+progress_banner_stop() {
+    [[ -f "$PROGRESS_BANNER_PIDFILE" ]] || return 0
+    local banner_pid holder_pid fifo
+    { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$PROGRESS_BANNER_PIDFILE"
+    [[ -n "$fifo" && -p "$fifo" ]] && printf "QUIT\n" > "$fifo" 2>/dev/null || true
+    sleep 0.2
+    [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
+    [[ -n "$banner_pid" ]] && kill "$banner_pid" 2>/dev/null || true
+    [[ -n "$fifo" ]] && rm -f "$fifo"
+    rm -f "$PROGRESS_BANNER_PIDFILE"
+}
+
 # --- Menu bar toggle (AppleScript, non-blocking) ---
 
 MENU_BAR_PID=""
@@ -289,6 +333,7 @@ compile_all() {
     compile_swift "output_window" "$OUTPUT_WINDOW_SRC" "$OUTPUT_WINDOW_BIN"
     compile_swift "spatial_order" "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
     compile_swift "testing_banner" "$TESTING_BANNER_SRC" "$TESTING_BANNER_BIN"
+    compile_swift "progress_banner" "$PROGRESS_BANNER_SRC" "$PROGRESS_BANNER_BIN"
     build_http_handler
 }
 
@@ -680,6 +725,8 @@ cmd_new() {
     success "Creating workspace: $ws_name (workspace $ws_id)"
     [[ "$no_repo" == "false" ]] && info "Path: $ws_path"
 
+    progress_banner_start "Creating workspace $ws_name…"
+
     # Save to workspaces.json
     mkdir -p "$(dirname "$WORKSPACES_FILE")"
     local existing="[]"
@@ -725,8 +772,11 @@ cmd_new() {
         IFS=',' read -ra _slots <<< "$ws_apps"
         for _slot in "${_slots[@]}"; do
             OPEN_APP_SLOT_WID=""
+            OPEN_APP_SLOT_CORRALLED=false
             open_app_slot "$_slot" "$ws_id" "$ws_path" false true
-            [[ -n "$OPEN_APP_SLOT_WID" ]] && _opened_wids+=("$OPEN_APP_SLOT_WID") || true
+            if [[ -n "$OPEN_APP_SLOT_WID" ]]; then
+                _opened_wids+=("$OPEN_APP_SLOT_WID")
+            fi
         done
     fi
 
@@ -735,6 +785,7 @@ cmd_new() {
     # (e.g. BUNDLE_WITHOUT) are available when hub is launched from AeroSpace
     # with a minimal environment, without the interactive-shell noise from zsh -i.
     if [[ -n "$ws_setup_cmd" && -n "$ws_root" ]]; then
+        progress_banner_update "Setting up worktree…"
         local full_setup_cmd="$ws_root/$ws_setup_cmd"
         local _wrap="source \"\$HOME/.zshrc\" 2>/dev/null; cd $(printf '%q' "$ws_path") && $full_setup_cmd"
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
@@ -757,9 +808,12 @@ cmd_new() {
 
     # Arrange windows in the new workspace based on count
     if [[ ${#_opened_wids[@]} -ge 1 ]]; then
+        progress_banner_update "Organizing windows…"
         (sleep 0.3; arrange_workspace "$ws_id") &
         disown
     fi
+
+    progress_banner_stop
 
     echo
     echo -e "${green}${bold}Workspace '$ws_name' created on workspace $ws_id!${reset}"
@@ -1357,6 +1411,7 @@ open_app_slot() {
     fi
 
     [[ "$verbose" == "true" ]] && info "Opening $app_name..." || true
+    progress_banner_update "Opening $app_name…"
 
     # Snapshot existing window IDs for this app
     local before_ids
@@ -1390,7 +1445,9 @@ open_app_slot() {
         local win_ws
         win_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${new_wid}|" | cut -d'|' -f2 || echo "")"
         if [[ "$win_ws" != "$ws_id" ]]; then
+            progress_banner_update "Corralling $app_name…"
             aerospace move-node-to-workspace --window-id "$new_wid" "$ws_id" 2>/dev/null || true
+            OPEN_APP_SLOT_CORRALLED=true
         fi
         aerospace focus --window-id "$new_wid" 2>/dev/null || true
         [[ "$verbose" == "true" ]] && success "$app_name opened" || true

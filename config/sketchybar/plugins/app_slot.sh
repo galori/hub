@@ -8,6 +8,11 @@ HOVER_BG=0x33ffffff
 CLICK_BG=0xff76cce0
 
 case "$SENDER" in
+    space_change|front_app_switched)
+        "$SKETCHYBAR" --set "$NAME" \
+            background.color=0x00000000 \
+            background.border_width=0
+        ;;
     mouse.entered)
         "$SKETCHYBAR" --animate sin 10 --set "$NAME" \
             background.color=$HOVER_BG \

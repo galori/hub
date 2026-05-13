@@ -23,6 +23,7 @@
 - `lib/browser_ctl.swift` - Browser control helper for focus/tab management (compiled to `~/.config/hub/browser_ctl`)
 - `lib/spatial_order.swift` - CGWindowList geometry helper; in default mode takes window IDs as args and prints them sorted left-to-right; in `--tree` mode reconstructs and prints the AeroSpace tiling tree (compiled to `~/.config/hub/spatial_order`)
 - `lib/testing_banner.swift` - Small floating "stand by" HUD shown top-right while an automated session is testing hub (compiled to `~/.config/hub/testing_banner`)
+- `lib/progress_banner.swift` - User-facing floating progress HUD shown top-right during workspace setup; blue border, ✕ dismiss button, accepts stdin message updates (compiled to `~/.config/hub/progress_banner`)
 - `lib/hide_menu_bar.applescript` - Menu bar toggle via System Settings UI automation
 - `~/.config/hub/apps.json` - App launcher configuration (up to 5 slots, created by install)
 
