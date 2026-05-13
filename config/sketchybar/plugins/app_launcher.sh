@@ -37,9 +37,28 @@ for name in "${APP_NAMES[@]}"; do
     LAUNCHER_SET+=("$name")
 done
 
+# System processes that produce icon-less modal windows (auth dialogs, agents, etc.)
+SYSTEM_PROCS=(
+    "SecurityAgent" "UserNotificationCenter" "ScreenSaverEngine"
+    "System Preferences" "System Settings" "Finder"
+    "universalaccessd" "loginwindow"
+)
+
+is_system_proc() {
+    local name="$1"
+    # Bundle-ID style names (contain dots) are background agents, not real apps
+    [[ "$name" == *.* ]] && return 0
+    for p in "${SYSTEM_PROCS[@]}"; do
+        [ "$p" = "$name" ] && return 0
+    done
+    return 1
+}
+
 EXTRA_APPS=()
 while IFS= read -r app; do
     [ -z "$app" ] && continue
+    # Skip system processes with no useful icon
+    is_system_proc "$app" && continue
     # Skip if already in launcher
     found=false
     for l in "${LAUNCHER_SET[@]}"; do
