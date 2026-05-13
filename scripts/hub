@@ -725,7 +725,7 @@ cmd_new() {
     success "Creating workspace: $ws_name (workspace $ws_id)"
     [[ "$no_repo" == "false" ]] && info "Path: $ws_path"
 
-    progress_banner_start "Creating workspace $ws_name…"
+    progress_banner_start "Creating workspace ${ws_name}..."
 
     # Save to workspaces.json
     mkdir -p "$(dirname "$WORKSPACES_FILE")"
@@ -1411,7 +1411,7 @@ open_app_slot() {
     fi
 
     [[ "$verbose" == "true" ]] && info "Opening $app_name..." || true
-    progress_banner_update "Opening $app_name…"
+    progress_banner_update "Opening ${app_name}..."
 
     # Snapshot existing window IDs for this app
     local before_ids
@@ -1445,7 +1445,7 @@ open_app_slot() {
         local win_ws
         win_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${new_wid}|" | cut -d'|' -f2 || echo "")"
         if [[ "$win_ws" != "$ws_id" ]]; then
-            progress_banner_update "Corralling $app_name…"
+            progress_banner_update "Corralling ${app_name}..."
             aerospace move-node-to-workspace --window-id "$new_wid" "$ws_id" 2>/dev/null || true
             OPEN_APP_SLOT_CORRALLED=true
         fi
