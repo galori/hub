@@ -78,7 +78,7 @@ for ((i=1; i<=WS_WIN_COUNT; i++)); do
     idx=$((i-1))
     if [ "$idx" -lt "${#EXTRA_APPS[@]}" ]; then
         app="${EXTRA_APPS[$idx]}"
-        ARGS+=(--set "ws_win.$i" drawing=on "background.image=app.$app" "label=$app")
+        ARGS+=(--set "ws_win.$i" drawing=on "background.image=app.$app" background.image.scale=0.78 "label=$app")
     else
         ARGS+=(--set "ws_win.$i" drawing=off)
     fi
