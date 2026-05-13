@@ -236,9 +236,15 @@ progress_banner_start() {
 progress_banner_update() {
     local msg="$1"
     [[ ! -f "$PROGRESS_BANNER_PIDFILE" ]] && return 0
-    local _pid _hpid fifo
-    { read -r _pid; read -r _hpid; read -r fifo; } < "$PROGRESS_BANNER_PIDFILE"
-    # Use a subshell with timeout so a dead/stale FIFO never blocks the caller.
+    local banner_pid holder_pid fifo
+    { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$PROGRESS_BANNER_PIDFILE"
+    # If the user dismissed the banner (✕), the process is gone — clean up and skip.
+    if ! kill -0 "$banner_pid" 2>/dev/null; then
+        [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
+        [[ -n "$fifo" ]] && rm -f "$fifo"
+        rm -f "$PROGRESS_BANNER_PIDFILE"
+        return 0
+    fi
     [[ -n "$fifo" && -p "$fifo" ]] && (printf "%s\n" "$msg" > "$fifo") & disown 2>/dev/null || true
 }
 
