@@ -25,6 +25,9 @@ BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
 BROWSER_CTL_BIN="$HOME/.config/hub/browser_ctl"
 SPATIAL_ORDER_SRC="$LIB_DIR/spatial_order.swift"
 SPATIAL_ORDER_BIN="$HOME/.config/hub/spatial_order"
+TESTING_BANNER_SRC="$LIB_DIR/testing_banner.swift"
+TESTING_BANNER_BIN="$HOME/.config/hub/testing_banner"
+TESTING_BANNER_PIDFILE="$HOME/.config/hub/testing_banner.pid"
 PREV_BROWSER_FILE="$HOME/.config/hub/prev_browser"
 HUB_BROWSER_ID="sh.hub.http-handler"
 WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
@@ -66,6 +69,7 @@ print_usage() {
     echo "  bar-height    Toggle bar height for notch avoidance (tall/normal/toggle)"
     echo "  bar-reload    Reload sketchybar (fix rendering inconsistencies)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
+    echo "  testing-banner Show a 'stand by' HUD while an automated session tests hub (start/stop/run)"
     echo "  help          Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
@@ -144,6 +148,65 @@ stop_overlay() {
         rm -f "$OVERLAY_FIFO"
         OVERLAY_FIFO=""
     fi
+}
+
+# --- Testing banner (small top-right "stand by" HUD for automated sessions) ---
+cmd_testing_banner() {
+    local sub="${1:-}"
+    shift || true
+
+    case "$sub" in
+        start)
+            local msg="${1:-Claude Code is testing hub — stand by}"
+            if [[ ! -x "$TESTING_BANNER_BIN" ]]; then
+                fail "testing_banner not compiled. Run: hub install"
+                return 1
+            fi
+            # Kill any stale banner so there's never a duplicate.
+            cmd_testing_banner stop >/dev/null 2>&1 || true
+            # Keep the banner alive independent of the caller — it reads stdin,
+            # so give it a stdin that stays open until `stop` closes it.
+            local fifo
+            fifo="$(mktemp -u "${TMPDIR:-/tmp}/hub-testing-banner.XXXXXX")"
+            mkfifo "$fifo"
+            # Hold the fifo open by redirecting a detached `sleep` into it.
+            (sleep 86400 > "$fifo") &
+            local holder_pid=$!
+            "$TESTING_BANNER_BIN" "$msg" < "$fifo" >/dev/null 2>&1 &
+            local banner_pid=$!
+            disown "$banner_pid" "$holder_pid" 2>/dev/null || true
+            mkdir -p "$(dirname "$TESTING_BANNER_PIDFILE")"
+            printf "%s\n%s\n%s\n" "$banner_pid" "$holder_pid" "$fifo" > "$TESTING_BANNER_PIDFILE"
+            ;;
+        stop)
+            [[ -f "$TESTING_BANNER_PIDFILE" ]] || return 0
+            local banner_pid holder_pid fifo
+            { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$TESTING_BANNER_PIDFILE"
+            [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
+            [[ -n "$banner_pid" ]] && kill "$banner_pid" 2>/dev/null || true
+            [[ -n "$fifo" ]] && rm -f "$fifo"
+            rm -f "$TESTING_BANNER_PIDFILE"
+            ;;
+        run)
+            # Run a command with the banner up, stop on exit regardless of status.
+            cmd_testing_banner start "Claude Code is testing hub — stand by"
+            local rc=0
+            "$@"
+            rc=$?
+            cmd_testing_banner stop
+            return $rc
+            ;;
+        ""|help|--help|-h)
+            echo "Usage:"
+            echo "  hub testing-banner start [\"message\"]   Show the banner"
+            echo "  hub testing-banner stop                   Hide the banner"
+            echo "  hub testing-banner run -- <cmd> [args…]  Show banner, run cmd, then hide"
+            ;;
+        *)
+            fail "Unknown testing-banner subcommand: $sub"
+            return 1
+            ;;
+    esac
 }
 
 # --- Menu bar toggle (AppleScript, non-blocking) ---
@@ -225,6 +288,7 @@ compile_all() {
     compile_swift "browser_ctl" "$BROWSER_CTL_SRC" "$BROWSER_CTL_BIN"
     compile_swift "output_window" "$OUTPUT_WINDOW_SRC" "$OUTPUT_WINDOW_BIN"
     compile_swift "spatial_order" "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
+    compile_swift "testing_banner" "$TESTING_BANNER_SRC" "$TESTING_BANNER_BIN"
     build_http_handler
 }
 
@@ -1878,6 +1942,7 @@ case "$command" in
     bar-reload)   sketchybar --reload ;;
     repo-prefix)  cmd_repo_prefix "$@" ;;
     arrange-open-window) arrange_after_open "${1:-}" ;;
+    testing-banner) cmd_testing_banner "$@" ;;
     help|-h|--help) print_usage ;;
     '')
         print_usage

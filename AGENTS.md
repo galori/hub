@@ -22,6 +22,7 @@
 - `lib/http_handler.swift` - HTTP/HTTPS URL handler daemon; receives Apple Events, shows HUD, opens URL in slot-2 browser (compiled to `~/.config/hub/http_handler`)
 - `lib/browser_ctl.swift` - Browser control helper for focus/tab management (compiled to `~/.config/hub/browser_ctl`)
 - `lib/spatial_order.swift` - CGWindowList geometry helper; in default mode takes window IDs as args and prints them sorted left-to-right; in `--tree` mode reconstructs and prints the AeroSpace tiling tree (compiled to `~/.config/hub/spatial_order`)
+- `lib/testing_banner.swift` - Small floating "stand by" HUD shown top-right while an automated session is testing hub (compiled to `~/.config/hub/testing_banner`)
 - `lib/hide_menu_bar.applescript` - Menu bar toggle via System Settings UI automation
 - `~/.config/hub/apps.json` - App launcher configuration (up to 5 slots, created by install)
 
@@ -37,4 +38,5 @@
 ## Agent Tools
 
 - `agents/bin/screenshot-bar` - Captures a screenshot of just the sketchybar region (top of screen). **MUST be used to visually confirm the bar looks correct after any sketchybar-related change** — layout, icons, spacing, colors. Run it, read the PNG, and verify before committing. Outputs a PNG path: `agents/bin/screenshot-bar [output.png]`
+- `hub testing-banner start|stop|run` - Raise/dismiss a small top-right "stand by" HUD so the user knows not to interact with the UI while you're testing. MUST be used before triggering transient UI, timing-sensitive screenshots, or focus-dependent flows. Always pair `start` with `stop`, even on failure paths. See CLAUDE.md for full guidance.
 
