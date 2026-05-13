@@ -1545,11 +1545,13 @@ FileManager.default.createFile(atPath: resultPath, contents: nil)
 
 win.alphaValue = 0
 win.makeKeyAndOrderFront(nil)
-app.activate(ignoringOtherApps: true)
-NSAnimationContext.runAnimationGroup { ctx in
-    ctx.duration = 0.15
-    win.animator().alphaValue = 1
-    backdrop.animator().alphaValue = 1
+DispatchQueue.main.async {
+    app.activate(ignoringOtherApps: true)
+    NSAnimationContext.runAnimationGroup { ctx in
+        ctx.duration = 0.15
+        win.animator().alphaValue = 1
+        backdrop.animator().alphaValue = 1
+    }
 }
 
 showPickPath()

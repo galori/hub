@@ -282,11 +282,13 @@ NSLayoutConstraint.activate([
 // --- Show immediately ---
 win.alphaValue = 0
 win.makeKeyAndOrderFront(nil)
-app.activate(ignoringOtherApps: true)
-NSAnimationContext.runAnimationGroup { ctx in
-    ctx.duration = 0.18
-    win.animator().alphaValue = 1
-    backdrop.animator().alphaValue = 1
+DispatchQueue.main.async {
+    app.activate(ignoringOtherApps: true)
+    NSAnimationContext.runAnimationGroup { ctx in
+        ctx.duration = 0.18
+        win.animator().alphaValue = 1
+        backdrop.animator().alphaValue = 1
+    }
 }
 
 // --- Poll for content ---
