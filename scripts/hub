@@ -33,6 +33,10 @@ APPS_FILE="$HOME/.config/hub/apps.json"
 ICONS_DIR="$HOME/.config/hub/icons"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
+# Ensure standard binary paths are available — AeroSpace's exec-and-forget
+# inherits a minimal environment that omits /usr/local/bin and /opt/homebrew/bin.
+export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+
 # Colors
 bold='\033[1m'
 green='\033[32m'
