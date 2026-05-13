@@ -114,6 +114,7 @@ sketchybar --add slider volume_slider popup.volume 160 \
                                slider.background.color=$GREY \
                                "slider.knob=●" \
                                slider.knob.color=$WHITE \
+                               slider.knob.y_offset=2 \
                                background.padding_left=4 \
                                background.padding_right=4 \
                                background.height=28 \
