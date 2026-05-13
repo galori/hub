@@ -182,8 +182,13 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     # hub: rename current workspace
     ctrl-alt-r = 'exec-and-forget __HUB_SCRIPT__ rename'
 
-    # hub: open apps (smart: focus-or-launch). Shift = force new window.
+    # hub: open apps. Cmd-F1/2/3 = force new window (primary). Ctrl-Alt-1/2/3 = smart focus-or-launch.
     ctrl-alt-o = 'exec-and-forget __HUB_SCRIPT__ open'
+    cmd-f1 = 'exec-and-forget __HUB_SCRIPT__ open 1 --force'
+    cmd-f2 = 'exec-and-forget __HUB_SCRIPT__ open 2 --force'
+    cmd-f3 = 'exec-and-forget __HUB_SCRIPT__ open 3 --force'
+    cmd-f4 = 'exec-and-forget __HUB_SCRIPT__ open 4 --force'
+    cmd-f5 = 'exec-and-forget __HUB_SCRIPT__ open 5 --force'
     ctrl-alt-1 = 'exec-and-forget __HUB_SCRIPT__ open 1'
     ctrl-alt-2 = 'exec-and-forget __HUB_SCRIPT__ open 2'
     ctrl-alt-3 = 'exec-and-forget __HUB_SCRIPT__ open 3'
@@ -199,12 +204,6 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     ctrl-alt-b = 'exec-and-forget __HUB_SCRIPT__ bar-reload'
     # hub: toggle repo name prefix on workspace labels
     ctrl-alt-p = 'exec-and-forget __HUB_SCRIPT__ repo-prefix toggle'
-
-    ctrl-alt-shift-1 = 'exec-and-forget __HUB_SCRIPT__ open 1 --force'
-    ctrl-alt-shift-2 = 'exec-and-forget __HUB_SCRIPT__ open 2 --force'
-    ctrl-alt-shift-3 = 'exec-and-forget __HUB_SCRIPT__ open 3 --force'
-    ctrl-alt-shift-4 = 'exec-and-forget __HUB_SCRIPT__ open 4 --force'
-    ctrl-alt-shift-5 = 'exec-and-forget __HUB_SCRIPT__ open 5 --force'
 
     alt-backtick = 'focus --boundaries workspace --boundaries-action wrap-around-the-workspace dfs-next'
     alt-shift-backtick = 'focus --boundaries workspace --boundaries-action wrap-around-the-workspace dfs-prev'
