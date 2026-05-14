@@ -47,8 +47,6 @@ persistent-workspaces = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B",
                          "C", "D", "E", "F", "G", "I", "M", "N", "O", "P", "Q",
                          "R", "S", "T", "U", "V", "W", "X", "Y", "Z"]
 
-# See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
-on-mode-changed = ['exec-and-forget /bin/bash $HOME/.config/sketchybar/plugins/aerospace_mode.sh']
 
 # hub: auto-arrange tiling whenever any new window is detected
 [[on-window-detected]]
@@ -164,7 +162,7 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
 
     # See: https://nikitabobko.github.io/AeroSpace/commands#mode
-    alt-shift-semicolon = 'mode service'
+    alt-shift-semicolon = ['mode service', 'exec-and-forget sketchybar --set aerospace_mode drawing=on']
 
     # cycle through hub-registered workspaces only
     ctrl-alt-leftSquareBracket  = 'exec-and-forget __HUB_SCRIPT__ prev'
@@ -213,12 +211,12 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
 [mode.service.binding]
-    esc = ['reload-config', 'mode main']
-    r = ['flatten-workspace-tree', 'mode main'] # reset layout
-    f = ['layout floating tiling', 'mode main'] # Toggle between floating and tiling layout
-    backspace = ['close-all-windows-but-current', 'mode main']
+    esc = ['reload-config', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
+    r = ['flatten-workspace-tree', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off'] # reset layout
+    f = ['layout floating tiling', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off'] # Toggle between floating and tiling layout
+    backspace = ['close-all-windows-but-current', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
 
-    alt-shift-h = ['join-with left', 'mode main']
-    alt-shift-j = ['join-with down', 'mode main']
-    alt-shift-k = ['join-with up', 'mode main']
-    alt-shift-l = ['join-with right', 'mode main']
+    alt-shift-h = ['join-with left', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
+    alt-shift-j = ['join-with down', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
+    alt-shift-k = ['join-with up', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
+    alt-shift-l = ['join-with right', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
