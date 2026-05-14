@@ -93,7 +93,7 @@ sketchybar --add item volume right \
                         popup.background.border_width=2 \
                         popup.background.border_color=$ITEM_BG2 \
                         popup.blur_radius=20 \
-           --subscribe volume volume_change
+           --subscribe volume volume_change mouse.exited.global front_app_switched
 
 # Mute icon on the left of the slider — click to mute/unmute
 sketchybar --add item volume_mute_icon popup.volume \

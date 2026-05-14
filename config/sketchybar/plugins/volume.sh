@@ -19,3 +19,7 @@ if [ "$SENDER" = "volume_change" ]; then
     sketchybar --set "$NAME" icon="$ICON" label="$VOLUME%" \
         --set volume_slider slider.percentage="$VOLUME"
 fi
+
+if [ "$SENDER" = "mouse.exited.global" ] || [ "$SENDER" = "front_app_switched" ]; then
+    sketchybar --set volume popup.drawing=off
+fi
