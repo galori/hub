@@ -73,6 +73,7 @@ print_usage() {
     echo "  bar-reload    Reload sketchybar (fix rendering inconsistencies)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
     echo "  testing-banner Show a 'stand by' HUD while an automated session tests hub (start/stop/run)"
+    echo "  claude-hooks  Manage Claude Code notification hooks (install/uninstall/status)"
     echo "  help          Show this help"
     echo
     echo -e "${bold}Examples:${reset}"
@@ -1988,6 +1989,169 @@ cmd_down() {
     echo -e "${green}${bold}hub shut down complete.${reset}"
 }
 
+# --- Claude notification hooks ---
+
+cmd_claude_hooks() {
+    local subcommand="${1:-}"
+
+    # The hub script lives at scripts/hub; hook scripts are siblings at scripts/hooks/
+    # hub_path stores the absolute path to the hub script written during install.
+    local HOOKS_SOURCE_DIR
+    local _hub_script
+    _hub_script="$(cat "$HOME/.config/hub/hub_path" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+    HOOKS_SOURCE_DIR="$(cd "$(dirname "$_hub_script")/hooks" 2>/dev/null && pwd || echo "")"
+
+    local HOOKS_TARGET_DIR="$HOME/.claude/hooks"
+    local SETTINGS_FILE="$HOME/.claude/settings.json"
+    local NOTIFY_SRC="$HOOKS_SOURCE_DIR/notify.sh"
+    local CLEAR_SRC="$HOOKS_SOURCE_DIR/notify-clear.sh"
+    local NOTIFY_DST="$HOOKS_TARGET_DIR/hub-notify.sh"
+    local CLEAR_DST="$HOOKS_TARGET_DIR/hub-notify-clear.sh"
+
+    local HOOKS_CONFIG
+    read -r -d '' HOOKS_CONFIG <<'HOOKS_JSON' || true
+{
+  "PermissionRequest": [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify.sh"}]}],
+  "Stop":              [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify.sh"}]}],
+  "UserPromptSubmit":  [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}],
+  "PostToolUse":       [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}],
+  "PostToolUseFailure":[{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}],
+  "SessionStart":      [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}]
+}
+HOOKS_JSON
+
+    our_hook_commands() {
+        echo "~/.claude/hooks/hub-notify.sh"
+        echo "~/.claude/hooks/hub-notify-clear.sh"
+    }
+
+    strip_our_hooks() {
+        local json="$1"
+        local our_cmds_json
+        our_cmds_json=$(our_hook_commands | jq -R -s 'split("\n") | map(select(length > 0))')
+        echo "$json" | jq --argjson ours "$our_cmds_json" '
+            if .hooks then
+                .hooks |= with_entries(
+                    .value |= map(
+                        select([.hooks[].command] | all(. as $cmd | $ours | index($cmd) | not))
+                    )
+                    | select(.value | length > 0)
+                )
+                | if (.hooks | length) == 0 then del(.hooks) else . end
+            else . end
+        '
+    }
+
+    case "$subcommand" in
+    install)
+        if ! command -v jq &>/dev/null; then
+            fail "jq is required but not found. Install it with: brew install jq"
+            exit 1
+        fi
+        if [[ ! -f "$NOTIFY_SRC" || ! -f "$CLEAR_SRC" ]]; then
+            fail "Hook scripts not found in $HOOKS_SOURCE_DIR"
+            exit 1
+        fi
+        echo "Installing Claude notification hooks..."
+        echo
+        mkdir -p "$HOOKS_TARGET_DIR"
+        ln -sf "$NOTIFY_SRC" "$NOTIFY_DST"
+        success "hub-notify.sh — linked"
+        ln -sf "$CLEAR_SRC" "$CLEAR_DST"
+        success "hub-notify-clear.sh — linked"
+        echo
+        mkdir -p "$(dirname "$SETTINGS_FILE")"
+        local existing="{}"
+        [[ -f "$SETTINGS_FILE" ]] && existing=$(cat "$SETTINGS_FILE")
+        local merged
+        merged=$(strip_our_hooks "$existing" | jq --argjson new_hooks "$HOOKS_CONFIG" '
+            .hooks //= {} |
+            reduce ($new_hooks | to_entries[]) as $event (
+                .;
+                reduce $event.value[] as $entry (
+                    .;
+                    .hooks[$event.key] = ((.hooks[$event.key] // []) + [$entry])
+                )
+            )
+        ')
+        echo "$merged" | jq '.' >"$SETTINGS_FILE"
+        success "Settings merged into $SETTINGS_FILE"
+        echo
+        echo "Done! Notification hooks are active."
+        echo
+        echo 'Toggles (all on by default; set to "0" to disable):'
+        echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on sketchybar workspace pill"
+        echo "  HUB_CLAUDE_NOTIFY_SOUND — play alert sound (or set to a file path)"
+        echo "  HUB_CLAUDE_NOTIFY_SPEAK — speak workspace id + name (or set to custom phrase)"
+        ;;
+    uninstall|remove)
+        if ! command -v jq &>/dev/null; then
+            fail "jq is required but not found. Install it with: brew install jq"
+            exit 1
+        fi
+        echo "Uninstalling Claude notification hooks..."
+        echo
+        for dst in "$NOTIFY_DST" "$CLEAR_DST"; do
+            local name; name=$(basename "$dst")
+            if [[ -L "$dst" ]]; then
+                rm "$dst"
+                success "$name — removed"
+            elif [[ -f "$dst" ]]; then
+                warn "$name — exists but is not a symlink, skipping"
+            else
+                info "$name — not present"
+            fi
+        done
+        echo
+        if [[ -f "$SETTINGS_FILE" ]]; then
+            strip_our_hooks "$(cat "$SETTINGS_FILE")" | jq '.' >"$SETTINGS_FILE"
+            success "Cleaned hook entries from $SETTINGS_FILE"
+        else
+            info "No settings file found, nothing to clean"
+        fi
+        echo
+        echo "Done. Notification hooks removed."
+        ;;
+    status)
+        echo "Claude notification hooks status:"
+        echo
+        for pair in "hub-notify.sh:$NOTIFY_SRC" "hub-notify-clear.sh:$CLEAR_SRC"; do
+            local name="${pair%%:*}" src="${pair#*:}"
+            local dst="$HOOKS_TARGET_DIR/$name"
+            if [[ -L "$dst" ]] && [[ "$(readlink "$dst")" = "$src" ]]; then
+                success "$name — linked"
+            elif [[ -f "$dst" ]]; then
+                warn "$name — present (not a managed symlink)"
+            else
+                fail "$name — not installed"
+            fi
+        done
+        echo
+        if [[ -f "$SETTINGS_FILE" ]] && command -v jq &>/dev/null; then
+            local count
+            count=$(jq '[.hooks // {} | to_entries[] | .value[] | .hooks[] | select(.command | test("hub-notify"))] | length' "$SETTINGS_FILE" 2>/dev/null || echo 0)
+            info "settings.json: $count hook entries referencing hub-notify scripts"
+        elif [[ -f "$SETTINGS_FILE" ]]; then
+            info "settings.json: exists (install jq for detailed check)"
+        else
+            info "settings.json: not found"
+        fi
+        ;;
+    *)
+        echo "Usage: hub claude-hooks <install|uninstall|status>"
+        echo
+        echo "Manage Claude Code notification hooks."
+        echo "On Stop/PermissionRequest: amber workspace pill, sound, speech."
+        echo "On user activity: restores normal pill. Type '.', 'dismiss', or 'clear' to clear silently."
+        echo
+        echo "Toggles (env vars, all on by default):"
+        echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on sketchybar workspace pill"
+        echo "  HUB_CLAUDE_NOTIFY_SOUND — alert sound (path or 0)"
+        echo "  HUB_CLAUDE_NOTIFY_SPEAK — speak workspace id + name (phrase or 0)"
+        ;;
+    esac
+}
+
 # --- Main ---
 command="${1:-}"
 
@@ -2014,6 +2178,7 @@ case "$command" in
     repo-prefix)  cmd_repo_prefix "$@" ;;
     arrange-open-window) arrange_after_open "${1:-}" ;;
     testing-banner) cmd_testing_banner "$@" ;;
+    claude-hooks)   cmd_claude_hooks "$@" ;;
     help|-h|--help) print_usage ;;
     '')
         print_usage

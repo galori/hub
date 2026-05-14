@@ -76,6 +76,15 @@ render_workspaces() {
             fi
         fi
 
+        # Auto-clear Claude alert when the user visits the workspace
+        local alert_file="/tmp/hub_claude_alert_${ws}"
+        local has_alert=false
+        if [ "$ws" = "$CURRENT" ] && [ -f "$alert_file" ]; then
+            rm -f "$alert_file"
+        elif [ -f "$alert_file" ]; then
+            has_alert=true
+        fi
+
         if [[ $ACTIVE_LIST == *" $ws "* ]]; then
             if [ "$ws" = "$CURRENT" ]; then
                 local bg="${WS_COLOR_MAP[$ws]:-${SLOT_COLOR_MAP[$ws]}}"
@@ -89,18 +98,24 @@ render_workspaces() {
                     background.corner_radius=9 background.height=28
                     background.border_width=2 "background.border_color=$BORDER_COLOR")
             else
+                local border_color="$BORDER_COLOR"
+                local border_width=1
+                if $has_alert; then border_color=0xffF9A825; border_width=3; fi
                 ARGS+=(--set "space.$ws" drawing=on "label=$lbl"
                     label.color=0xaaffffff label.font.size=12
                     background.drawing=on "background.color=$INACTIVE_BG"
                     background.corner_radius=9 background.height=28
-                    background.border_width=1 "background.border_color=$BORDER_COLOR")
+                    "background.border_width=$border_width" "background.border_color=$border_color")
             fi
         elif [[ $LABELED_LIST == *" $ws "* ]]; then
+            local border_color2=0x00000000
+            local border_width2=0
+            if $has_alert; then border_color2=0xffF9A825; border_width2=3; fi
             ARGS+=(--set "space.$ws" drawing=on "label=$lbl"
                 label.color=0x55ffffff label.font.size=12
                 background.drawing=on "background.color=$EMPTY_LABELED_BG"
                 background.corner_radius=9 background.height=28
-                background.border_width=0)
+                "background.border_width=$border_width2" "background.border_color=$border_color2")
         else
             ARGS+=(--set "space.$ws" drawing=off)
         fi
