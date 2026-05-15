@@ -63,9 +63,29 @@ SKETCHYBAR=/opt/homebrew/bin/sketchybar
 ALERT_FILE="/tmp/hub_claude_alert_${WS_ID}"
 ACTIVE_FILE="/tmp/hub_claude_active_${WS_ID}"
 
+PULSE_PID_FILE="/tmp/hub_claude_pulse_${WS_ID}.pid"
+
+pulse_loop() {
+    local ws="$1" sb="$2" active_file="$3" pid_file="$4"
+    echo $$ > "$pid_file"
+    local bright=0xff76cce0 dim=0x3076cce0
+    local phase=0
+    while [ -f "$active_file" ]; do
+        if [ "$phase" -eq 0 ]; then
+            "$sb" --animate sin 45 --set "space.${ws}" background.border_color="$dim" 2>/dev/null || true
+            phase=1
+        else
+            "$sb" --animate sin 45 --set "space.${ws}" background.border_color="$bright" 2>/dev/null || true
+            phase=0
+        fi
+        sleep 0.75
+    done
+    rm -f "$pid_file"
+}
+
 if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "$SKETCHYBAR" &>/dev/null; then
     if [ "$HOOK_EVENT" = "UserPromptSubmit" ] || [ "$HOOK_EVENT" = "PreToolUse" ]; then
-        # Mark workspace as actively working — blue border
+        # Mark workspace as actively working — pulsing blue border
         rm -f "$ALERT_FILE"
         touch "$ACTIVE_FILE"
         FOCUSED=$(aerospace list-workspaces --focused 2>/dev/null || echo "")
@@ -73,6 +93,11 @@ if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "
             "$SKETCHYBAR" --set "space.${WS_ID}" \
                 background.border_color=0xff76cce0 \
                 background.border_width=3 2>/dev/null || true
+            # Start pulse loop only if one isn't already running for this workspace
+            if [ ! -f "$PULSE_PID_FILE" ] || ! kill -0 "$(cat "$PULSE_PID_FILE" 2>/dev/null)" 2>/dev/null; then
+                pulse_loop "$WS_ID" "$SKETCHYBAR" "$ACTIVE_FILE" "$PULSE_PID_FILE" &
+                disown
+            fi
         fi
     else
         # PostToolUse / PostToolUseFailure / SessionStart — clear both states
