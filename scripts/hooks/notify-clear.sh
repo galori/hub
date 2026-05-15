@@ -1,8 +1,9 @@
 #!/bin/bash
-# Claude hook: clear the workspace pill alert after user activity.
-# Triggered by: UserPromptSubmit, PostToolUse, PostToolUseFailure, SessionStart
+# Claude hook: track active/working state and clear alert state after user activity.
+# Triggered by: UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, SessionStart
 #
-# Restores the normal workspace pill border and removes the alert state file.
+# On UserPromptSubmit/PreToolUse: sets blue "active" border (Claude is working).
+# On PostToolUse/PostToolUseFailure/SessionStart: clears active state, restores normal border.
 # On UserPromptSubmit, the keywords ".", "dismiss", and "clear" block the prompt
 # so Claude doesn't respond (clearing the alert without starting a new cycle).
 
@@ -59,20 +60,29 @@ fi
 SKETCHYBAR=/opt/homebrew/bin/sketchybar
 [ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
 
-# --- Restore workspace pill ---
-if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ]; then
-    ALERT_FILE="/tmp/hub_claude_alert_${WS_ID}"
-    if [ -f "$ALERT_FILE" ] && command -v "$SKETCHYBAR" &>/dev/null; then
+ALERT_FILE="/tmp/hub_claude_alert_${WS_ID}"
+ACTIVE_FILE="/tmp/hub_claude_active_${WS_ID}"
+
+if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "$SKETCHYBAR" &>/dev/null; then
+    if [ "$HOOK_EVENT" = "UserPromptSubmit" ] || [ "$HOOK_EVENT" = "PreToolUse" ]; then
+        # Mark workspace as actively working — blue border
         rm -f "$ALERT_FILE"
+        touch "$ACTIVE_FILE"
         FOCUSED=$(aerospace list-workspaces --focused 2>/dev/null || echo "")
-        if [ "$WS_ID" = "$FOCUSED" ]; then
-            BORDER_WIDTH=2
-        else
-            BORDER_WIDTH=1
+        if [ "$WS_ID" != "$FOCUSED" ]; then
+            "$SKETCHYBAR" --set "space.${WS_ID}" \
+                background.border_color=0xff76cce0 \
+                background.border_width=3 2>/dev/null || true
         fi
-        "$SKETCHYBAR" --set "space.${WS_ID}" \
-            background.border_color=0xff414550 \
-            background.border_width="$BORDER_WIDTH" 2>/dev/null || true
+    else
+        # PostToolUse / PostToolUseFailure / SessionStart — clear both states
+        rm -f "$ALERT_FILE" "$ACTIVE_FILE"
+        FOCUSED=$(aerospace list-workspaces --focused 2>/dev/null || echo "")
+        if [ "$WS_ID" != "$FOCUSED" ]; then
+            "$SKETCHYBAR" --set "space.${WS_ID}" \
+                background.border_color=0xff414550 \
+                background.border_width=1 2>/dev/null || true
+        fi
     fi
 fi
 

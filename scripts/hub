@@ -2014,6 +2014,7 @@ cmd_claude_hooks() {
   "PermissionRequest": [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify.sh"}]}],
   "Stop":              [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify.sh"}]}],
   "UserPromptSubmit":  [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}],
+  "PreToolUse":        [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}],
   "PostToolUse":       [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}],
   "PostToolUseFailure":[{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}],
   "SessionStart":      [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}]

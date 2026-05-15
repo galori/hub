@@ -55,8 +55,9 @@ fi
 SKETCHYBAR=/opt/homebrew/bin/sketchybar
 [ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
 
-# --- Amber workspace pill ---
+# --- Amber workspace pill (clear active state, set attention state) ---
 if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "$SKETCHYBAR" &>/dev/null; then
+    rm -f "/tmp/hub_claude_active_${WS_ID}"
     touch "/tmp/hub_claude_alert_${WS_ID}"
     "$SKETCHYBAR" --set "space.${WS_ID}" \
         background.border_color=0xffF9A825 \

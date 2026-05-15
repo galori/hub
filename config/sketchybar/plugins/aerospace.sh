@@ -76,13 +76,16 @@ render_workspaces() {
             fi
         fi
 
-        # Auto-clear Claude alert when the user visits the workspace
+        # Auto-clear Claude alert/active state when the user visits the workspace
         local alert_file="/tmp/hub_claude_alert_${ws}"
+        local active_file="/tmp/hub_claude_active_${ws}"
         local has_alert=false
-        if [ "$ws" = "$CURRENT" ] && [ -f "$alert_file" ]; then
-            rm -f "$alert_file"
-        elif [ -f "$alert_file" ]; then
-            has_alert=true
+        local has_active=false
+        if [ "$ws" = "$CURRENT" ]; then
+            rm -f "$alert_file" "$active_file"
+        else
+            [ -f "$alert_file" ] && has_alert=true
+            [ -f "$active_file" ] && has_active=true
         fi
 
         if [[ $ACTIVE_LIST == *" $ws "* ]]; then
@@ -100,7 +103,8 @@ render_workspaces() {
             else
                 local border_color="$BORDER_COLOR"
                 local border_width=1
-                if $has_alert; then border_color=0xffF9A825; border_width=3; fi
+                if $has_active; then border_color=0xff76cce0; border_width=3;
+                elif $has_alert; then border_color=0xffF9A825; border_width=3; fi
                 ARGS+=(--set "space.$ws" drawing=on "label=$lbl"
                     label.color=0xaaffffff label.font.size=12
                     background.drawing=on "background.color=$INACTIVE_BG"
@@ -110,7 +114,8 @@ render_workspaces() {
         elif [[ $LABELED_LIST == *" $ws "* ]]; then
             local border_color2=0x00000000
             local border_width2=0
-            if $has_alert; then border_color2=0xffF9A825; border_width2=3; fi
+            if $has_active; then border_color2=0xff76cce0; border_width2=3;
+            elif $has_alert; then border_color2=0xffF9A825; border_width2=3; fi
             ARGS+=(--set "space.$ws" drawing=on "label=$lbl"
                 label.color=0x55ffffff label.font.size=12
                 background.drawing=on "background.color=$EMPTY_LABELED_BG"
