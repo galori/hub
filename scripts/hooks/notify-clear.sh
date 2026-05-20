@@ -93,9 +93,11 @@ if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "
             "$SKETCHYBAR" --set "space.${WS_ID}" \
                 background.border_color=0xff76cce0 \
                 background.border_width=3 2>/dev/null || true
-            # Start pulse loop only if one isn't already running for this workspace
+            # Start pulse loop only if one isn't already running for this workspace.
+            # Fully detach stdio so Claude Code's hook pipe closes immediately —
+            # otherwise the long-running loop holds the pipe open and stalls the hook.
             if [ ! -f "$PULSE_PID_FILE" ] || ! kill -0 "$(cat "$PULSE_PID_FILE" 2>/dev/null)" 2>/dev/null; then
-                pulse_loop "$WS_ID" "$SKETCHYBAR" "$ACTIVE_FILE" "$PULSE_PID_FILE" &
+                pulse_loop "$WS_ID" "$SKETCHYBAR" "$ACTIVE_FILE" "$PULSE_PID_FILE" </dev/null >/dev/null 2>&1 &
                 disown
             fi
         fi

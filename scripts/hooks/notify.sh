@@ -63,10 +63,12 @@ if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "
 fi
 
 # --- Sound ---
+# Detach stdio so the hook pipe closes immediately — otherwise afplay holds
+# stdout/stderr open and Claude Code stalls until the sound finishes.
 if [ "${HUB_CLAUDE_NOTIFY_SOUND:-1}" != "0" ]; then
     if [ -n "${HUB_CLAUDE_NOTIFY_SOUND:-}" ] && [ "${HUB_CLAUDE_NOTIFY_SOUND}" != "1" ] && [ -f "${HUB_CLAUDE_NOTIFY_SOUND}" ]; then
-        afplay "${HUB_CLAUDE_NOTIFY_SOUND}" &
+        afplay "${HUB_CLAUDE_NOTIFY_SOUND}" </dev/null >/dev/null 2>&1 &
     else
-        afplay /System/Library/Sounds/Funk.aiff &
+        afplay /System/Library/Sounds/Funk.aiff </dev/null >/dev/null 2>&1 &
     fi
 fi

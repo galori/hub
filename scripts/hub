@@ -2083,7 +2083,6 @@ HOOKS_JSON
         echo 'Toggles (all on by default; set to "0" to disable):'
         echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on sketchybar workspace pill"
         echo "  HUB_CLAUDE_NOTIFY_SOUND — play alert sound (or set to a file path)"
-        echo "  HUB_CLAUDE_NOTIFY_SPEAK — speak workspace id + name (or set to custom phrase)"
         ;;
     uninstall|remove)
         if ! command -v jq &>/dev/null; then
@@ -2142,13 +2141,12 @@ HOOKS_JSON
         echo "Usage: hub claude-hooks <install|uninstall|status>"
         echo
         echo "Manage Claude Code notification hooks."
-        echo "On Stop/PermissionRequest: amber workspace pill, sound, speech."
+        echo "On Stop/PermissionRequest: amber workspace pill, sound."
         echo "On user activity: restores normal pill. Type '.', 'dismiss', or 'clear' to clear silently."
         echo
         echo "Toggles (env vars, all on by default):"
         echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on sketchybar workspace pill"
         echo "  HUB_CLAUDE_NOTIFY_SOUND — alert sound (path or 0)"
-        echo "  HUB_CLAUDE_NOTIFY_SPEAK — speak workspace id + name (phrase or 0)"
         ;;
     esac
 }
