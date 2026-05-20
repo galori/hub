@@ -53,8 +53,13 @@ fi
 SKETCHYBAR=/opt/homebrew/bin/sketchybar
 [ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
 
-# --- Amber workspace pill (clear active state, set attention state) ---
+# --- Amber workspace pill (stop pulse, clear active state, set attention state) ---
 if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "$SKETCHYBAR" &>/dev/null; then
+    PULSE_PID_FILE="/tmp/hub_claude_pulse_${WS_ID}.pid"
+    if [ -f "$PULSE_PID_FILE" ]; then
+        kill "$(cat "$PULSE_PID_FILE" 2>/dev/null)" 2>/dev/null || true
+        rm -f "$PULSE_PID_FILE"
+    fi
     rm -f "/tmp/hub_claude_active_${WS_ID}"
     touch "/tmp/hub_claude_alert_${WS_ID}"
     "$SKETCHYBAR" --set "space.${WS_ID}" \

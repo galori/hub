@@ -2,10 +2,10 @@
 # Claude hook: track active/working state and clear alert state after user activity.
 # Triggered by: UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, SessionStart
 #
-# On UserPromptSubmit/PreToolUse: sets blue "active" border (Claude is working).
-# On PostToolUse/PostToolUseFailure/SessionStart: clears active state, restores normal border.
-# On UserPromptSubmit, the keywords ".", "dismiss", and "clear" block the prompt
-# so Claude doesn't respond (clearing the alert without starting a new cycle).
+# UserPromptSubmit / PreToolUse: start/maintain pulsing blue border (Claude is working).
+# PostToolUse / PostToolUseFailure: do nothing — Claude is still mid-turn, keep pulsing.
+# SessionStart: reset all state, restore normal border.
+# UserPromptSubmit with ".", "dismiss", or "clear": reset all state, block the prompt.
 
 set -euo pipefail
 
@@ -30,8 +30,9 @@ if is_non_interactive; then
     exit 0
 fi
 
-# --- Dismiss detection (UserPromptSubmit only) ---
 HOOK_EVENT=$(echo "$INPUT" | jq -r '.hook_event_name // ""' 2>/dev/null)
+
+# --- Dismiss detection (UserPromptSubmit only) ---
 DISMISS=false
 if [ "$HOOK_EVENT" = "UserPromptSubmit" ]; then
     PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
@@ -62,7 +63,6 @@ SKETCHYBAR=/opt/homebrew/bin/sketchybar
 
 ALERT_FILE="/tmp/hub_claude_alert_${WS_ID}"
 ACTIVE_FILE="/tmp/hub_claude_active_${WS_ID}"
-
 PULSE_PID_FILE="/tmp/hub_claude_pulse_${WS_ID}.pid"
 
 pulse_loop() {
@@ -83,34 +83,58 @@ pulse_loop() {
     rm -f "$pid_file"
 }
 
-if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "$SKETCHYBAR" &>/dev/null; then
-    if [ "$HOOK_EVENT" = "UserPromptSubmit" ] || [ "$HOOK_EVENT" = "PreToolUse" ]; then
-        # Mark workspace as actively working — pulsing blue border
-        rm -f "$ALERT_FILE"
-        touch "$ACTIVE_FILE"
-        FOCUSED=$(aerospace list-workspaces --focused 2>/dev/null || echo "")
-        if [ "$WS_ID" != "$FOCUSED" ]; then
-            "$SKETCHYBAR" --set "space.${WS_ID}" \
-                background.border_color=0xff76cce0 \
-                background.border_width=3 2>/dev/null || true
-            # Start pulse loop only if one isn't already running for this workspace.
-            # Fully detach stdio so Claude Code's hook pipe closes immediately —
-            # otherwise the long-running loop holds the pipe open and stalls the hook.
-            if [ ! -f "$PULSE_PID_FILE" ] || ! kill -0 "$(cat "$PULSE_PID_FILE" 2>/dev/null)" 2>/dev/null; then
-                pulse_loop "$WS_ID" "$SKETCHYBAR" "$ACTIVE_FILE" "$PULSE_PID_FILE" </dev/null >/dev/null 2>&1 &
-                disown
-            fi
-        fi
-    else
-        # PostToolUse / PostToolUseFailure / SessionStart — clear both states
-        rm -f "$ALERT_FILE" "$ACTIVE_FILE"
-        FOCUSED=$(aerospace list-workspaces --focused 2>/dev/null || echo "")
-        if [ "$WS_ID" != "$FOCUSED" ]; then
-            "$SKETCHYBAR" --set "space.${WS_ID}" \
-                background.border_color=0xff414550 \
-                background.border_width=1 2>/dev/null || true
+start_active() {
+    rm -f "$ALERT_FILE"
+    touch "$ACTIVE_FILE"
+    FOCUSED=$(aerospace list-workspaces --focused 2>/dev/null || echo "")
+    if [ "$WS_ID" != "$FOCUSED" ]; then
+        "$SKETCHYBAR" --set "space.${WS_ID}" \
+            background.border_color=0xff76cce0 \
+            background.border_width=3 2>/dev/null || true
+        # Detach stdio so the hook pipe closes immediately — long-running loop
+        # would otherwise hold it open and stall Claude Code.
+        if [ ! -f "$PULSE_PID_FILE" ] || ! kill -0 "$(cat "$PULSE_PID_FILE" 2>/dev/null)" 2>/dev/null; then
+            pulse_loop "$WS_ID" "$SKETCHYBAR" "$ACTIVE_FILE" "$PULSE_PID_FILE" </dev/null >/dev/null 2>&1 &
+            disown
         fi
     fi
+}
+
+clear_active() {
+    rm -f "$ACTIVE_FILE" "$ALERT_FILE"
+    if [ -f "$PULSE_PID_FILE" ]; then
+        kill "$(cat "$PULSE_PID_FILE" 2>/dev/null)" 2>/dev/null || true
+        rm -f "$PULSE_PID_FILE"
+    fi
+    FOCUSED=$(aerospace list-workspaces --focused 2>/dev/null || echo "")
+    if [ "$WS_ID" != "$FOCUSED" ]; then
+        "$SKETCHYBAR" --set "space.${WS_ID}" \
+            background.border_color=0xff414550 \
+            background.border_width=1 2>/dev/null || true
+    fi
+}
+
+if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "$SKETCHYBAR" &>/dev/null; then
+    case "$HOOK_EVENT" in
+        UserPromptSubmit)
+            if [ "$DISMISS" = "true" ]; then
+                clear_active
+            else
+                start_active
+            fi
+            ;;
+        PreToolUse)
+            # Ensure active state is set — pulse should already be running but
+            # start it if it somehow died mid-turn.
+            start_active
+            ;;
+        PostToolUse|PostToolUseFailure)
+            # Claude is still mid-turn — leave the pulse running.
+            ;;
+        SessionStart)
+            clear_active
+            ;;
+    esac
 fi
 
 # --- Block prompt if this was a dismiss keyword ---
