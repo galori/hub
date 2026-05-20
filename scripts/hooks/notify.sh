@@ -1,13 +1,11 @@
 #!/bin/bash
-# Claude hook: alert when Claude needs attention — amber workspace pill, sound, speech.
+# Claude hook: alert when Claude needs attention — amber workspace pill, sound.
 # Triggered by: Stop (Claude finished responding)
 #               PermissionRequest (permission dialog appears)
 #
 # Toggles (all enabled by default; set to "0" to skip):
 #   HUB_CLAUDE_NOTIFY_COLOR — amber border on the workspace pill in sketchybar
 #   HUB_CLAUDE_NOTIFY_SOUND — play alert sound (set to a file path for custom sound)
-#   HUB_CLAUDE_NOTIFY_SPEAK — speak "<ws_id> <ws_name>" when iTerm is not focused
-#                             (set to a custom phrase to speak that instead)
 
 set -euo pipefail
 
@@ -70,19 +68,5 @@ if [ "${HUB_CLAUDE_NOTIFY_SOUND:-1}" != "0" ]; then
         afplay "${HUB_CLAUDE_NOTIFY_SOUND}" &
     else
         afplay /System/Library/Sounds/Funk.aiff &
-    fi
-fi
-
-# --- Speak ---
-if [ "${HUB_CLAUDE_NOTIFY_SPEAK:-1}" != "0" ]; then
-    FRONTMOST=$(osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true' 2>/dev/null || echo "")
-    if [ "$FRONTMOST" != "iTerm2" ]; then
-        if [ -n "${HUB_CLAUDE_NOTIFY_SPEAK:-}" ] && [ "${HUB_CLAUDE_NOTIFY_SPEAK}" != "1" ]; then
-            say "${HUB_CLAUDE_NOTIFY_SPEAK}" &
-        elif [ -n "$WS_ID" ]; then
-            say "${WS_ID} ${WS_NAME}" &
-        else
-            say "$(basename "$CWD")" &
-        fi
     fi
 fi
