@@ -36,6 +36,7 @@ HUB_BROWSER_ID="sh.hub.http-handler"
 WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
 RECENT_REPOS_FILE="$HOME/.config/hub/recent_repos.json"
 APPS_FILE="$HOME/.config/hub/apps.json"
+HUB_CONFIG_FILE="$HOME/.config/hub/config.json"
 ICONS_DIR="$HOME/.config/hub/icons"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
@@ -72,6 +73,7 @@ print_usage() {
     echo "  bar-height    Toggle bar height for notch avoidance (tall/normal/toggle)"
     echo "  bar-reload    Reload sketchybar (fix rendering inconsistencies)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
+    echo "  config        Get/set hub options (e.g. claude_binary)"
     echo "  testing-banner Show a 'stand by' HUD while an automated session tests hub (start/stop/run)"
     echo "  claude-hooks  Manage Claude Code notification hooks (install/uninstall/status)"
     echo "  help          Show this help"
@@ -84,6 +86,9 @@ print_usage() {
     echo "  hub new --path .   # create a workspace at CWD (no worktree)"
     echo "  hub new --worktree my-fix          # new worktree off CWD repo"
     echo "  hub new --no-repo --name scratch   # no-repo workspace"
+    echo "  hub new --worktree my-fix --prompt 'fix the login redirect bug'"
+    echo "  hub config                         # list all config"
+    echo "  hub config set claude_binary 'claude --dangerously-skip-permissions'"
     echo "  hub list           # list all workspaces"
     echo "  hub list -v        # list with paths and root repos"
     echo "  hub remove         # remove the current workspace"
@@ -752,6 +757,7 @@ _create_workspace() {
     local ws_setup_cmd="$6"
     local ws_apps="$7"
     local no_repo="${8:-false}"
+    local prompt_cmd="${9:-}"
 
     success "Creating workspace: $ws_name (workspace $ws_id)"
     [[ "$no_repo" == "false" ]] && info "Path: $ws_path"
@@ -804,7 +810,7 @@ _create_workspace() {
         for _slot in "${_slots[@]}"; do
             OPEN_APP_SLOT_WID=""
             OPEN_APP_SLOT_CORRALLED=false
-            open_app_slot "$_slot" "$ws_id" "$ws_path" false true
+            open_app_slot "$_slot" "$ws_id" "$ws_path" false true "$prompt_cmd"
             if [[ -n "$OPEN_APP_SLOT_WID" ]]; then
                 _opened_wids+=("$OPEN_APP_SLOT_WID")
             fi
@@ -865,6 +871,9 @@ Flags:
   --color HEX        Workspace color (default: WORKTREE_COLOR from .envrc.local)
   --apps LIST        Comma-separated app slot numbers, e.g. 1,3 (default: all configured)
   --no-apps          Open zero apps. Conflicts with --apps.
+  --prompt TEXT      After opening iTerm2, run `claude "Use <tmpfile> as the prompt"`.
+                     The prompt is staged in a temp file to avoid escaping issues.
+                     Requires iTerm2 to be configured in apps.json.
   -h, --help         Show this help
 
 Examples:
@@ -872,6 +881,7 @@ Examples:
   hub new --path .                     # workspace at CWD, no worktree
   hub new --worktree my-fix            # new worktree 'my-fix' off CWD repo
   hub new --no-repo --name scratch     # no-repo workspace
+  hub new --worktree my-fix --prompt 'fix the login redirect bug'
 EOF
 }
 
@@ -919,7 +929,7 @@ _default_apps_list() {
 }
 
 _cmd_new_cli() {
-    local opt_path="" opt_worktree="" opt_name="" opt_id="" opt_color=""
+    local opt_path="" opt_worktree="" opt_name="" opt_id="" opt_color="" opt_prompt=""
     local opt_apps="" opt_no_repo=false opt_no_apps=false opt_apps_set=false
 
     while [[ $# -gt 0 ]]; do
@@ -939,6 +949,8 @@ _cmd_new_cli() {
             --apps=*) opt_apps="${1#*=}"; opt_apps_set=true; shift ;;
             --no-apps) opt_no_apps=true; shift ;;
             --no-repo) opt_no_repo=true; shift ;;
+            --prompt) opt_prompt="$2"; shift 2 ;;
+            --prompt=*) opt_prompt="${1#*=}"; shift ;;
             *)
                 fail "Unknown flag: $1"
                 _print_new_usage >&2
@@ -954,6 +966,10 @@ _cmd_new_cli() {
     fi
     if [[ "$opt_no_apps" == "true" && "$opt_apps_set" == "true" ]]; then
         fail "--no-apps cannot be combined with --apps"
+        return 2
+    fi
+    if [[ -n "$opt_prompt" && "$opt_no_apps" == "true" ]]; then
+        fail "--prompt requires app slots to be opened (remove --no-apps)"
         return 2
     fi
 
@@ -1082,7 +1098,39 @@ _cmd_new_cli() {
         ws_apps="$(_default_apps_list)"
     fi
 
-    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo"
+    # Build prompt_cmd: stage the prompt in a temp file so no escaping is
+    # needed in the AppleScript pipeline. Claude receives a fixed-shape
+    # instruction to read the file; the prompt body never touches AppleScript.
+    local prompt_cmd=""
+    if [[ -n "$opt_prompt" ]]; then
+        # Check if iTerm2 slot is present (warn only — workspace still useful)
+        local iterm_slot=""
+        if [[ -f "$APPS_FILE" ]]; then
+            iterm_slot="$(jq -r 'to_entries[] | select(.value.name == "iTerm2") | (.key + 1) | tostring' "$APPS_FILE" 2>/dev/null | head -1)"
+        fi
+        if [[ -z "$iterm_slot" ]]; then
+            warn "--prompt has no effect: no iTerm2 slot found in apps.json"
+        else
+            # Validate the slot will actually be opened
+            local slot_will_open=true
+            if [[ "$opt_apps_set" == "true" ]]; then
+                if ! echo ",$ws_apps," | grep -q ",$iterm_slot,"; then
+                    warn "--prompt has no effect: iTerm2 slot ($iterm_slot) not in --apps list"
+                    slot_will_open=false
+                fi
+            fi
+            if [[ "$slot_will_open" == "true" ]]; then
+                local prompt_file
+                prompt_file="$(mktemp -t hub-prompt)" || { fail "mktemp failed"; return 1; }
+                printf '%s' "$opt_prompt" > "$prompt_file"
+                local claude_bin
+                claude_bin="$(_config_get claude_binary "claude")"
+                prompt_cmd=" && ${claude_bin} \"Use ${prompt_file} as the prompt\""
+            fi
+        fi
+    fi
+
+    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$prompt_cmd"
 }
 
 rebuild_labels_file() {
@@ -1642,6 +1690,7 @@ open_app_slot() {
     local ws_path="$3"
     local verbose="${4:-false}"   # true = print status lines
     local force_new="${5:-false}" # true = always launch new window
+    local prompt_cmd="${6:-}"
 
     local app_info
     app_info="$(jq -r --argjson i "$((slot - 1))" \
@@ -1689,9 +1738,19 @@ open_app_slot() {
     local before_ids
     before_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
 
-    # Substitute {path} and {workspace} in launch command
+    # Inject {prompt_cmd} for iTerm2: auto-append after `cd {path}` if not
+    # already present in the launch string. {prompt_cmd} expands to empty
+    # when no --prompt was given, so existing behavior is unchanged.
+    if [[ -n "$prompt_cmd" && "$app_name" == "iTerm2" ]]; then
+        if [[ "$launch_cmd" != *"{prompt_cmd}"* ]]; then
+            launch_cmd="${launch_cmd//cd \{path\}/cd \{path\}\{prompt_cmd\}}"
+        fi
+    fi
+
+    # Substitute {path}, {workspace}, and {prompt_cmd} in launch command
     launch_cmd="${launch_cmd//\{path\}/$ws_path}"
     launch_cmd="${launch_cmd//\{workspace\}/$ws_id}"
+    launch_cmd="${launch_cmd//\{prompt_cmd\}/$prompt_cmd}"
 
     # Launch the app
     bash -c "$launch_cmd" >/dev/null 2>/tmp/hub_open_err &
@@ -1728,6 +1787,96 @@ open_app_slot() {
         [[ "$verbose" == "true" ]] && warn "$app_name: window did not appear in time" || true
         OPEN_APP_SLOT_WID=""
     fi
+}
+
+_config_get() {
+    local key="$1" default="${2:-}"
+    local val=""
+    if [[ -f "$HUB_CONFIG_FILE" ]]; then
+        val="$(jq -r --arg k "$key" '.[$k] // ""' "$HUB_CONFIG_FILE" 2>/dev/null || true)"
+    fi
+    echo "${val:-$default}"
+}
+
+_VALID_CONFIG_KEYS=("claude_binary")
+
+_validate_config_key() {
+    local key="$1"
+    local k
+    for k in "${_VALID_CONFIG_KEYS[@]}"; do
+        [[ "$k" == "$key" ]] && return 0
+    done
+    local joined
+    joined="$(IFS=', '; echo "${_VALID_CONFIG_KEYS[*]}")"
+    fail "Unknown config key: $key (allowed: $joined)"
+    return 2
+}
+
+cmd_config() {
+    local subcommand="${1:-list}"
+    shift || true
+
+    case "$subcommand" in
+        list|"")
+            if [[ ! -f "$HUB_CONFIG_FILE" ]]; then
+                echo "(no configuration set)"
+                return 0
+            fi
+            local count
+            count="$(jq 'length' "$HUB_CONFIG_FILE" 2>/dev/null || echo "0")"
+            if [[ "$count" -eq 0 ]]; then
+                echo "(no configuration set)"
+                return 0
+            fi
+            jq -r 'to_entries[] | "\(.key) = \(.value)"' "$HUB_CONFIG_FILE"
+            ;;
+        get)
+            local key="${1:-}"
+            if [[ -z "$key" ]]; then
+                fail "Usage: hub config get <key>"
+                return 2
+            fi
+            _validate_config_key "$key" || return $?
+            local val
+            val="$(_config_get "$key")"
+            if [[ -z "$val" ]]; then
+                echo "(not set)"
+            else
+                echo "$val"
+            fi
+            ;;
+        set)
+            local key="${1:-}" value="${2:-}"
+            if [[ -z "$key" || $# -lt 2 ]]; then
+                fail "Usage: hub config set <key> <value>"
+                return 2
+            fi
+            _validate_config_key "$key" || return $?
+            local existing="{}"
+            [[ -f "$HUB_CONFIG_FILE" ]] && existing="$(cat "$HUB_CONFIG_FILE")"
+            mkdir -p "$(dirname "$HUB_CONFIG_FILE")"
+            echo "$existing" | jq --arg k "$key" --arg v "$value" '. + {($k): $v}' > "$HUB_CONFIG_FILE"
+            success "$key = $value"
+            ;;
+        unset)
+            local key="${1:-}"
+            if [[ -z "$key" ]]; then
+                fail "Usage: hub config unset <key>"
+                return 2
+            fi
+            _validate_config_key "$key" || return $?
+            if [[ -f "$HUB_CONFIG_FILE" ]]; then
+                local updated
+                updated="$(jq --arg k "$key" 'del(.[$k])' "$HUB_CONFIG_FILE")"
+                echo "$updated" > "$HUB_CONFIG_FILE"
+            fi
+            success "$key unset"
+            ;;
+        *)
+            fail "Unknown config subcommand: $subcommand (allowed: list, get, set, unset)"
+            return 2
+            ;;
+    esac
 }
 
 cmd_open() {
@@ -2433,6 +2582,7 @@ case "$command" in
     bar-reload)   sketchybar --reload ;;
     repo-prefix)  cmd_repo_prefix "$@" ;;
     arrange-open-window) arrange_after_open "${1:-}" ;;
+    config)         cmd_config "$@" ;;
     testing-banner) cmd_testing_banner "$@" ;;
     claude-hooks)   cmd_claude_hooks "$@" ;;
     help|-h|--help) print_usage ;;
