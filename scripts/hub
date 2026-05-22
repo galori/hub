@@ -1120,12 +1120,20 @@ _cmd_new_cli() {
                 fi
             fi
             if [[ "$slot_will_open" == "true" ]]; then
-                local prompt_file
+                # Write the prompt to a file, then write a wrapper script that
+                # invokes claude pointing at that file. prompt_cmd is just
+                # "&& /path/to/wrapper" with no quotes or spaces in the path,
+                # so it survives unmodified through the AppleScript string.
+                local prompt_file wrapper_script
                 prompt_file="$(mktemp -t hub-prompt)" || { fail "mktemp failed"; return 1; }
+                wrapper_script="$(mktemp -t hub-prompt-run)" || { fail "mktemp failed"; return 1; }
                 printf '%s' "$opt_prompt" > "$prompt_file"
                 local claude_bin
                 claude_bin="$(_config_get claude_binary "claude")"
-                prompt_cmd=" && ${claude_bin} \"Use ${prompt_file} as the prompt\""
+                printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\n%s "Use %s as the prompt"\n' \
+                    "$claude_bin" "$prompt_file" > "$wrapper_script"
+                chmod +x "$wrapper_script"
+                prompt_cmd=" && ${wrapper_script}"
             fi
         fi
     fi
