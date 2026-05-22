@@ -18,7 +18,8 @@ app.mainMenu = menuBar
 
 let args = CommandLine.arguments
 let titleArg = args.count > 1 ? args[1] : "Output"
-let autoClose = args.contains("--auto-close")
+
+let statusBarHeight: CGFloat = 26
 
 let win = NSWindow(
     contentRect: NSRect(x: 0, y: 0, width: 700, height: 400),
@@ -32,7 +33,21 @@ win.center()
 win.makeKeyAndOrderFront(nil)
 app.activate(ignoringOtherApps: true)
 
-let scrollView = NSScrollView(frame: win.contentView!.bounds)
+// Status bar pinned to bottom — shows countdown after process exits
+let statusBar = NSTextField(
+    frame: NSRect(x: 0, y: 0, width: 700, height: statusBarHeight))
+statusBar.isEditable = false
+statusBar.isSelectable = false
+statusBar.isBordered = false
+statusBar.backgroundColor = NSColor(white: 0.05, alpha: 1)
+statusBar.textColor = NSColor(white: 0.4, alpha: 1)
+statusBar.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+statusBar.alignment = .center
+statusBar.autoresizingMask = [.width, .maxYMargin]
+win.contentView!.addSubview(statusBar)
+
+let scrollView = NSScrollView(
+    frame: NSRect(x: 0, y: statusBarHeight, width: 700, height: 400 - statusBarHeight))
 scrollView.autoresizingMask = [.width, .height]
 scrollView.hasVerticalScroller = true
 scrollView.drawsBackground = false
@@ -128,16 +143,29 @@ func appendText(_ text: String, color: NSColor? = nil) {
     textView.scrollToEndOfDocument(nil)
 }
 
+var countdownRemaining = 10
+var countdownTimer: Timer?
+
+func startCountdown() {
+    statusBar.stringValue = "Closing in \(countdownRemaining)…"
+    countdownTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+        countdownRemaining -= 1
+        if countdownRemaining <= 0 {
+            countdownTimer?.invalidate()
+            NSApp.terminate(nil)
+        } else {
+            statusBar.stringValue = "Closing in \(countdownRemaining)…"
+        }
+    }
+}
+
 DispatchQueue.global(qos: .userInitiated).async {
     while let line = readLine() {
         // "EXIT:<code>" signals completion — act immediately, don't wait for pipe closure
         if line.hasPrefix("EXIT:"), let code = Int32(line.dropFirst(5)) {
             DispatchQueue.main.async {
-                if autoClose && code == 0 {
-                    NSApp.terminate(nil)
-                } else {
-                    appendText("\n--- Done (exit \(code)) ---", color: NSColor(white: 1, alpha: 0.4))
-                }
+                appendText("\n--- Done (exit \(code)) ---", color: NSColor(white: 1, alpha: 0.4))
+                startCountdown()
             }
             return
         }
@@ -146,6 +174,7 @@ DispatchQueue.global(qos: .userInitiated).async {
     // Pipe closed without EXIT line
     DispatchQueue.main.async {
         appendText("\n--- Done ---", color: NSColor(white: 1, alpha: 0.4))
+        startCountdown()
     }
 }
 
