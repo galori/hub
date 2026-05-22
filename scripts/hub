@@ -1133,7 +1133,10 @@ _cmd_new_cli() {
                 printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\n%s "Use %s as the prompt"\n' \
                     "$claude_bin" "$prompt_file" > "$wrapper_script"
                 chmod +x "$wrapper_script"
-                prompt_cmd=" && ${wrapper_script}"
+                # Use ';' not '&&': bash treats '&' specially in ${var//pattern/replacement}
+                # expansions (it means "matched text"), so '&&' in the replacement would
+                # expand to the matched token twice. ';' is safe and sufficient here.
+                prompt_cmd="; ${wrapper_script}"
             fi
         fi
     fi
