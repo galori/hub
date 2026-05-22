@@ -59,7 +59,7 @@ print_usage() {
     echo "  up            Start AeroSpace, SketchyBar, JankyBorders, hide the Dock and menu bar"
     echo "  down          Stop everything, restore the Dock and menu bar"
     echo "  reboot        Stop, reinstall, and restart the hub environment"
-    echo "  new           Create a new workspace (opens dialog)"
+    echo "  new           Create a new workspace (opens dialog; pass flags to run silently)"
     echo "  list          List all defined workspaces
   tree          Show the tiling tree for a workspace"
     echo "  status        Show current service state, workspace info, and label length"
@@ -80,7 +80,10 @@ print_usage() {
     echo "  hub install        # install shell alias and dependencies"
     echo "  hub up             # start the workspace environment"
     echo "  hub down           # tear down the workspace environment"
-    echo "  hub new            # create a new workspace"
+    echo "  hub new            # open the workspace creation dialog"
+    echo "  hub new --path .   # create a workspace at CWD (no worktree)"
+    echo "  hub new --worktree my-fix          # new worktree off CWD repo"
+    echo "  hub new --no-repo --name scratch   # no-repo workspace"
     echo "  hub list           # list all workspaces"
     echo "  hub list -v        # list with paths and root repos"
     echo "  hub remove         # remove the current workspace"
@@ -690,6 +693,12 @@ APPS_EOF
 }
 
 cmd_new() {
+    # Bare `hub new` (no flags) ⇒ launch dialog. Any flag ⇒ non-interactive.
+    if [[ $# -gt 0 ]]; then
+        _cmd_new_cli "$@"
+        return $?
+    fi
+
     if [[ ! -x "$DIALOG_BIN" ]]; then
         fail "new_workspace_dialog not compiled. Run: hub install"
         exit 1
@@ -730,6 +739,19 @@ cmd_new() {
         ws_path="$HOME"
         ws_root=""
     fi
+
+    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo"
+}
+
+_create_workspace() {
+    local ws_name="$1"
+    local ws_path="$2"
+    local ws_root="$3"
+    local ws_id="$4"
+    local ws_color="$5"
+    local ws_setup_cmd="$6"
+    local ws_apps="$7"
+    local no_repo="${8:-false}"
 
     success "Creating workspace: $ws_name (workspace $ws_id)"
     [[ "$no_repo" == "false" ]] && info "Path: $ws_path"
@@ -826,6 +848,241 @@ cmd_new() {
 
     echo
     echo -e "${green}${bold}Workspace '$ws_name' created on workspace $ws_id!${reset}"
+}
+
+_print_new_usage() {
+    cat <<'EOF'
+Usage: hub new [flags]
+
+Bare `hub new` opens the creation dialog. Pass any flag to run silently.
+
+Flags:
+  --path PATH        Workspace directory or repo root (default: $PWD)
+  --worktree NAME    Create/reuse worktree NAME off the repo at --path
+  --no-repo          No-repo workspace (path = $HOME). Conflicts with --path/--worktree.
+  --name NAME        Workspace name (default: worktree name or basename of path)
+  --id ID            Workspace ID, e.g. A or 5 (default: first free)
+  --color HEX        Workspace color (default: WORKTREE_COLOR from .envrc.local)
+  --apps LIST        Comma-separated app slot numbers, e.g. 1,3 (default: all configured)
+  --no-apps          Open zero apps. Conflicts with --apps.
+  -h, --help         Show this help
+
+Examples:
+  hub new                              # open creation dialog
+  hub new --path .                     # workspace at CWD, no worktree
+  hub new --worktree my-fix            # new worktree 'my-fix' off CWD repo
+  hub new --no-repo --name scratch     # no-repo workspace
+EOF
+}
+
+# Allocate the first unused workspace ID, mirroring nextWorkspaceID() in
+# lib/new_workspace_dialog.swift (alphabet at line 436-437).
+_alloc_workspace_id() {
+    local used="["
+    if [[ -f "$WORKSPACES_FILE" ]]; then
+        used="$(jq -c '[.[].workspace_id]' "$WORKSPACES_FILE" 2>/dev/null || echo "[]")"
+    fi
+    local ids=(1 2 3 4 5 6 7 8 9 A B C D E F G I M N O P Q R S T U V W X Y Z)
+    local id
+    for id in "${ids[@]}"; do
+        if ! echo "$used" | jq -e --arg id "$id" 'index($id) // empty' >/dev/null 2>&1; then
+            echo "$id"
+            return 0
+        fi
+    done
+    return 1
+}
+
+_is_valid_workspace_id() {
+    case "$1" in
+        1|2|3|4|5|6|7|8|9|A|B|C|D|E|F|G|I|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+_read_envrc_color() {
+    local path="$1"
+    local envrc="$path/.envrc.local"
+    [[ -f "$envrc" ]] || return 0
+    grep '^[[:space:]]*WORKTREE_COLOR=' "$envrc" 2>/dev/null \
+        | head -1 \
+        | sed -E 's/^[[:space:]]*WORKTREE_COLOR=//;s/[[:space:]]*$//;s/^"(.*)"$/\1/'
+}
+
+_default_apps_list() {
+    local apps_file="$HOME/.config/hub/apps.json"
+    [[ -f "$apps_file" ]] || return 0
+    local count
+    count="$(jq 'length' "$apps_file" 2>/dev/null || echo "0")"
+    [[ "$count" -gt 0 ]] || return 0
+    seq 1 "$count" | paste -sd, -
+}
+
+_cmd_new_cli() {
+    local opt_path="" opt_worktree="" opt_name="" opt_id="" opt_color=""
+    local opt_apps="" opt_no_repo=false opt_no_apps=false opt_apps_set=false
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help) _print_new_usage; return 0 ;;
+            --path) opt_path="$2"; shift 2 ;;
+            --path=*) opt_path="${1#*=}"; shift ;;
+            --worktree) opt_worktree="$2"; shift 2 ;;
+            --worktree=*) opt_worktree="${1#*=}"; shift ;;
+            --name) opt_name="$2"; shift 2 ;;
+            --name=*) opt_name="${1#*=}"; shift ;;
+            --id) opt_id="$2"; shift 2 ;;
+            --id=*) opt_id="${1#*=}"; shift ;;
+            --color) opt_color="$2"; shift 2 ;;
+            --color=*) opt_color="${1#*=}"; shift ;;
+            --apps) opt_apps="$2"; opt_apps_set=true; shift 2 ;;
+            --apps=*) opt_apps="${1#*=}"; opt_apps_set=true; shift ;;
+            --no-apps) opt_no_apps=true; shift ;;
+            --no-repo) opt_no_repo=true; shift ;;
+            *)
+                fail "Unknown flag: $1"
+                _print_new_usage >&2
+                return 2
+                ;;
+        esac
+    done
+
+    # Mutual exclusion
+    if [[ "$opt_no_repo" == "true" && ( -n "$opt_path" || -n "$opt_worktree" ) ]]; then
+        fail "--no-repo cannot be combined with --path or --worktree"
+        return 2
+    fi
+    if [[ "$opt_no_apps" == "true" && "$opt_apps_set" == "true" ]]; then
+        fail "--no-apps cannot be combined with --apps"
+        return 2
+    fi
+
+    local ws_name="" ws_path="" ws_root="" ws_id="" ws_color=""
+    local ws_setup_cmd="" ws_apps="" no_repo=false
+
+    if [[ "$opt_no_repo" == "true" ]]; then
+        no_repo=true
+        ws_path="$HOME"
+        ws_root=""
+        if [[ -z "$opt_name" ]]; then
+            fail "--no-repo requires --name"
+            return 2
+        fi
+        ws_name="$opt_name"
+    else
+        # Resolve path (default $PWD)
+        local resolved_path="${opt_path:-$PWD}"
+        if [[ ! -d "$resolved_path" ]]; then
+            fail "Path does not exist: $resolved_path"
+            return 2
+        fi
+        # Canonicalize
+        resolved_path="$(cd "$resolved_path" && pwd -P)"
+
+        # Detect repo root (if any)
+        local repo_root=""
+        if git -C "$resolved_path" rev-parse --git-dir >/dev/null 2>&1; then
+            repo_root="$(git -C "$resolved_path" rev-parse --show-toplevel 2>/dev/null || echo "")"
+        fi
+
+        if [[ -n "$opt_worktree" ]]; then
+            if [[ -z "$repo_root" ]]; then
+                fail "--worktree requires a git repository (none found at $resolved_path)"
+                return 2
+            fi
+            local worktrees_dir="$repo_root/worktrees"
+            mkdir -p "$worktrees_dir"
+            local worktree_path="$worktrees_dir/$opt_worktree"
+
+            if [[ -d "$worktree_path" ]]; then
+                # Reuse existing worktree directory as-is.
+                info "Reusing existing worktree: $worktree_path"
+            else
+                progress_banner_start "Creating worktree ${opt_worktree}..."
+                local git_err
+                if git -C "$repo_root" rev-parse --verify "refs/heads/$opt_worktree" >/dev/null 2>&1; then
+                    git_err="$(git -C "$repo_root" worktree add "$worktree_path" "$opt_worktree" 2>&1)" || {
+                        progress_banner_stop
+                        fail "git worktree add failed: $git_err"
+                        return 1
+                    }
+                else
+                    git_err="$(git -C "$repo_root" worktree add -b "$opt_worktree" "$worktree_path" 2>&1)" || {
+                        progress_banner_stop
+                        fail "git worktree add failed: $git_err"
+                        return 1
+                    }
+                fi
+                progress_banner_stop
+            fi
+            ws_path="$worktree_path"
+            ws_root="$repo_root"
+            ws_name="${opt_name:-$opt_worktree}"
+        else
+            ws_path="$resolved_path"
+            ws_root="$repo_root"
+            if [[ -n "$opt_name" ]]; then
+                ws_name="$opt_name"
+            else
+                ws_name="$(basename "$ws_path")"
+            fi
+        fi
+    fi
+
+    if [[ -z "$ws_name" ]]; then
+        fail "Workspace name is empty"
+        return 2
+    fi
+
+    # Reject duplicate workspace names (matches dialog validation)
+    if [[ -f "$WORKSPACES_FILE" ]]; then
+        if jq -e --arg n "$ws_name" '.[] | select(.name == $n)' "$WORKSPACES_FILE" >/dev/null 2>&1; then
+            fail "A workspace named '$ws_name' already exists"
+            return 1
+        fi
+    fi
+
+    # Resolve workspace ID
+    if [[ -n "$opt_id" ]]; then
+        if ! _is_valid_workspace_id "$opt_id"; then
+            fail "Invalid workspace ID: $opt_id (allowed: 1-9, A-G, I, M-Z)"
+            return 2
+        fi
+        if [[ -f "$WORKSPACES_FILE" ]] \
+            && jq -e --arg id "$opt_id" '.[] | select(.workspace_id == $id)' "$WORKSPACES_FILE" >/dev/null 2>&1; then
+            fail "Workspace ID '$opt_id' is already in use"
+            return 1
+        fi
+        ws_id="$opt_id"
+    else
+        ws_id="$(_alloc_workspace_id)" || {
+            fail "No free workspace IDs available"
+            return 1
+        }
+    fi
+
+    # Color: explicit, else .envrc.local, else empty
+    if [[ -n "$opt_color" ]]; then
+        ws_color="$opt_color"
+    elif [[ "$no_repo" == "false" ]]; then
+        ws_color="$(_read_envrc_color "$ws_path" 2>/dev/null || true)"
+    fi
+
+    # Setup command from .superset/config.json (only if we have a repo root)
+    if [[ -n "$ws_root" ]]; then
+        ws_setup_cmd="$(read_superset_config "$ws_root" "setup" 2>/dev/null || echo "")"
+    fi
+
+    # Apps: explicit, --no-apps, or all configured slots
+    if [[ "$opt_no_apps" == "true" ]]; then
+        ws_apps=""
+    elif [[ "$opt_apps_set" == "true" ]]; then
+        ws_apps="$opt_apps"
+    else
+        ws_apps="$(_default_apps_list)"
+    fi
+
+    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo"
 }
 
 rebuild_labels_file() {
@@ -2157,7 +2414,7 @@ command="${1:-}"
 shift || true
 case "$command" in
     install)  cmd_install ;;
-    new)      cmd_new ;;
+    new)      cmd_new "$@" ;;
     list)     cmd_list "$@" ;;
     tree)     cmd_tree "$@" ;;
     status)   cmd_status ;;
