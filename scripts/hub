@@ -1768,12 +1768,16 @@ open_app_slot() {
     local before_ids
     before_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
 
-    # Inject {prompt_cmd} for iTerm2: auto-append after `cd {path}` if not
-    # already present in the launch string. {prompt_cmd} expands to empty
-    # when no --prompt was given, so existing behavior is unchanged.
-    if [[ -n "$prompt_cmd" && "$app_name" == "iTerm2" ]]; then
-        if [[ "$launch_cmd" != *"{prompt_cmd}"* ]]; then
-            launch_cmd="${launch_cmd//cd \{path\}/cd \{path\}\{prompt_cmd\}}"
+    # For iTerm2: inject HUB_WORKSPACE_ID and optional prompt_cmd after
+    # `cd {path}` so Claude Code hooks can identify the workspace exactly,
+    # even when two workspaces share the same directory.
+    if [[ "$app_name" == "iTerm2" ]]; then
+        local ws_env_cmd="; export HUB_WORKSPACE_ID=${ws_id}"
+        if [[ "$launch_cmd" != *"HUB_WORKSPACE_ID"* ]]; then
+            launch_cmd="${launch_cmd//cd \{path\}/cd \{path\}${ws_env_cmd}}"
+        fi
+        if [[ -n "$prompt_cmd" && "$launch_cmd" != *"{prompt_cmd}"* ]]; then
+            launch_cmd="${launch_cmd//cd \{path\}${ws_env_cmd}/cd \{path\}${ws_env_cmd}\{prompt_cmd\}}"
         fi
     fi
 

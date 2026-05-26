@@ -47,7 +47,15 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // ""')
 WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
 WS_ID=""
 
-if [ -n "$CWD" ] && [ -f "$WORKSPACES_FILE" ]; then
+# Prefer the env var set by hub when launching iTerm2 — it's exact and works
+# even when two workspaces share the same directory. Fall back to longest-prefix
+# cwd match for terminals opened before this feature was added.
+if [ -n "${HUB_WORKSPACE_ID:-}" ] && [ -f "$WORKSPACES_FILE" ]; then
+    _MATCH=$(jq -r --arg id "$HUB_WORKSPACE_ID" '.[] | select(.workspace_id == $id) | .workspace_id' "$WORKSPACES_FILE" 2>/dev/null | head -1)
+    [ -n "$_MATCH" ] && WS_ID="$_MATCH"
+fi
+
+if [ -z "$WS_ID" ] && [ -n "$CWD" ] && [ -f "$WORKSPACES_FILE" ]; then
     _BEST_LEN=0
     while IFS=$'\t' read -r id name path; do
         [ -z "$path" ] && continue

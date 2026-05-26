@@ -36,9 +36,17 @@ WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
 WS_ID=""
 WS_NAME=""
 
-# Find the hub workspace whose path is a prefix of (or equals) the cwd.
-# Pick the longest match so worktrees resolve to their workspace, not the root repo.
-if [ -n "$CWD" ] && [ -f "$WORKSPACES_FILE" ]; then
+# Prefer the env var set by hub when launching iTerm2 — it's exact and works
+# even when two workspaces share the same directory. Fall back to longest-prefix
+# cwd match for terminals opened before this feature was added.
+if [ -n "${HUB_WORKSPACE_ID:-}" ] && [ -f "$WORKSPACES_FILE" ]; then
+    _MATCH=$(jq -r --arg id "$HUB_WORKSPACE_ID" '.[] | select(.workspace_id == $id) | [.workspace_id, .name] | @tsv' "$WORKSPACES_FILE" 2>/dev/null | head -1)
+    if [ -n "$_MATCH" ]; then
+        IFS=$'\t' read -r WS_ID WS_NAME <<< "$_MATCH"
+    fi
+fi
+
+if [ -z "$WS_ID" ] && [ -n "$CWD" ] && [ -f "$WORKSPACES_FILE" ]; then
     _BEST_LEN=0
     while IFS=$'\t' read -r id name path; do
         [ -z "$path" ] && continue
