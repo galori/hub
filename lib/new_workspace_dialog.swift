@@ -1514,6 +1514,29 @@ func showConfirmWorkspace(
         }
     }
 
+    // --- Optional Claude prompt ---
+    let promptLabel = makeLabel("CLAUDE PROMPT (optional — leave empty to skip)")
+    addView(promptLabel)
+    NSLayoutConstraint.activate([
+        promptLabel.topAnchor.constraint(equalTo: prevAnchor, constant: 20),
+        promptLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+    ])
+
+    let (promptScroll, promptView) = makePromptTextView()
+    addView(promptScroll)
+    NSLayoutConstraint.activate([
+        promptScroll.topAnchor.constraint(equalTo: promptLabel.bottomAnchor, constant: 6),
+        promptScroll.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        promptScroll.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        promptScroll.heightAnchor.constraint(equalToConstant: 64),
+    ])
+    prevAnchor = promptScroll.bottomAnchor
+
+    // Wire Tab key view chain: name field → prompt text view → name field.
+    // NSTextView isn't auto-registered; explicit nextKeyView is required.
+    nameField.nextKeyView = promptView
+    promptView.nextKeyView = nameField
+
     let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
     addView(createBtn)
     let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
@@ -1566,8 +1589,9 @@ func showConfirmWorkspace(
         let setupCmd: String?
         let pendingWorktreeName: String?
         let checkboxes: [CustomCheckbox]
-        init(_ id: String, _ nf: NSTextField, _ ne: NSTextField, _ p: String, _ r: String, _ c: String?, _ s: String?, _ wt: String?, _ cbs: [CustomCheckbox]) {
-            wsID = id; nameField = nf; nameErrLabel = ne; path = p; repoRoot = r; color = c; setupCmd = s; pendingWorktreeName = wt; checkboxes = cbs
+        let promptView: NSTextView
+        init(_ id: String, _ nf: NSTextField, _ ne: NSTextField, _ p: String, _ r: String, _ c: String?, _ s: String?, _ wt: String?, _ cbs: [CustomCheckbox], _ pv: NSTextView) {
+            wsID = id; nameField = nf; nameErrLabel = ne; path = p; repoRoot = r; color = c; setupCmd = s; pendingWorktreeName = wt; checkboxes = cbs; promptView = pv
         }
         @objc func confirm(_ sender: Any) { doConfirm() }
         func doConfirm() {
@@ -1579,10 +1603,17 @@ func showConfirmWorkspace(
                 if cb.isChecked { checkedSlots.append("\(i + 1)") }
             }
             let appsField = checkedSlots.isEmpty ? "-" : checkedSlots.joined(separator: ",")
+            // Base64-encode the prompt so newlines/tabs survive the
+            // tab-delimited result format on the shell side.
+            let promptText = promptView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            let promptB64 = promptText.isEmpty
+                ? ""
+                : (promptText.data(using: .utf8)?.base64EncodedString() ?? "")
             var result = "\(wsName)\t\(path)\t\(repoRoot.isEmpty ? "-" : repoRoot)\t\(wsID)"
             result += "\t\(color ?? "-")"
             result += "\t\(setupCmd ?? "-")"
             result += "\t\(appsField)"
+            result += "\t\(promptB64)"
             if let wtName = pendingWorktreeName {
                 showCreatingWorktreeAndFinish(repoRoot: repoRoot, name: wtName, result: result)
             } else {
@@ -1600,7 +1631,7 @@ func showConfirmWorkspace(
         @objc func goBack(_ sender: Any) { back() }
     }
 
-    let confirmAction = ConfirmAction(wsID, nameField, nameErrorLabel, path, repoRoot, color, setupCmd, pendingWorktreeName, checkboxes)
+    let confirmAction = ConfirmAction(wsID, nameField, nameErrorLabel, path, repoRoot, color, setupCmd, pendingWorktreeName, checkboxes, promptView)
     let cancelAction = CancelAction()
     createBtn.target = confirmAction; createBtn.action = #selector(ConfirmAction.confirm(_:))
     cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
@@ -1619,9 +1650,86 @@ func showConfirmWorkspace(
         if let backFn = back,
            event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers == "[" { backFn(); return nil }
-        if event.keyCode == 36 { confirmAction.doConfirm(); return nil }
+        if event.keyCode == 36 {
+            // Enter inside the prompt text view inserts a newline; Cmd+Enter
+            // (or Enter from any other field) submits the form.
+            let promptHasFocus = (win.firstResponder as? NSTextView) === promptView
+            if promptHasFocus && !event.modifierFlags.contains(.command) {
+                return event
+            }
+            confirmAction.doConfirm(); return nil
+        }
         return event
     }
+}
+
+// NSTextView delegate that draws placeholder text when the view is empty.
+class PromptTextViewDelegate: NSObject, NSTextViewDelegate {
+    let placeholder: String
+    init(_ placeholder: String) { self.placeholder = placeholder }
+    func textDidChange(_ notification: Notification) {
+        guard let tv = notification.object as? NSTextView else { return }
+        tv.needsDisplay = true
+    }
+}
+
+// NSTextView subclass that draws its own placeholder when empty.
+class PromptTextView: NSTextView {
+    var placeholderString: String = ""
+    override func draw(_ rect: NSRect) {
+        super.draw(rect)
+        if string.isEmpty {
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor(white: 1, alpha: 0.25),
+                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+            ]
+            let inset = textContainerInset
+            let origin = NSPoint(x: inset.width + 5, y: inset.height + 1)
+            NSAttributedString(string: placeholderString, attributes: attrs).draw(at: origin)
+        }
+    }
+}
+
+// Multi-line prompt input — small editable text view inside a scroll view.
+// Newlines are valid in prompts, so Enter inserts a newline; Cmd+Enter submits.
+func makePromptTextView() -> (NSScrollView, PromptTextView) {
+    let scroll = NSScrollView()
+    scroll.translatesAutoresizingMaskIntoConstraints = false
+    scroll.hasVerticalScroller = true
+    scroll.autohidesScrollers = true
+    scroll.drawsBackground = false
+    scroll.wantsLayer = true
+    scroll.layer?.backgroundColor = itemBg.cgColor
+    scroll.layer?.cornerRadius = 6
+    scroll.layer?.borderWidth = 1
+    scroll.layer?.borderColor = NSColor(white: 1, alpha: 0.12).cgColor
+    scroll.borderType = .noBorder
+
+    let tv = PromptTextView()
+    tv.placeholderString = "e.g. fix the login redirect bug"
+    tv.isEditable = true
+    tv.isSelectable = true
+    tv.allowsUndo = true
+    tv.isRichText = false
+    tv.importsGraphics = false
+    tv.drawsBackground = false
+    tv.textColor = .white
+    tv.insertionPointColor = .white
+    tv.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    tv.textContainerInset = NSSize(width: 8, height: 6)
+    tv.autoresizingMask = [.width]
+    tv.minSize = NSSize(width: 0, height: 0)
+    tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+    tv.isVerticallyResizable = true
+    tv.isHorizontallyResizable = false
+    tv.textContainer?.widthTracksTextView = true
+    tv.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+    let delegate = PromptTextViewDelegate("e.g. fix the login redirect bug")
+    tv.delegate = delegate
+    objc_setAssociatedObject(tv, "ptd", delegate, .OBJC_ASSOCIATION_RETAIN)
+
+    scroll.documentView = tv
+    return (scroll, tv)
 }
 
 // ============================================================================

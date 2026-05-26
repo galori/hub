@@ -731,12 +731,20 @@ cmd_new() {
         return
     fi
 
-    # Parse: name\tpath\troot_repo\tworkspace_id\tcolor\tsetup_cmd\tapps ("-" = empty)
-    local ws_name ws_path ws_root ws_id ws_color ws_setup_cmd ws_apps
-    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color ws_setup_cmd ws_apps <<< "$result"
+    # Parse: name\tpath\troot_repo\tworkspace_id\tcolor\tsetup_cmd\tapps\tprompt_b64
+    # ("-" = empty for color/setup_cmd/apps; prompt_b64 is empty when no prompt)
+    local ws_name ws_path ws_root ws_id ws_color ws_setup_cmd ws_apps ws_prompt_b64
+    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color ws_setup_cmd ws_apps ws_prompt_b64 <<< "$result"
     [[ "$ws_color" == "-" ]] && ws_color=""
     [[ "$ws_setup_cmd" == "-" ]] && ws_setup_cmd=""
     [[ "$ws_apps" == "-" ]] && ws_apps=""
+
+    # Prompt is base64-encoded by the dialog so newlines and tabs survive
+    # the tab-delimited result format.
+    local ws_prompt=""
+    if [[ -n "$ws_prompt_b64" ]]; then
+        ws_prompt="$(printf '%s' "$ws_prompt_b64" | base64 -d 2>/dev/null || true)"
+    fi
 
     if [[ -z "$ws_name" || -z "$ws_id" ]]; then
         fail "Invalid dialog result"
@@ -751,7 +759,10 @@ cmd_new() {
         ws_root=""
     fi
 
-    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo"
+    local prompt_cmd
+    prompt_cmd="$(_build_prompt_cmd "$ws_prompt" "$ws_apps" "false")"
+
+    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$prompt_cmd"
 }
 
 _create_workspace() {
@@ -1104,50 +1115,52 @@ _cmd_new_cli() {
         ws_apps="$(_default_apps_list)"
     fi
 
-    # Build prompt_cmd: stage the prompt in a temp file so no escaping is
-    # needed in the AppleScript pipeline. Claude receives a fixed-shape
-    # instruction to read the file; the prompt body never touches AppleScript.
-    local prompt_cmd=""
-    if [[ -n "$opt_prompt" ]]; then
-        # Check if iTerm2 slot is present (warn only — workspace still useful)
-        local iterm_slot=""
-        if [[ -f "$APPS_FILE" ]]; then
-            iterm_slot="$(jq -r 'to_entries[] | select(.value.name == "iTerm2") | (.key + 1) | tostring' "$APPS_FILE" 2>/dev/null | head -1)"
-        fi
-        if [[ -z "$iterm_slot" ]]; then
-            warn "--prompt has no effect: no iTerm2 slot found in apps.json"
-        else
-            # Validate the slot will actually be opened
-            local slot_will_open=true
-            if [[ "$opt_apps_set" == "true" ]]; then
-                if ! echo ",$ws_apps," | grep -q ",$iterm_slot,"; then
-                    warn "--prompt has no effect: iTerm2 slot ($iterm_slot) not in --apps list"
-                    slot_will_open=false
-                fi
-            fi
-            if [[ "$slot_will_open" == "true" ]]; then
-                # Write the prompt to a file, then write a wrapper script that
-                # invokes claude pointing at that file. prompt_cmd is just
-                # "&& /path/to/wrapper" with no quotes or spaces in the path,
-                # so it survives unmodified through the AppleScript string.
-                local prompt_file wrapper_script
-                prompt_file="$(mktemp -t hub-prompt)" || { fail "mktemp failed"; return 1; }
-                wrapper_script="$(mktemp -t hub-prompt-run)" || { fail "mktemp failed"; return 1; }
-                printf '%s' "$opt_prompt" > "$prompt_file"
-                local claude_bin
-                claude_bin="$(_config_get claude_binary "claude")"
-                printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\n%s "Use %s as the prompt"\n' \
-                    "$claude_bin" "$prompt_file" > "$wrapper_script"
-                chmod +x "$wrapper_script"
-                # Use ';' not '&&': bash treats '&' specially in ${var//pattern/replacement}
-                # expansions (it means "matched text"), so '&&' in the replacement would
-                # expand to the matched token twice. ';' is safe and sufficient here.
-                prompt_cmd="; ${wrapper_script}"
-            fi
-        fi
-    fi
+    local prompt_cmd
+    prompt_cmd="$(_build_prompt_cmd "$opt_prompt" "$ws_apps" "$opt_apps_set")"
 
     _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$prompt_cmd"
+}
+
+# Build the prompt_cmd injection for iTerm2 launch. Stages the prompt body in
+# a temp file so it never touches AppleScript; emits a wrapper script that
+# invokes claude pointing at that file. Echoes the prompt_cmd suffix
+# (e.g. "; /tmp/hub-prompt-run.XXXX") to stdout, or "" if the prompt is empty
+# / iTerm2 isn't going to open. Warnings go to stderr.
+#
+# Args: $1 = prompt text, $2 = ws_apps list, $3 = apps_set ("true" if user
+# passed an explicit --apps list — controls whether the slot membership
+# check actually applies)
+_build_prompt_cmd() {
+    local prompt="$1"
+    local ws_apps="$2"
+    local apps_set="${3:-false}"
+    [[ -z "$prompt" ]] && return 0
+
+    local iterm_slot=""
+    if [[ -f "$APPS_FILE" ]]; then
+        iterm_slot="$(jq -r 'to_entries[] | select(.value.name == "iTerm2") | (.key + 1) | tostring' "$APPS_FILE" 2>/dev/null | head -1)"
+    fi
+    if [[ -z "$iterm_slot" ]]; then
+        warn "prompt has no effect: no iTerm2 slot found in apps.json" >&2
+        return 0
+    fi
+    if [[ "$apps_set" == "true" ]] && ! echo ",$ws_apps," | grep -q ",$iterm_slot,"; then
+        warn "prompt has no effect: iTerm2 slot ($iterm_slot) not in apps list" >&2
+        return 0
+    fi
+
+    local prompt_file wrapper_script claude_bin
+    prompt_file="$(mktemp -t hub-prompt)" || { fail "mktemp failed" >&2; return 1; }
+    wrapper_script="$(mktemp -t hub-prompt-run)" || { fail "mktemp failed" >&2; return 1; }
+    printf '%s' "$prompt" > "$prompt_file"
+    claude_bin="$(_config_get claude_binary "claude")"
+    printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\n%s "Use %s as the prompt"\n' \
+        "$claude_bin" "$prompt_file" > "$wrapper_script"
+    chmod +x "$wrapper_script"
+    # Use ';' not '&&': bash treats '&' specially in ${var//pattern/replacement}
+    # expansions (it means "matched text"), so '&&' in the replacement would
+    # expand to the matched token twice. ';' is safe and sufficient here.
+    printf '; %s' "$wrapper_script"
 }
 
 rebuild_labels_file() {
