@@ -2279,6 +2279,12 @@ cmd_up() {
     # Rebuild workspace labels cache (/tmp is cleared on reboot)
     rebuild_labels_file
 
+    # Reap any orphaned sketchybar plugin scripts left over from prior sessions.
+    # A wedged LaunchServices (after sleep/wake or display reconfig) can hang
+    # `app_launcher.sh` indefinitely; without this, those zombies pile up and
+    # can prevent the bar from rendering correctly on restart.
+    pkill -f "$SKETCHYBAR_CONFIG_DIR/plugins/" 2>/dev/null || true
+
     # Ensure sketchybar is running and reload config
     if ! pgrep -q sketchybar; then
         sketchybar &>/dev/null &

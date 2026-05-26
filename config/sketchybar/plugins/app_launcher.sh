@@ -74,7 +74,40 @@ while IFS= read -r app; do
 done <<< "$WS_APPS"
 
 ICONS_DIR="$HOME/.config/hub/icons"
+PATH_CACHE="$HOME/.config/hub/app_paths.cache"
 mkdir -p "$ICONS_DIR"
+touch "$PATH_CACHE"
+
+# Bound a subprocess so a wedged LaunchServices / Finder can't pile up plugin
+# processes across workspace changes. Uses gtimeout from coreutils when present,
+# otherwise falls back to perl's alarm (always available on macOS).
+run_with_timeout() {
+    local secs="$1"; shift
+    if command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "$secs" "$@"
+    else
+        perl -e 'alarm shift; exec { $ARGV[0] } @ARGV or exit 127' "$secs" "$@"
+    fi
+}
+
+# Resolve an app's bundle path, caching successful lookups so we stop hitting
+# LaunchServices on subsequent workspace changes. Cache lines: `name|path`.
+resolve_app_path() {
+    local name="$1"
+    local cached
+    cached=$(awk -F'|' -v n="$name" '$1==n {print $2; exit}' "$PATH_CACHE" 2>/dev/null)
+    if [ -n "$cached" ] && [ -d "$cached" ]; then
+        printf '%s' "$cached"
+        return 0
+    fi
+    local app_path
+    app_path=$(run_with_timeout 2 osascript -e "POSIX path of (path to application \"$name\")" 2>/dev/null || true)
+    app_path="${app_path%$'\n'}"
+    [ -z "$app_path" ] && return 1
+    [ -d "$app_path" ] || return 1
+    printf '%s|%s\n' "$name" "$app_path" >> "$PATH_CACHE"
+    printf '%s' "$app_path"
+}
 
 # Extract a 36px PNG icon for an app on demand. Returns 0 if the cached file
 # exists (or was just produced), nonzero otherwise.
@@ -83,18 +116,16 @@ ensure_icon_png() {
     local out="$ICONS_DIR/${name}.png"
     [ -f "$out" ] && return 0
     local app_path
-    app_path=$(osascript -e "POSIX path of (path to application \"$name\")" 2>/dev/null || true)
-    app_path="${app_path%$'\n'}"
-    [ -z "$app_path" ] && return 1
+    app_path=$(resolve_app_path "$name") || return 1
     local icns_name icns
-    icns_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "${app_path}Contents/Info.plist" 2>/dev/null || true)
+    icns_name=$(run_with_timeout 2 /usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "${app_path}Contents/Info.plist" 2>/dev/null || true)
     [[ "$icns_name" != *.icns ]] && icns_name="${icns_name}.icns"
     icns="${app_path}Contents/Resources/${icns_name}"
     if [ ! -f "$icns" ]; then
-        icns=$(find "${app_path}Contents/Resources" -maxdepth 1 -name "*.icns" 2>/dev/null | head -1)
+        icns=$(run_with_timeout 2 find "${app_path}Contents/Resources" -maxdepth 1 -name "*.icns" 2>/dev/null | head -1)
     fi
     [ -z "$icns" ] && return 1
-    sips -s format png "$icns" --out "$out" --resampleHeightWidthMax 36 &>/dev/null || return 1
+    run_with_timeout 5 sips -s format png "$icns" --out "$out" --resampleHeightWidthMax 36 &>/dev/null || return 1
     return 0
 }
 
