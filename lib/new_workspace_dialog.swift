@@ -1712,7 +1712,8 @@ func makePromptTextView() -> (NSScrollView, PromptTextView) {
     tv.allowsUndo = true
     tv.isRichText = false
     tv.importsGraphics = false
-    tv.drawsBackground = false
+    tv.drawsBackground = true
+    tv.backgroundColor = itemBg
     tv.textColor = .white
     tv.insertionPointColor = .white
     tv.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
