@@ -40,6 +40,11 @@ HUB_CONFIG_FILE="$HOME/.config/hub/config.json"
 ICONS_DIR="$HOME/.config/hub/icons"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
+# AeroSpace outer.top padding (px) — see config/aerospace.toml.
+# tall = notch-avoidance / sketchybar-visible mode; normal = compact.
+BAR_PADDING_NORMAL=20
+BAR_PADDING_TALL=65
+
 # Ensure standard binary paths are available — AeroSpace's exec-and-forget
 # inherits a minimal environment that omits /usr/local/bin and /opt/homebrew/bin.
 export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
@@ -538,10 +543,11 @@ cmd_install() {
             cp "$AEROSPACE_CONFIG" "${AEROSPACE_CONFIG}.bak"
         fi
     fi
-    sed "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
-    if [[ -f "$HOME/.config/hub/bar_tall" ]]; then
-        sed -i '' 's/outer\.top =.*/outer.top =        95/' "$AEROSPACE_CONFIG"
-    fi
+    local outer_top=$BAR_PADDING_NORMAL
+    [[ -f "$HOME/.config/hub/bar_tall" ]] && outer_top=$BAR_PADDING_TALL
+    sed -e "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" \
+        -e "s|__HUB_OUTER_TOP__|$outer_top|g" \
+        "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
     success "aerospace.toml deployed to $AEROSPACE_CONFIG"
 
     # Write hub script path for runtime use by HubHTTPHandler and other compiled binaries
@@ -2185,13 +2191,13 @@ cmd_bar_height() {
     case "$action" in
         tall)
             touch "$state_file"
-            sed -i '' 's/outer\.top =.*/outer.top =        95/' "$AEROSPACE_CONFIG"
+            sed -i '' "s/outer\.top =.*/outer.top =        $BAR_PADDING_TALL/" "$AEROSPACE_CONFIG"
             aerospace reload-config
             (sleep 2 && sketchybar --reload) &
             ;;
         normal)
             rm -f "$state_file"
-            sed -i '' 's/outer\.top =.*/outer.top =        50/' "$AEROSPACE_CONFIG"
+            sed -i '' "s/outer\.top =.*/outer.top =        $BAR_PADDING_NORMAL/" "$AEROSPACE_CONFIG"
             aerospace reload-config
             (sleep 2 && sketchybar --reload) &
             ;;

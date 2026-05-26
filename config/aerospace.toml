@@ -63,7 +63,7 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     inner.vertical =   15
     outer.left =       15
     outer.bottom =     15
-    outer.top =        50
+    outer.top =        __HUB_OUTER_TOP__
     outer.right =      15
 
 # 'main' binding mode declaration
