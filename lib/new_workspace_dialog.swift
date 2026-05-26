@@ -588,8 +588,10 @@ func showNoRepoName() {
 
     let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
     addView(createBtn)
-    let backBtn = makeBtn(label: "BACK", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(backBtn)
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    addView(cancelBtn)
 
     NSLayoutConstraint.activate([
         titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
@@ -604,14 +606,18 @@ func showNoRepoName() {
         errorLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         errorLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         createBtn.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
-        createBtn.trailingAnchor.constraint(equalTo: backBtn.leadingAnchor, constant: -10),
+        createBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         createBtn.heightAnchor.constraint(equalToConstant: 34),
         createBtn.widthAnchor.constraint(equalToConstant: 100),
         backBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
-        backBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        backBtn.trailingAnchor.constraint(equalTo: createBtn.leadingAnchor, constant: -10),
         backBtn.heightAnchor.constraint(equalToConstant: 34),
         backBtn.widthAnchor.constraint(equalToConstant: 100),
-        backBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
+        cancelBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
+        cancelBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        cancelBtn.heightAnchor.constraint(equalToConstant: 34),
+        cancelBtn.widthAnchor.constraint(equalToConstant: 100),
+        cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
     ])
 
     relayout()
@@ -625,22 +631,30 @@ func showNoRepoName() {
         func doCreate() {
             let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { errLabel.stringValue = "Enter a name"; return }
-            showConfirmWorkspace(explicitName: name, path: "-", repoRoot: "")
+            showConfirmWorkspace(explicitName: name, path: "-", repoRoot: "", back: { showNoRepoName() })
         }
     }
     class BackAction: NSObject {
         @objc func back(_ sender: Any) { showPickPath() }
     }
+    class CancelAction: NSObject {
+        @objc func cancel(_ sender: Any) { cancelAndDismiss() }
+    }
 
     let createAction = CreateAction(nameField, errorLabel)
     let backAction = BackAction()
+    let cancelAction = CancelAction()
     createBtn.target = createAction; createBtn.action = #selector(CreateAction.create(_:))
     backBtn.target = backAction; backBtn.action = #selector(BackAction.back(_:))
+    cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
     objc_setAssociatedObject(createBtn, "a", createAction, .OBJC_ASSOCIATION_RETAIN)
     objc_setAssociatedObject(backBtn, "a", backAction, .OBJC_ASSOCIATION_RETAIN)
+    objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-        if event.keyCode == 53 { showPickPath(); return nil }
+        if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers == "[" { showPickPath(); return nil }
         if event.keyCode == 36 { createAction.doCreate(); return nil }
         return event
     }
@@ -786,11 +800,11 @@ func showPickPath() {
         errorLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         errorLabel.trailingAnchor.constraint(equalTo: noRepoBtn.leadingAnchor, constant: -8),
         nextBtn.topAnchor.constraint(equalTo: prevRecentAnchor, constant: 14),
-        nextBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
+        nextBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         nextBtn.heightAnchor.constraint(equalToConstant: 34),
         nextBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.topAnchor.constraint(equalTo: nextBtn.topAnchor),
-        cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        cancelBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
         cancelBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
@@ -864,7 +878,7 @@ func showPickPath() {
 
 func handlePathSelected(_ path: String) {
     guard isGitRepo(path) else {
-        showNamingWorkspace(path: path, repoRoot: "")
+        showNamingWorkspace(path: path, repoRoot: "", back: { showPickPath() })
         return
     }
     let root = gitRepoRoot(path) ?? path
@@ -900,12 +914,17 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
     class WtAction: NSObject {
         let path: String
         let root: String
-        init(_ p: String, _ r: String) { path = p; root = r }
+        let back: () -> Void
+        init(_ p: String, _ r: String, _ back: @escaping () -> Void) {
+            path = p; root = r; self.back = back
+        }
         @objc func pick(_ sender: Any) {
             let color = readWorktreeColor(path)
-            showNamingWorkspace(path: path, repoRoot: root, color: color)
+            showNamingWorkspace(path: path, repoRoot: root, color: color, back: back)
         }
     }
+
+    let backToHere = { showPickWorktree(repoRoot: repoRoot, worktrees: worktrees, manager: manager) }
 
     var prevAnchor: NSLayoutYAxisAnchor = subtitleLabel.bottomAnchor
     var actions: [WtAction] = []
@@ -934,7 +953,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
         ]))
         btn.attributedTitle = attr
 
-        let action = WtAction(wt.path, repoRoot)
+        let action = WtAction(wt.path, repoRoot, backToHere)
         actions.append(action)
         btn.target = action; btn.action = #selector(WtAction.pick(_:))
         objc_setAssociatedObject(btn, "a\(i)", action, .OBJC_ASSOCIATION_RETAIN)
@@ -973,20 +992,31 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
     class NewWtAction: NSObject {
         let root: String
         let mgr: [String: String]?
-        init(_ r: String, _ m: [String: String]?) { root = r; mgr = m }
-        @objc func create(_ sender: Any) { showCreateWorktree(repoRoot: root, manager: mgr) }
+        let wts: [Worktree]
+        init(_ r: String, _ m: [String: String]?, _ w: [Worktree]) { root = r; mgr = m; wts = w }
+        @objc func create(_ sender: Any) {
+            showCreateWorktree(repoRoot: root, worktrees: wts, manager: mgr)
+        }
     }
-    let newWtAction = NewWtAction(repoRoot, manager)
+    let newWtAction = NewWtAction(repoRoot, manager, worktrees)
     newWtRow.target = newWtAction; newWtRow.action = #selector(NewWtAction.create(_:))
     objc_setAssociatedObject(newWtRow, "a", newWtAction, .OBJC_ASSOCIATION_RETAIN)
 
+    let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    addView(backBtn)
     let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
+    class BackAction: NSObject {
+        @objc func back(_ sender: Any) { showPickPath() }
+    }
     class CancelAction: NSObject {
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
     }
+    let backAction = BackAction()
     let cancelAction = CancelAction()
+    backBtn.target = backAction; backBtn.action = #selector(BackAction.back(_:))
     cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
+    objc_setAssociatedObject(backBtn, "a", backAction, .OBJC_ASSOCIATION_RETAIN)
     objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
 
     NSLayoutConstraint.activate([
@@ -1002,8 +1032,12 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
         newWtRow.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 8),
         newWtRow.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8),
         newWtRow.heightAnchor.constraint(equalToConstant: 34),
-        cancelBtn.topAnchor.constraint(equalTo: newWtRow.bottomAnchor, constant: 14),
-        cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        backBtn.topAnchor.constraint(equalTo: newWtRow.bottomAnchor, constant: 14),
+        backBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        backBtn.heightAnchor.constraint(equalToConstant: 34),
+        backBtn.widthAnchor.constraint(equalToConstant: 100),
+        cancelBtn.topAnchor.constraint(equalTo: backBtn.topAnchor),
+        cancelBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
         cancelBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
@@ -1013,15 +1047,18 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers == "[" { showPickPath(); return nil }
         if let chars = event.charactersIgnoringModifiers, let digit = Int(chars),
            digit >= 1, digit <= worktrees.count {
             let wt = worktrees[digit - 1]
             let color = readWorktreeColor(wt.path)
-            showNamingWorkspace(path: wt.path, repoRoot: repoRoot, color: color)
+            showNamingWorkspace(path: wt.path, repoRoot: repoRoot, color: color,
+                                back: { showPickWorktree(repoRoot: repoRoot, worktrees: worktrees, manager: manager) })
             return nil
         }
         if event.charactersIgnoringModifiers == "n" {
-            showCreateWorktree(repoRoot: repoRoot, manager: manager)
+            showCreateWorktree(repoRoot: repoRoot, worktrees: worktrees, manager: manager)
             return nil
         }
         return event
@@ -1031,7 +1068,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
 // ============================================================================
 // STEP 2b: Create New Worktree
 // ============================================================================
-func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
+func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [String: String]? = nil) {
     clearContent()
 
     let titleLabel = NSTextField(labelWithString: "Create New Worktree")
@@ -1221,6 +1258,8 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
     // --- Buttons ---
     let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
     addView(createBtn)
+    let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    addView(backBtn)
     let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
 
@@ -1243,11 +1282,15 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
         scrollView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         scrollView.heightAnchor.constraint(equalToConstant: 160),
         createBtn.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 14),
-        createBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
+        createBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         createBtn.heightAnchor.constraint(equalToConstant: 34),
         createBtn.widthAnchor.constraint(equalToConstant: 100),
+        backBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
+        backBtn.trailingAnchor.constraint(equalTo: createBtn.leadingAnchor, constant: -10),
+        backBtn.heightAnchor.constraint(equalToConstant: 34),
+        backBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
-        cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        cancelBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
         cancelBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
@@ -1257,13 +1300,17 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
     listMgr.rebuildList()
     win.makeFirstResponder(nameField)
 
+    let backToHere = { showCreateWorktree(repoRoot: repoRoot, worktrees: worktrees, manager: manager) }
+    let backToParent = { showPickWorktree(repoRoot: repoRoot, worktrees: worktrees, manager: manager) }
+
     class CreateAction: NSObject {
         let root: String
         let field: NSTextField
         let errLabel: NSTextField
         let mgr: [String: String]?
-        init(_ r: String, _ f: NSTextField, _ e: NSTextField, _ m: [String: String]?) {
-            root = r; field = f; errLabel = e; mgr = m
+        let back: () -> Void
+        init(_ r: String, _ f: NSTextField, _ e: NSTextField, _ m: [String: String]?, _ back: @escaping () -> Void) {
+            root = r; field = f; errLabel = e; mgr = m; self.back = back
         }
         @objc func create(_ sender: Any) { doCreate() }
         func doCreate() {
@@ -1272,26 +1319,36 @@ func showCreateWorktree(repoRoot: String, manager: [String: String]? = nil) {
             let existing = listWorktrees(root)
             if let match = existing.first(where: { lastPathComponent($0.path) == name }) {
                 let color = readWorktreeColor(match.path)
-                showNamingWorkspace(path: match.path, repoRoot: root, color: color)
+                showNamingWorkspace(path: match.path, repoRoot: root, color: color, back: back)
                 return
             }
             let worktreesDir = (root as NSString).appendingPathComponent("worktrees")
             let expectedPath = (worktreesDir as NSString).appendingPathComponent(name)
-            showNamingWorkspace(path: expectedPath, repoRoot: root, setupCmd: mgr?["setup"], pendingWorktreeName: name)
+            showNamingWorkspace(path: expectedPath, repoRoot: root, setupCmd: mgr?["setup"], pendingWorktreeName: name, back: back)
         }
+    }
+    class BackAction: NSObject {
+        let back: () -> Void
+        init(_ back: @escaping () -> Void) { self.back = back }
+        @objc func goBack(_ sender: Any) { back() }
     }
     class CancelAction: NSObject {
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
     }
-    let createAction = CreateAction(repoRoot, nameField, errorLabel, manager)
+    let createAction = CreateAction(repoRoot, nameField, errorLabel, manager, backToHere)
+    let backAction = BackAction(backToParent)
     let cancelAction = CancelAction()
     createBtn.target = createAction; createBtn.action = #selector(CreateAction.create(_:))
+    backBtn.target = backAction; backBtn.action = #selector(BackAction.goBack(_:))
     cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
     objc_setAssociatedObject(createBtn, "a", createAction, .OBJC_ASSOCIATION_RETAIN)
+    objc_setAssociatedObject(backBtn, "a", backAction, .OBJC_ASSOCIATION_RETAIN)
     objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers == "[" { backToParent(); return nil }
         if event.keyCode == 36 { createAction.doCreate(); return nil }
         // Arrow keys navigate the branch list
         if event.keyCode == 125 { listMgr.moveHighlight(by: 1); return nil }  // down
@@ -1380,8 +1437,8 @@ func loadAppNames() -> [String] {
     return arr.compactMap { $0["name"] as? String }
 }
 
-func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil, setupCmd: String? = nil, pendingWorktreeName: String? = nil) {
-    showConfirmWorkspace(path: path, repoRoot: repoRoot, color: color, setupCmd: setupCmd, pendingWorktreeName: pendingWorktreeName)
+func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil, setupCmd: String? = nil, pendingWorktreeName: String? = nil, back: (() -> Void)? = nil) {
+    showConfirmWorkspace(path: path, repoRoot: repoRoot, color: color, setupCmd: setupCmd, pendingWorktreeName: pendingWorktreeName, back: back)
 }
 
 func showConfirmWorkspace(
@@ -1390,7 +1447,8 @@ func showConfirmWorkspace(
     repoRoot: String,
     color: String? = nil,
     setupCmd: String? = nil,
-    pendingWorktreeName: String? = nil
+    pendingWorktreeName: String? = nil,
+    back: (() -> Void)? = nil
 ) {
     clearContent()
 
@@ -1460,8 +1518,14 @@ func showConfirmWorkspace(
     addView(createBtn)
     let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(cancelBtn)
+    var backBtn: NSButton? = nil
+    if back != nil {
+        let b = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+        addView(b)
+        backBtn = b
+    }
 
-    NSLayoutConstraint.activate([
+    var buttonConstraints: [NSLayoutConstraint] = [
         titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
         titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         nameField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
@@ -1471,15 +1535,24 @@ func showConfirmWorkspace(
         nameErrorLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         nameErrorLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         createBtn.topAnchor.constraint(equalTo: prevAnchor, constant: 20),
-        createBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
+        createBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         createBtn.heightAnchor.constraint(equalToConstant: 34),
         createBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.topAnchor.constraint(equalTo: createBtn.topAnchor),
-        cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        cancelBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         cancelBtn.heightAnchor.constraint(equalToConstant: 34),
         cancelBtn.widthAnchor.constraint(equalToConstant: 100),
         cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
-    ])
+    ]
+    if let b = backBtn {
+        buttonConstraints.append(contentsOf: [
+            b.topAnchor.constraint(equalTo: createBtn.topAnchor),
+            b.trailingAnchor.constraint(equalTo: createBtn.leadingAnchor, constant: -10),
+            b.heightAnchor.constraint(equalToConstant: 34),
+            b.widthAnchor.constraint(equalToConstant: 100),
+        ])
+    }
+    NSLayoutConstraint.activate(buttonConstraints)
 
     relayout()
 
@@ -1521,6 +1594,11 @@ func showConfirmWorkspace(
     class CancelAction: NSObject {
         @objc func cancel(_ sender: Any) { cancelAndDismiss() }
     }
+    class BackAction: NSObject {
+        let back: () -> Void
+        init(_ back: @escaping () -> Void) { self.back = back }
+        @objc func goBack(_ sender: Any) { back() }
+    }
 
     let confirmAction = ConfirmAction(wsID, nameField, nameErrorLabel, path, repoRoot, color, setupCmd, pendingWorktreeName, checkboxes)
     let cancelAction = CancelAction()
@@ -1528,11 +1606,19 @@ func showConfirmWorkspace(
     cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
     objc_setAssociatedObject(createBtn, "a", confirmAction, .OBJC_ASSOCIATION_RETAIN)
     objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
+    if let b = backBtn, let backFn = back {
+        let backAction = BackAction(backFn)
+        b.target = backAction; b.action = #selector(BackAction.goBack(_:))
+        objc_setAssociatedObject(b, "a", backAction, .OBJC_ASSOCIATION_RETAIN)
+    }
 
     win.makeFirstResponder(nameField)
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if let backFn = back,
+           event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers == "[" { backFn(); return nil }
         if event.keyCode == 36 { confirmAction.doConfirm(); return nil }
         return event
     }
