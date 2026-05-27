@@ -586,7 +586,7 @@ func showNoRepoName() {
     errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
     addView(errorLabel)
 
-    let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
+    let createBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
     addView(createBtn)
     let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(backBtn)
@@ -1256,7 +1256,7 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
     objc_setAssociatedObject(nameField, "listMgr", listMgr, .OBJC_ASSOCIATION_RETAIN)
 
     // --- Buttons ---
-    let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
+    let createBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
     addView(createBtn)
     let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
     addView(backBtn)
