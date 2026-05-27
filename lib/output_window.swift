@@ -164,7 +164,7 @@ DispatchQueue.global(qos: .userInitiated).async {
         // "EXIT:<code>" signals completion — act immediately, don't wait for pipe closure
         if line.hasPrefix("EXIT:"), let code = Int32(line.dropFirst(5)) {
             DispatchQueue.main.async {
-                appendText("\n--- Done (exit \(code)) ---", color: NSColor(white: 1, alpha: 0.4))
+                appendText("\n--- Done (exit \(code)) — Closing in 10s ---", color: NSColor(white: 1, alpha: 0.4))
                 startCountdown()
             }
             return
@@ -173,7 +173,7 @@ DispatchQueue.global(qos: .userInitiated).async {
     }
     // Pipe closed without EXIT line
     DispatchQueue.main.async {
-        appendText("\n--- Done ---", color: NSColor(white: 1, alpha: 0.4))
+        appendText("\n--- Done — Closing in 10s ---", color: NSColor(white: 1, alpha: 0.4))
         startCountdown()
     }
 }

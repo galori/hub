@@ -1496,14 +1496,34 @@ func showConfirmWorkspace(
     if !appNames.isEmpty {
         let appsLabel = makeLabel("OPEN ON CREATION")
         addView(appsLabel)
+
+        // ☑ All / ☐ None toggle — flips based on current check state
+        let toggleAllBtn = NSButton()
+        toggleAllBtn.translatesAutoresizingMaskIntoConstraints = false
+        toggleAllBtn.isBordered = false
+        toggleAllBtn.wantsLayer = false
+
+        func updateToggleAllLabel() {
+            let allChecked = checkboxes.allSatisfy { $0.isChecked }
+            let attrs: [NSAttributedString.Key: Any] = [
+                .foregroundColor: NSColor(white: 1, alpha: 0.45),
+                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+            ]
+            toggleAllBtn.attributedTitle = NSAttributedString(
+                string: allChecked ? "☐  None" : "☑  All", attributes: attrs)
+        }
+
+        addView(toggleAllBtn)
         NSLayoutConstraint.activate([
             appsLabel.topAnchor.constraint(equalTo: prevAnchor, constant: 20),
             appsLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+            toggleAllBtn.centerYAnchor.constraint(equalTo: appsLabel.centerYAnchor),
+            toggleAllBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         ])
         prevAnchor = appsLabel.bottomAnchor
 
-        for name in appNames {
-            let cb = CustomCheckbox(label: name, checked: true)
+        for (i, name) in appNames.enumerated() {
+            let cb = CustomCheckbox(label: name, checked: i == 0)
             addView(cb)
             NSLayoutConstraint.activate([
                 cb.topAnchor.constraint(equalTo: prevAnchor, constant: 10),
@@ -1512,6 +1532,25 @@ func showConfirmWorkspace(
             prevAnchor = cb.bottomAnchor
             checkboxes.append(cb)
         }
+
+        // Wire toggle-all action after checkboxes are built
+        class ToggleAllAction: NSObject {
+            let checkboxes: [CustomCheckbox]
+            let update: () -> Void
+            init(_ cbs: [CustomCheckbox], _ update: @escaping () -> Void) {
+                self.checkboxes = cbs; self.update = update
+            }
+            @objc func toggle(_ sender: Any) {
+                let allChecked = checkboxes.allSatisfy { $0.isChecked }
+                checkboxes.forEach { $0.isChecked = !allChecked }
+                update()
+            }
+        }
+        let toggleAction = ToggleAllAction(checkboxes, updateToggleAllLabel)
+        toggleAllBtn.target = toggleAction
+        toggleAllBtn.action = #selector(ToggleAllAction.toggle(_:))
+        objc_setAssociatedObject(toggleAllBtn, "ta", toggleAction, .OBJC_ASSOCIATION_RETAIN)
+        updateToggleAllLabel()
     }
 
     // --- Optional Claude prompt ---
