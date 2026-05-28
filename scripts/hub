@@ -42,7 +42,7 @@ APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
 # AeroSpace outer.top padding (px) — see config/aerospace.toml.
 # tall = notch-avoidance / sketchybar-visible mode; normal = compact.
-BAR_PADDING_NORMAL=20
+BAR_PADDING_NORMAL=55
 BAR_PADDING_TALL=65
 
 # Ensure standard binary paths are available — AeroSpace's exec-and-forget
@@ -356,6 +356,10 @@ compile_all() {
     compile_swift "spatial_order" "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
     compile_swift "testing_banner" "$TESTING_BANNER_SRC" "$TESTING_BANNER_BIN"
     compile_swift "progress_banner" "$PROGRESS_BANNER_SRC" "$PROGRESS_BANNER_BIN"
+    if [[ -f "$REPO_DIR/assets/hub-logo.png" ]]; then
+        cp "$REPO_DIR/assets/hub-logo.png" "$HOME/.config/hub/hub-logo.png"
+        success "hub-logo.png deployed"
+    fi
     build_http_handler
 }
 

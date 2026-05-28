@@ -8,7 +8,27 @@ import Cocoa
 
 let resultPath = "/tmp/hub-new-workspace"
 let app = NSApplication.shared
-app.setActivationPolicy(.accessory)
+app.setActivationPolicy(.regular)
+
+let iconPath = ("~/.config/hub/hub-logo.png" as NSString).expandingTildeInPath
+if let icon = NSImage(contentsOfFile: iconPath) {
+    app.applicationIconImage = icon
+}
+
+let mainMenu = NSMenu()
+let editMenuItem = NSMenuItem()
+let editMenu = NSMenu(title: "Edit")
+editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+let redoItem = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+redoItem.keyEquivalentModifierMask = [.command, .shift]
+editMenu.addItem(NSMenuItem.separator())
+editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+editMenuItem.submenu = editMenu
+mainMenu.addItem(editMenuItem)
+app.mainMenu = mainMenu
 
 let screen = NSScreen.main ?? NSScreen.screens[0]
 let sf = screen.frame
@@ -34,29 +54,17 @@ class FlippedView: NSView {
 let dialogW: CGFloat = min(sf.width * 0.45, 600)
 let win = KeyableWindow(contentRect: NSRect(x: 0, y: 0, width: dialogW, height: 100),
                         styleMask: .borderless, backing: .buffered, defer: false)
-win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
+win.level = .normal
 win.backgroundColor = bgColor
 win.isOpaque = false
 win.hasShadow = true
+win.isMovableByWindowBackground = true
 win.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
 let cv = win.contentView!
 cv.wantsLayer = true
 cv.layer?.cornerRadius = 18
 cv.layer?.masksToBounds = true
-
-// --- Backdrop ---
-let backdrop: NSWindow = {
-    let w = NSWindow(contentRect: sf, styleMask: .borderless, backing: .buffered, defer: false)
-    w.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-    w.backgroundColor = NSColor(white: 0, alpha: 0.85)
-    w.isOpaque = false
-    w.hasShadow = false
-    w.collectionBehavior = [.canJoinAllSpaces, .stationary]
-    w.alphaValue = 0
-    w.orderFrontRegardless()
-    return w
-}()
 
 // --- Result writing ---
 func writeResult(_ value: String) {
@@ -67,7 +75,6 @@ func dismiss() {
     NSAnimationContext.runAnimationGroup({ ctx in
         ctx.duration = 0.25
         win.animator().alphaValue = 0
-        backdrop.animator().alphaValue = 0
     }, completionHandler: {
         NSApp.terminate(nil)
     })
@@ -251,15 +258,7 @@ func showFilePicker() -> String? {
     panel.canChooseDirectories = true
     panel.allowsMultipleSelection = false
     panel.prompt = "Select"
-    let savedWinLevel = win.level
-    let savedBackdropLevel = backdrop.level
-    win.level = .normal
-    backdrop.level = .normal
-    backdrop.alphaValue = 0
     let result = panel.runModal()
-    win.level = savedWinLevel
-    backdrop.level = savedBackdropLevel
-    backdrop.alphaValue = 1
     win.makeKeyAndOrderFront(nil)
     app.activate(ignoringOtherApps: true)
     guard result == .OK, let url = panel.url else { return nil }
@@ -1784,7 +1783,6 @@ DispatchQueue.main.async {
     NSAnimationContext.runAnimationGroup { ctx in
         ctx.duration = 0.15
         win.animator().alphaValue = 1
-        backdrop.animator().alphaValue = 1
     }
 }
 
