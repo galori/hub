@@ -949,6 +949,24 @@ _default_apps_list() {
     seq 1 "$count" | paste -sd, -
 }
 
+# Resolve a repo's default branch. Prefers origin/HEAD; falls back to main, then master.
+# Echoes branch name on success, nothing on failure.
+_default_branch() {
+    local repo_root="$1"
+    local ref
+    if ref="$(git -C "$repo_root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)"; then
+        echo "${ref#*/}"
+        return 0
+    fi
+    for candidate in main master; do
+        if git -C "$repo_root" rev-parse --verify "refs/heads/$candidate" >/dev/null 2>&1; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
 _cmd_new_cli() {
     local opt_path="" opt_worktree="" opt_name="" opt_id="" opt_color="" opt_prompt=""
     local opt_apps="" opt_no_repo=false opt_no_apps=false opt_apps_set=false
@@ -1044,11 +1062,21 @@ _cmd_new_cli() {
                         return 1
                     }
                 else
-                    git_err="$(git -C "$repo_root" worktree add -b "$opt_worktree" "$worktree_path" 2>&1)" || {
-                        progress_banner_stop
-                        fail "git worktree add failed: $git_err"
-                        return 1
-                    }
+                    local base_branch
+                    base_branch="$(_default_branch "$repo_root" || true)"
+                    if [[ -n "$base_branch" ]]; then
+                        git_err="$(git -C "$repo_root" worktree add -b "$opt_worktree" "$worktree_path" "$base_branch" 2>&1)" || {
+                            progress_banner_stop
+                            fail "git worktree add failed: $git_err"
+                            return 1
+                        }
+                    else
+                        git_err="$(git -C "$repo_root" worktree add -b "$opt_worktree" "$worktree_path" 2>&1)" || {
+                            progress_banner_stop
+                            fail "git worktree add failed: $git_err"
+                            return 1
+                        }
+                    fi
                 fi
                 progress_banner_stop
             fi

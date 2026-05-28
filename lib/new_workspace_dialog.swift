@@ -126,13 +126,16 @@ class StyledField: NSTextField {
         return r
     }
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard event.modifierFlags.contains(.command) else { return super.performKeyEquivalent(with: event) }
-        let target = window?.firstResponder
+        // Only intercept when this field is the focused editor — otherwise we'd
+        // hijack key equivalents (e.g. Cmd-V) destined for other text controls
+        // in the same window, like the prompt NSTextView.
+        guard event.modifierFlags.contains(.command),
+              let editor = currentEditor(),
+              window?.firstResponder === editor else {
+            return super.performKeyEquivalent(with: event)
+        }
         switch event.charactersIgnoringModifiers ?? "" {
-        case "a": return NSApp.sendAction(#selector(NSText.selectAll(_:)), to: target, from: self)
-        case "c": return NSApp.sendAction(#selector(NSText.copy(_:)),      to: target, from: self)
         case "v": return NSApp.sendAction(#selector(NSStyledField.pasteStrippingNewlines(_:)), to: self, from: self)
-        case "x": return NSApp.sendAction(#selector(NSText.cut(_:)),       to: target, from: self)
         default:  return super.performKeyEquivalent(with: event)
         }
     }
@@ -388,6 +391,37 @@ func listGitBranches(_ repoRoot: String) -> [String] {
     return output.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
 }
 
+func gitOutput(_ repoRoot: String, _ args: [String]) -> String? {
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    p.arguments = ["-C", repoRoot] + args
+    let pipe = Pipe()
+    p.standardOutput = pipe
+    p.standardError = FileHandle.nullDevice
+    try? p.run()
+    p.waitUntilExit()
+    guard p.terminationStatus == 0 else { return nil }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    let s = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return s.isEmpty ? nil : s
+}
+
+// Resolve the repo's default branch. Prefer origin/HEAD; fall back to main, then master.
+func defaultBranch(_ repoRoot: String) -> String? {
+    if let ref = gitOutput(repoRoot, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
+        if let slash = ref.firstIndex(of: "/") {
+            return String(ref[ref.index(after: slash)...])
+        }
+        return ref
+    }
+    for candidate in ["main", "master"] {
+        if gitOutput(repoRoot, ["rev-parse", "--verify", "refs/heads/\(candidate)"]) != nil {
+            return candidate
+        }
+    }
+    return nil
+}
+
 func createWorktree(repoRoot: String, name: String) -> (path: String?, error: String) {
     let checkBranch = Process()
     checkBranch.executableURL = URL(fileURLWithPath: "/usr/bin/git")
@@ -407,7 +441,11 @@ func createWorktree(repoRoot: String, name: String) -> (path: String?, error: St
     if branchExists {
         p.arguments = ["-C", repoRoot, "worktree", "add", worktreePath, name]
     } else {
-        p.arguments = ["-C", repoRoot, "worktree", "add", "-b", name, worktreePath]
+        var args = ["-C", repoRoot, "worktree", "add", "-b", name, worktreePath]
+        if let base = defaultBranch(repoRoot) {
+            args.append(base)
+        }
+        p.arguments = args
     }
     p.standardOutput = FileHandle.nullDevice
     let stderrPipe = Pipe()
