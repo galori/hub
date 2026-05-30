@@ -792,6 +792,16 @@ _create_workspace() {
         existing="$(cat "$WORKSPACES_FILE")"
     fi
 
+    # Guard against duplicates at write time (catches races that bypass cmd_new checks)
+    if echo "$existing" | jq -e --arg id "$ws_id" '.[] | select(.workspace_id == $id)' >/dev/null 2>&1; then
+        fail "Workspace ID '$ws_id' is already in use (duplicate detected at write time)"
+        return 1
+    fi
+    if echo "$existing" | jq -e --arg n "$ws_name" '.[] | select(.name == $n)' >/dev/null 2>&1; then
+        fail "A workspace named '$ws_name' already exists (duplicate detected at write time)"
+        return 1
+    fi
+
     local updated
     if [[ -n "$ws_color" ]]; then
         updated="$(echo "$existing" | jq --arg name "$ws_name" --arg path "$ws_path" \
