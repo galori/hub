@@ -131,17 +131,19 @@ read_superset_config() {
 # --- Workspaces-file lock (mkdir is atomic on POSIX; no flock on macOS) ---
 
 HUB_LOCK_DIR="$HOME/.config/hub/.lock"
+HUB_CONFIG_LOCK_DIR="$HOME/.config/hub/.config-lock"
 
 _hub_lock_acquire() {
+    local lockdir="${1:-$HUB_LOCK_DIR}"
     local deadline=$(( SECONDS + 5 ))
-    while ! mkdir "$HUB_LOCK_DIR" 2>/dev/null; do
+    while ! mkdir "$lockdir" 2>/dev/null; do
         (( SECONDS >= deadline )) && { fail "Timed out waiting for hub lock"; return 1; }
         sleep 0.05
     done
 }
 
 _hub_lock_release() {
-    rmdir "$HUB_LOCK_DIR" 2>/dev/null || true
+    rmdir "${1:-$HUB_LOCK_DIR}" 2>/dev/null || true
 }
 
 # --- Overlay helpers ---
@@ -808,6 +810,15 @@ _create_workspace() {
     local existing="[]"
     [[ -f "$WORKSPACES_FILE" ]] && existing="$(cat "$WORKSPACES_FILE")"
 
+    # Auto-allocate ID inside the lock so no concurrent caller can grab the same one
+    if [[ -z "$ws_id" ]]; then
+        ws_id="$(_alloc_workspace_id "$existing")" || {
+            _hub_lock_release
+            fail "No free workspace IDs available"
+            return 1
+        }
+    fi
+
     if echo "$existing" | jq -e --arg id "$ws_id" '.[] | select(.workspace_id == $id)' >/dev/null 2>&1; then
         _hub_lock_release
         fail "Workspace ID '$ws_id' is already in use"
@@ -937,10 +948,12 @@ EOF
 # Allocate the first unused workspace ID, mirroring nextWorkspaceID() in
 # lib/new_workspace_dialog.swift (alphabet at line 436-437).
 _alloc_workspace_id() {
-    local used="["
-    if [[ -f "$WORKSPACES_FILE" ]]; then
-        used="$(jq -c '[.[].workspace_id]' "$WORKSPACES_FILE" 2>/dev/null || echo "[]")"
+    local existing="${1:-}"
+    if [[ -z "$existing" ]]; then
+        existing="$(cat "$WORKSPACES_FILE" 2>/dev/null || echo "[]")"
     fi
+    local used
+    used="$(echo "$existing" | jq -c '[.[].workspace_id]' 2>/dev/null || echo "[]")"
     local ids=(1 2 3 4 5 6 7 8 9 A B C D E F G I M N O P Q R S T U V W X Y Z)
     local id
     for id in "${ids[@]}"; do
@@ -1135,23 +1148,16 @@ _cmd_new_cli() {
         fi
     fi
 
-    # Resolve workspace ID
+    # Resolve workspace ID — explicit IDs are validated here; auto-allocation
+    # happens inside _create_workspace under the lock to avoid races
     if [[ -n "$opt_id" ]]; then
         if ! _is_valid_workspace_id "$opt_id"; then
             fail "Invalid workspace ID: $opt_id (allowed: 1-9, A-G, I, M-Z)"
             return 2
         fi
-        if [[ -f "$WORKSPACES_FILE" ]] \
-            && jq -e --arg id "$opt_id" '.[] | select(.workspace_id == $id)' "$WORKSPACES_FILE" >/dev/null 2>&1; then
-            fail "Workspace ID '$opt_id' is already in use"
-            return 1
-        fi
         ws_id="$opt_id"
     else
-        ws_id="$(_alloc_workspace_id)" || {
-            fail "No free workspace IDs available"
-            return 1
-        }
+        ws_id=""  # _create_workspace will allocate inside the lock
     fi
 
     # Color: explicit, else .envrc.local, else empty
@@ -1296,11 +1302,13 @@ cmd_rename() {
         return
     fi
 
+    _hub_lock_acquire || return 1
     local updated
     updated="$(jq --arg id "$ws_id" --arg name "$new_name" \
         '[.[] | if .workspace_id == $id then .name = $name else . end]' \
         "$WORKSPACES_FILE")"
     echo "$updated" > "$WORKSPACES_FILE"
+    _hub_lock_release
 
     update_sketchybar_label "$ws_id" "$new_name"
 
@@ -1579,9 +1587,11 @@ cmd_remove() {
 
     # Instant cleanup — before any slow teardown
     if [[ -f "$WORKSPACES_FILE" ]]; then
+        _hub_lock_acquire || return 1
         local updated
         updated="$(jq --arg id "$ws_id" '[.[] | select(.workspace_id != $id)]' "$WORKSPACES_FILE")"
         echo "$updated" > "$WORKSPACES_FILE"
+        _hub_lock_release
     fi
 
     remove_sketchybar_label "$ws_id"
@@ -1946,10 +1956,12 @@ cmd_config() {
                 return 2
             fi
             _validate_config_key "$key" || return $?
+            mkdir -p "$(dirname "$HUB_CONFIG_FILE")"
+            _hub_lock_acquire "$HUB_CONFIG_LOCK_DIR" || return 1
             local existing="{}"
             [[ -f "$HUB_CONFIG_FILE" ]] && existing="$(cat "$HUB_CONFIG_FILE")"
-            mkdir -p "$(dirname "$HUB_CONFIG_FILE")"
             echo "$existing" | jq --arg k "$key" --arg v "$value" '. + {($k): $v}' > "$HUB_CONFIG_FILE"
+            _hub_lock_release "$HUB_CONFIG_LOCK_DIR"
             success "$key = $value"
             ;;
         unset)
@@ -1960,9 +1972,11 @@ cmd_config() {
             fi
             _validate_config_key "$key" || return $?
             if [[ -f "$HUB_CONFIG_FILE" ]]; then
+                _hub_lock_acquire "$HUB_CONFIG_LOCK_DIR" || return 1
                 local updated
                 updated="$(jq --arg k "$key" 'del(.[$k])' "$HUB_CONFIG_FILE")"
                 echo "$updated" > "$HUB_CONFIG_FILE"
+                _hub_lock_release "$HUB_CONFIG_LOCK_DIR"
             fi
             success "$key unset"
             ;;
@@ -2303,6 +2317,7 @@ cmd_bar_height() {
 
 ensure_general_workspace() {
     mkdir -p "$(dirname "$WORKSPACES_FILE")"
+    _hub_lock_acquire || return 1
     local existing="[]"
     [[ -f "$WORKSPACES_FILE" ]] && existing="$(cat "$WORKSPACES_FILE")"
     local already
@@ -2311,8 +2326,11 @@ ensure_general_workspace() {
         local updated
         updated="$(echo "$existing" | jq '. + [{name: "General", path: $ENV.HOME, root_repo: "", workspace_id: "Z"}]')"
         echo "$updated" > "$WORKSPACES_FILE"
+        _hub_lock_release
         update_sketchybar_label "Z" "General"
         success "Created General workspace (Z)"
+    else
+        _hub_lock_release
     fi
 }
 
