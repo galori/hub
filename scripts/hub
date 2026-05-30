@@ -128,6 +128,22 @@ read_superset_config() {
     jq -r --arg k "$key" '.[$k][0] // empty' "$cfg" 2>/dev/null
 }
 
+# --- Workspaces-file lock (mkdir is atomic on POSIX; no flock on macOS) ---
+
+HUB_LOCK_DIR="$HOME/.config/hub/.lock"
+
+_hub_lock_acquire() {
+    local deadline=$(( SECONDS + 5 ))
+    while ! mkdir "$HUB_LOCK_DIR" 2>/dev/null; do
+        (( SECONDS >= deadline )) && { fail "Timed out waiting for hub lock"; return 1; }
+        sleep 0.05
+    done
+}
+
+_hub_lock_release() {
+    rmdir "$HUB_LOCK_DIR" 2>/dev/null || true
+}
+
 # --- Overlay helpers ---
 
 OVERLAY_PID=""
@@ -785,20 +801,21 @@ _create_workspace() {
 
     progress_banner_start "Creating workspace ${ws_name}..."
 
-    # Save to workspaces.json
+    # Save to workspaces.json — hold the lock for the entire read→check→write
     mkdir -p "$(dirname "$WORKSPACES_FILE")"
-    local existing="[]"
-    if [[ -f "$WORKSPACES_FILE" ]]; then
-        existing="$(cat "$WORKSPACES_FILE")"
-    fi
+    _hub_lock_acquire || return 1
 
-    # Guard against duplicates at write time (catches races that bypass cmd_new checks)
+    local existing="[]"
+    [[ -f "$WORKSPACES_FILE" ]] && existing="$(cat "$WORKSPACES_FILE")"
+
     if echo "$existing" | jq -e --arg id "$ws_id" '.[] | select(.workspace_id == $id)' >/dev/null 2>&1; then
-        fail "Workspace ID '$ws_id' is already in use (duplicate detected at write time)"
+        _hub_lock_release
+        fail "Workspace ID '$ws_id' is already in use"
         return 1
     fi
     if echo "$existing" | jq -e --arg n "$ws_name" '.[] | select(.name == $n)' >/dev/null 2>&1; then
-        fail "A workspace named '$ws_name' already exists (duplicate detected at write time)"
+        _hub_lock_release
+        fail "A workspace named '$ws_name' already exists"
         return 1
     fi
 
@@ -814,6 +831,7 @@ _create_workspace() {
     fi
 
     echo "$updated" > "$WORKSPACES_FILE"
+    _hub_lock_release
     success "Saved to $WORKSPACES_FILE"
 
     # Update recent_repos.json (skip for no-repo workspaces)
