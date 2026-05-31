@@ -31,6 +31,10 @@ TESTING_BANNER_PIDFILE="$HOME/.config/hub/testing_banner.pid"
 PROGRESS_BANNER_SRC="$LIB_DIR/progress_banner.swift"
 PROGRESS_BANNER_BIN="$HOME/.config/hub/progress_banner"
 PROGRESS_BANNER_PIDFILE="$HOME/.config/hub/progress_banner.pid"
+APP_SWITCHER_SRC="$LIB_DIR/app_switcher.swift"
+APP_SWITCHER_BIN="$HOME/.config/hub/app_switcher"
+APP_SWITCHER_LOCK_DIR="$HOME/.config/hub/.app-switcher-lock"
+APP_SWITCHER_RESULT="/tmp/hub-app-switcher-result"
 PREV_BROWSER_FILE="$HOME/.config/hub/prev_browser"
 HUB_BROWSER_ID="sh.hub.http-handler"
 WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
@@ -72,6 +76,7 @@ print_usage() {
     echo "  remove        Remove a workspace (current or by ID)"
     echo "  rename        Rename a workspace (current or by ID)"
     echo "  open          Open configured apps in current workspace"
+    echo "  app-switcher  Cmd-Tab-style cycle over launch-bar apps (Alt-N; hold Alt, tap N)"
     echo "  keys          List all AeroSpace key bindings (main and service mode)"
     echo "  dashboard     Show status and key bindings in a full-screen modal"
     echo "  label-length  Shrink or grow workspace label max length (+/-/grow/shrink/min/max/number)"
@@ -293,6 +298,53 @@ progress_banner_stop() {
     rm -f "$PROGRESS_BANNER_PIDFILE"
 }
 
+# --- App switcher: Cmd-Tab-style cycle over the mini launch bar apps ---
+# First Alt-N press launches the Swift modal and blocks until the user releases
+# Option (commit) or presses Esc (cancel). Subsequent Alt-N presses while the
+# modal is up just signal it (SIGUSR1) to advance the highlight, then return.
+# The atomic mkdir lock both prevents a second modal and stores the modal's pid.
+cmd_app_switcher() {
+    [[ -x "$APP_SWITCHER_BIN" ]] || return 0
+    [[ -f "$APPS_FILE" ]] || return 0
+    # No apps configured → nothing to switch between.
+    local app_count
+    app_count="$(jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)"
+    [[ "$app_count" -gt 0 ]] || return 0
+
+    # Try to become the owner. If mkdir fails, a modal is already running.
+    if ! mkdir "$APP_SWITCHER_LOCK_DIR" 2>/dev/null; then
+        # Advance the existing modal. The pid file may not exist yet during a
+        # cold-start race, so retry briefly before giving up.
+        local pid="" tries=0
+        while [[ -z "$pid" && $tries -lt 20 ]]; do
+            pid="$(cat "$APP_SWITCHER_LOCK_DIR/pid" 2>/dev/null || true)"
+            [[ -n "$pid" ]] && break
+            sleep 0.02
+            tries=$((tries + 1))
+        done
+        [[ -n "$pid" ]] && kill -USR1 "$pid" 2>/dev/null || true
+        return 0
+    fi
+
+    # We own the lock — run the modal to completion.
+    rm -f "$APP_SWITCHER_RESULT"
+    "$APP_SWITCHER_BIN" &
+    local sw_pid=$!
+    echo "$sw_pid" > "$APP_SWITCHER_LOCK_DIR/pid"
+    wait "$sw_pid" 2>/dev/null || true
+
+    # Launch whatever was selected (force a new window, like Cmd-F1..F5).
+    local slot=""
+    [[ -f "$APP_SWITCHER_RESULT" ]] && slot="$(cat "$APP_SWITCHER_RESULT" 2>/dev/null || true)"
+
+    rm -rf "$APP_SWITCHER_LOCK_DIR"
+    rm -f "$APP_SWITCHER_RESULT"
+
+    if [[ -n "$slot" ]]; then
+        cmd_open "$slot" --force
+    fi
+}
+
 # --- Menu bar toggle (AppleScript, non-blocking) ---
 
 MENU_BAR_PID=""
@@ -374,6 +426,7 @@ compile_all() {
     compile_swift "spatial_order" "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
     compile_swift "testing_banner" "$TESTING_BANNER_SRC" "$TESTING_BANNER_BIN"
     compile_swift "progress_banner" "$PROGRESS_BANNER_SRC" "$PROGRESS_BANNER_BIN"
+    compile_swift "app_switcher" "$APP_SWITCHER_SRC" "$APP_SWITCHER_BIN"
     if [[ -f "$REPO_DIR/assets/hub-logo.png" ]]; then
         cp "$REPO_DIR/assets/hub-logo.png" "$HOME/.config/hub/hub-logo.png"
         success "hub-logo.png deployed"
@@ -2690,6 +2743,7 @@ case "$command" in
     next)     cmd_next ;;
     prev)     cmd_prev ;;
     open)     cmd_open "$@" ;;
+    app-switcher) cmd_app_switcher "$@" ;;
     up)       cmd_up ;;
     down)     cmd_down ;;
     reboot)   cmd_reboot ;;

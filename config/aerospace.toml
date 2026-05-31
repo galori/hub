@@ -109,7 +109,9 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     alt-g = 'workspace G'
     alt-i = 'workspace I'
     alt-m = 'workspace M'
-    alt-n = 'workspace N'
+    # alt-n opens the Cmd-Tab-style app switcher instead of jumping to workspace N.
+    # Hold Alt and tap N to cycle the mini launch bar apps; release Alt to launch.
+    alt-n = 'exec-and-forget __HUB_SCRIPT__ app-switcher'
     alt-o = 'workspace O'
     alt-p = 'workspace P'
     alt-q = 'workspace Q'
