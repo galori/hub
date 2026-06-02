@@ -78,7 +78,7 @@ let iconSize: CGFloat = 56
 let tileGap: CGFloat = 8
 let padding: CGFloat = 14
 let labelH: CGFloat = 22
-let labelGap: CGFloat = 6
+let labelGap: CGFloat = 8
 
 // One tile per app, plus a trailing ✕ "cancel" tile. Releasing Alt while the
 // cancel tile is highlighted dismisses the switcher without launching anything.
@@ -86,30 +86,41 @@ let count = apps.count
 let cancelIndex = count          // index of the cancel tile in the cycle
 let tileCount = count + 1        // apps + cancel tile
 let cardW = padding * 2 + CGFloat(tileCount) * tileSize + CGFloat(tileCount - 1) * tileGap
-let cardH = padding * 2 + tileSize + labelGap + labelH
+// The dark card wraps only the icon row; the label hangs below outside the card.
+let cardH: CGFloat = padding * 2 + tileSize
+let winH: CGFloat = cardH + labelGap + labelH
 
+// Position so the card (icon area) is screen-centered; label hangs below.
 let originX = sf.midX - cardW / 2
-let originY = sf.midY - cardH / 2
+let originY = sf.midY - cardH / 2 - labelGap - labelH
 
 class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
 }
 
+// Window is taller than the card so the label can hang below outside the card.
 let win = KeyableWindow(
-    contentRect: NSRect(x: originX, y: originY, width: cardW, height: cardH),
+    contentRect: NSRect(x: originX, y: originY, width: cardW, height: winH),
     styleMask: .borderless, backing: .buffered, defer: false)
 win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
-win.backgroundColor = cardBg
+win.backgroundColor = .clear
 win.isOpaque = false
 win.hasShadow = true
 win.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
 
-let cv = win.contentView!
-cv.wantsLayer = true
-cv.layer?.cornerRadius = 16
-cv.layer?.masksToBounds = true
-cv.layer?.borderWidth = 1
-cv.layer?.borderColor = NSColor(white: 1, alpha: 0.08).cgColor
+let wv = win.contentView!
+wv.wantsLayer = true
+
+// Dark card sits at the top of the window (above the label area).
+let cardView = NSView(frame: NSRect(x: 0, y: winH - cardH, width: cardW, height: cardH))
+cardView.wantsLayer = true
+cardView.layer?.backgroundColor = cardBg.cgColor
+cardView.layer?.cornerRadius = 16
+cardView.layer?.masksToBounds = true
+cardView.layer?.borderWidth = 1
+cardView.layer?.borderColor = NSColor(white: 1, alpha: 0.08).cgColor
+wv.addSubview(cardView)
+let cv = cardView
 
 // --- Tiles ---
 let cancelHi = NSColor(red: 0.80, green: 0.30, blue: 0.30, alpha: 0.95)
@@ -180,23 +191,26 @@ cancelTile.widthAnchor.constraint(equalToConstant: tileSize).isActive = true
 cancelTile.heightAnchor.constraint(equalToConstant: tileSize).isActive = true
 tiles.append(cancelTile)
 row.addArrangedSubview(cancelTile)
-cv.addSubview(row)
+cardView.addSubview(row)
 
+// Label hangs below the card, inside the transparent window extension.
 let nameLabel = NSTextField(labelWithString: apps[0].name)
 nameLabel.translatesAutoresizingMaskIntoConstraints = false
 nameLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
 nameLabel.textColor = labelColor
 nameLabel.alignment = .center
-cv.addSubview(nameLabel)
+wv.addSubview(nameLabel)
 
 NSLayoutConstraint.activate([
-    row.topAnchor.constraint(equalTo: cv.topAnchor, constant: padding),
-    row.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
+    // Icon row is centered inside the card.
+    row.centerXAnchor.constraint(equalTo: cardView.centerXAnchor),
+    row.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
     row.heightAnchor.constraint(equalToConstant: tileSize),
 
-    nameLabel.topAnchor.constraint(equalTo: row.bottomAnchor, constant: labelGap),
-    nameLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: padding),
-    nameLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -padding),
+    // Label sits below the card in the transparent window area.
+    nameLabel.topAnchor.constraint(equalTo: wv.topAnchor, constant: labelGap),
+    nameLabel.leadingAnchor.constraint(equalTo: wv.leadingAnchor, constant: padding),
+    nameLabel.trailingAnchor.constraint(equalTo: wv.trailingAnchor, constant: -padding),
 ])
 
 // --- Selection state ---
