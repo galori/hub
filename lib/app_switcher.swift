@@ -75,9 +75,10 @@ let labelColor = NSColor(white: 1, alpha: 0.92)
 // --- Layout metrics ---
 let tileSize: CGFloat = 80
 let iconSize: CGFloat = 56
-let tileGap: CGFloat = 12
-let padding: CGFloat = 20
+let tileGap: CGFloat = 8
+let padding: CGFloat = 14
 let labelH: CGFloat = 22
+let labelGap: CGFloat = 6
 
 // One tile per app, plus a trailing ✕ "cancel" tile. Releasing Alt while the
 // cancel tile is highlighted dismisses the switcher without launching anything.
@@ -85,7 +86,7 @@ let count = apps.count
 let cancelIndex = count          // index of the cancel tile in the cycle
 let tileCount = count + 1        // apps + cancel tile
 let cardW = padding * 2 + CGFloat(tileCount) * tileSize + CGFloat(tileCount - 1) * tileGap
-let cardH = padding * 2 + tileSize + labelH
+let cardH = padding * 2 + tileSize + labelGap + labelH
 
 let originX = sf.midX - cardW / 2
 let originY = sf.midY - cardH / 2
@@ -193,7 +194,7 @@ NSLayoutConstraint.activate([
     row.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
     row.heightAnchor.constraint(equalToConstant: tileSize),
 
-    nameLabel.topAnchor.constraint(equalTo: row.bottomAnchor, constant: 6),
+    nameLabel.topAnchor.constraint(equalTo: row.bottomAnchor, constant: labelGap),
     nameLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: padding),
     nameLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -padding),
 ])
