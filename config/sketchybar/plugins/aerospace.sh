@@ -128,6 +128,19 @@ render_workspaces() {
     "$SKETCHYBAR" "${ARGS[@]}"
 }
 
+assign_displays() {
+    local ARGS=()
+    local monitor_num=1
+    while IFS= read -r nsscreen_id; do
+        while IFS= read -r ws; do
+            ARGS+=(--set "space.$ws" "display=$nsscreen_id")
+        done < <(aerospace list-workspaces --monitor "$monitor_num" 2>/dev/null)
+        monitor_num=$((monitor_num + 1))
+    done < <(aerospace list-monitors --format "%{monitor-appkit-nsscreen-screens-id}" 2>/dev/null)
+    [ ${#ARGS[@]} -gt 0 ] && "$SKETCHYBAR" "${ARGS[@]}"
+}
+
+assign_displays
 render_workspaces
 
 "$SCRIPT_DIR/app_launcher.sh" >/dev/null 2>&1 &
