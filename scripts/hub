@@ -42,6 +42,8 @@ RECENT_REPOS_FILE="$HOME/.config/hub/recent_repos.json"
 APPS_FILE="$HOME/.config/hub/apps.json"
 HUB_CONFIG_FILE="$HOME/.config/hub/config.json"
 ICONS_DIR="$HOME/.config/hub/icons"
+APP_PRESETS_SRC="$CONFIG_DIR/app_presets.json"
+APP_PRESETS_FILE="$HOME/.config/hub/app_presets.json"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 
 # AeroSpace outer.top padding (px) — see config/aerospace.toml.
@@ -75,7 +77,8 @@ print_usage() {
     echo "  status        Show current service state, workspace info, and label length"
     echo "  remove        Remove a workspace (current or by ID)"
     echo "  rename        Rename a workspace (current or by ID)"
-    echo "  open          Open configured apps in current workspace"
+    echo "  apps          Manage configured app launcher slots (list/add/edit/remove/reset)"
+  echo "  open          Open configured apps in current workspace"
     echo "  app-switcher  Cmd-Tab-style cycle over launch-bar apps (Alt-N; hold Alt, tap N)"
     echo "  keys          List all AeroSpace key bindings (main and service mode)"
     echo "  dashboard     Show status and key bindings in a full-screen modal"
@@ -525,6 +528,11 @@ PLIST
     fi
 }
 
+# --- Shared libraries ---
+
+APPS_FLOW_LIB="$SCRIPT_DIR/lib/apps_flow.sh"
+[ -f "$APPS_FLOW_LIB" ] && source "$APPS_FLOW_LIB"
+
 # --- Commands ---
 
 extract_app_icons() {
@@ -641,32 +649,45 @@ cmd_install() {
     chmod +x "$SKETCHYBAR_CONFIG_DIR/sketchybarrc" "$SKETCHYBAR_CONFIG_DIR/plugins/"*.sh
     success "sketchybar config deployed to $SKETCHYBAR_CONFIG_DIR"
 
-    # --- Write default apps.json ---
+    # --- Deploy app presets database ---
     mkdir -p "$(dirname "$APPS_FILE")"
+    if [[ -f "$APP_PRESETS_SRC" ]]; then
+        cp "$APP_PRESETS_SRC" "$APP_PRESETS_FILE"
+        success "App presets deployed to $APP_PRESETS_FILE"
+    fi
+
+    # --- Configure app launcher slots ---
     if [[ ! -f "$APPS_FILE" ]]; then
-        cat > "$APPS_FILE" << 'APPS_EOF'
-[
-  {
-    "name": "iTerm2",
-    "launch": "osascript -e 'tell application \"iTerm2\"' -e 'activate' -e 'set w to (create window with default profile)' -e 'tell current session of w' -e 'write text \"cd {path}\"' -e 'end tell' -e 'end tell'",
-    "icon": "iTerm2"
-  },
-  {
-    "name": "Google Chrome",
-    "launch": "open -na 'Google Chrome' --args --new-window --profile-directory=hub",
-    "icon": "Google Chrome"
-  },
-  {
-    "name": "Code",
-    "launch": "/usr/local/bin/code --new-window {path}",
-    "icon": "Code"
-  }
-]
-APPS_EOF
-        success "Created default $APPS_FILE"
+        echo
+        echo -e "${bold}Let's configure your app launcher.${reset}"
+        echo "  The launcher gives you up to 5 slots, each bound to Ctrl+Alt+<1..5>."
+        echo "  You can customize this any time with: hub apps"
+        echo
+        local _start
+        read -rp "  Start guided setup now? [Y/n] " _start
+        if [[ -z "$_start" || "$_start" =~ ^[Yy] ]]; then
+            echo "[]" > "$APPS_FILE"
+            local _slot
+            for _slot in 1 2 3 4 5; do
+                echo
+                echo -e "${bold}─── Slot $_slot of 5 ───${reset}"
+                if ! apps_add_guided "$_slot"; then
+                    info "Stopping guided setup. Add more later with: hub apps add"
+                    break
+                fi
+                echo
+                if [ "$_slot" -lt 5 ]; then
+                    local _more
+                    read -rp "  Add another app? [Y/n] " _more
+                    [[ "$_more" =~ ^[Nn] ]] && { info "Stopping. Add more later with: hub apps add"; break; }
+                fi
+            done
+        else
+            echo "[]" > "$APPS_FILE"
+            info "Created empty apps.json. Add apps with: hub apps add"
+        fi
     else
-        info "apps.json already exists — edit it to customize your app slots:"
-        info "  $APPS_FILE"
+        info "apps.json already exists — manage slots with: hub apps list / add / edit / remove"
     fi
 
     # --- Extract app icons for sketchybar (works even when apps are not running) ---
@@ -774,7 +795,7 @@ APPS_EOF
     echo
     echo "Or open a new terminal."
     echo
-    echo -e "  Tip: edit ${bold}~/.config/hub/apps.json${reset} to configure your app launcher slots."
+    echo -e "  Tip: run ${bold}hub apps${reset} to list or modify your app launcher slots."
     echo -e "  Then use ${bold}Ctrl+Alt+O${reset} or ${bold}hub open${reset} to launch apps into the current workspace."
 }
 
@@ -2566,6 +2587,100 @@ cmd_down() {
     echo -e "${green}${bold}hub shut down complete.${reset}"
 }
 
+# --- App launcher slot management ---
+
+cmd_apps() {
+    local sub="${1:-list}"
+    shift || true
+
+    case "$sub" in
+        ls|list)
+            apps_list
+            ;;
+        presets)
+            apps_list_presets
+            ;;
+        add)
+            local slot=""
+            for arg in "$@"; do
+                case "$arg" in
+                    [1-5]) slot="$arg" ;;
+                esac
+            done
+            if [ -z "$slot" ]; then
+                if [ ! -f "$APPS_FILE" ]; then
+                    slot=1
+                else
+                    local count
+                    count=$(jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)
+                    if [ "$count" -ge "$APPS_MAX_SLOTS" ]; then
+                        fail "All $APPS_MAX_SLOTS slots are filled. Use 'hub apps edit <slot>' or 'hub apps remove <slot>'."
+                        return 1
+                    fi
+                    slot=$((count + 1))
+                fi
+            fi
+            info "Adding app to slot $slot"
+            apps_add_guided "$slot"
+            ;;
+        edit)
+            local slot="${1:-}"
+            if [ -z "$slot" ] || ! [[ "$slot" =~ ^[1-5]$ ]]; then
+                fail "Usage: hub apps edit <slot 1-5>"
+                return 1
+            fi
+            info "Editing slot $slot (pick a new app to replace it)"
+            apps_add_guided "$slot"
+            ;;
+        rm|remove)
+            local slot="${1:-}"
+            local assume_yes=false
+            for arg in "$@"; do
+                [ "$arg" = "-y" ] && assume_yes=true
+            done
+            if [ -z "$slot" ] || ! [[ "$slot" =~ ^[1-5]$ ]]; then
+                fail "Usage: hub apps remove <slot 1-5> [-y]"
+                return 1
+            fi
+            if ! $assume_yes; then
+                local yn
+                read -rp "Remove slot $slot? [y/N] " yn
+                [[ "$yn" =~ ^[Yy] ]] || { info "Cancelled."; return; }
+            fi
+            apps_remove_slot "$slot"
+            ;;
+        reset)
+            local assume_yes=false
+            for arg in "$@"; do
+                [ "$arg" = "-y" ] && assume_yes=true
+            done
+            if ! $assume_yes; then
+                local yn
+                read -rp "Remove ALL app slots? [y/N] " yn
+                [[ "$yn" =~ ^[Yy] ]] || { info "Cancelled."; return; }
+            fi
+            echo "[]" > "$APPS_FILE"
+            success "Cleared all app slots"
+            apps_refresh
+            ;;
+        help|-h|--help)
+            echo -e "${bold}Usage:${reset} hub apps <subcommand>"
+            echo
+            echo "  list            Show configured app slots (default)"
+            echo "  add [slot]      Add an app to the next free slot (or specified slot 1-5)"
+            echo "  edit <slot>     Replace the app in slot 1-5"
+            echo "  remove <slot>   Remove the app from slot 1-5"
+            echo "  reset           Clear all slots"
+            echo "  presets         List every app preset shipped with hub"
+            ;;
+        *)
+            fail "Unknown subcommand: $sub"
+            echo "Run: hub apps help"
+            return 1
+            ;;
+    esac
+}
+
 # --- Claude notification hooks ---
 
 cmd_claude_hooks() {
@@ -2742,6 +2857,7 @@ case "$command" in
     rename)   cmd_rename "$@" ;;
     next)     cmd_next ;;
     prev)     cmd_prev ;;
+    apps)     cmd_apps "$@" ;;
     open)     cmd_open "$@" ;;
     app-switcher) cmd_app_switcher "$@" ;;
     up)       cmd_up ;;

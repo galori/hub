@@ -1,0 +1,77 @@
+{
+  "com.googlecode.iterm2": {
+    "name": "iTerm2",
+    "launch": "osascript -e 'tell application \"iTerm2\"' -e 'activate' -e 'set w to (create window with default profile)' -e 'tell current session of w' -e 'write text \"cd {path}\"' -e 'end tell' -e 'end tell'",
+    "description": "Opens a new iTerm2 window and cd's into the workspace path"
+  },
+  "com.apple.Terminal": {
+    "name": "Terminal",
+    "launch": "osascript -e 'tell application \"Terminal\"' -e 'activate' -e 'do script \"cd {path}\"' -e 'end tell'",
+    "description": "Opens a new Terminal window and cd's into the workspace path"
+  },
+  "com.mitchellh.ghostty": {
+    "name": "Ghostty",
+    "launch": "open -na Ghostty --args --working-directory={path}",
+    "description": "Opens a new Ghostty window in the workspace path"
+  },
+  "com.github.wez.wezterm": {
+    "name": "WezTerm",
+    "launch": "open -na WezTerm --args start --cwd {path}",
+    "description": "Opens a new WezTerm window in the workspace path"
+  },
+  "dev.warp.Warp-Stable": {
+    "name": "Warp",
+    "launch": "open -na Warp --args --new-window {path}",
+    "description": "Opens a new Warp window in the workspace path"
+  },
+  "com.microsoft.VSCode": {
+    "name": "Code",
+    "launch": "code --new-window {path}",
+    "description": "Opens the workspace path in a new VS Code window (requires `code` on PATH)"
+  },
+  "com.todesktop.230313mzl4w4u92": {
+    "name": "Cursor",
+    "launch": "cursor --new-window {path}",
+    "description": "Opens the workspace path in a new Cursor window (requires `cursor` on PATH)"
+  },
+  "com.google.Chrome": {
+    "name": "Google Chrome",
+    "launch": "open -na 'Google Chrome' --args --new-window --profile-directory=hub",
+    "description": "Opens a new Chrome window using the dedicated 'hub' profile"
+  },
+  "com.brave.Browser": {
+    "name": "Brave Browser",
+    "launch": "open -na 'Brave Browser' --args --new-window",
+    "description": "Opens a new Brave window"
+  },
+  "org.mozilla.firefox": {
+    "name": "Firefox",
+    "launch": "open -na Firefox --args --new-window",
+    "description": "Opens a new Firefox window"
+  },
+  "com.apple.Safari": {
+    "name": "Safari",
+    "launch": "osascript -e 'tell application \"Safari\"' -e 'activate' -e 'make new document' -e 'end tell'",
+    "description": "Activates Safari and creates a new document (empty window)"
+  },
+  "com.apple.TextEdit": {
+    "name": "TextEdit",
+    "launch": "osascript -e 'tell application \"TextEdit\" to activate' -e 'tell application \"TextEdit\" to make new document'",
+    "description": "Opens a new blank TextEdit document (useful as a scratch notes pad)"
+  },
+  "company.thebrowser.Browser": {
+    "name": "Arc",
+    "launch": "open -na Arc --args --new-window",
+    "description": "Opens a new Arc window"
+  },
+  "com.tinyspeck.slackmacgap": {
+    "name": "Slack",
+    "launch": "open -na Slack",
+    "description": "Opens Slack (single-window app)"
+  },
+  "us.zoom.xos": {
+    "name": "zoom.us",
+    "launch": "open -na zoom.us",
+    "description": "Opens Zoom"
+  }
+}

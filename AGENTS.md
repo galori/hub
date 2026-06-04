@@ -9,7 +9,9 @@
 
 ## Project Structure
 
-- `scripts/hub` - Main shell script (install, up, down, new, list, remove, rename, open, tree commands)
+- `scripts/hub` - Main shell script (install, up, down, new, list, remove, rename, open, apps, tree commands)
+- `scripts/lib/apps_flow.sh` - Shared helpers for the app-picker and `hub apps` subcommand (sourced by scripts/hub)
+- `config/app_presets.json` - Curated `CFBundleIdentifier` → launch-cmd database; deployed to `~/.config/hub/app_presets.json` by install
 - `config/aerospace.toml` - AeroSpace config template (`__HUB_SCRIPT__` placeholder replaced during install)
 - `config/sketchybar/` - SketchyBar config and plugin scripts
 - `config/sketchybar/plugins/app_launcher.sh` - Updates app icon visual state on workspace change
