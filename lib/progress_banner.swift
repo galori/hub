@@ -177,11 +177,37 @@ DispatchQueue.main.async {
     }
 }
 
+func showError(_ msg: String) {
+    // Switch to red error state: red border, ✗ icon replacing spinner, auto-dismiss.
+    cv.layer?.borderColor = NSColor(red: 0.85, green: 0.25, blue: 0.25, alpha: 0.90).cgColor
+    spinner.stopAnimation(nil)
+    spinner.isHidden = true
+    let errIcon = NSTextField(labelWithString: "✗")
+    errIcon.translatesAutoresizingMaskIntoConstraints = false
+    errIcon.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    errIcon.textColor = NSColor(red: 0.95, green: 0.40, blue: 0.40, alpha: 1)
+    errIcon.isEditable = false
+    errIcon.isBordered = false
+    errIcon.backgroundColor = .clear
+    cv.addSubview(errIcon)
+    NSLayoutConstraint.activate([
+        errIcon.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 14),
+        errIcon.centerYAnchor.constraint(equalTo: cv.centerYAnchor),
+    ])
+    label.stringValue = msg
+    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { dismiss() }
+}
+
 DispatchQueue.global(qos: .userInitiated).async {
     while let line = readLine() {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed == "QUIT" {
             DispatchQueue.main.async { dismiss() }
+            return
+        }
+        if trimmed.hasPrefix("ERROR:") {
+            let msg = String(trimmed.dropFirst("ERROR:".count))
+            DispatchQueue.main.async { showError(msg) }
             return
         }
         if !trimmed.isEmpty {

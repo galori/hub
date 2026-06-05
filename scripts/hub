@@ -288,6 +288,23 @@ progress_banner_update() {
     [[ -n "$fifo" && -p "$fifo" ]] && (printf "%s\n" "$msg" > "$fifo") & disown 2>/dev/null || true
 }
 
+progress_banner_error() {
+    local msg="${1:-Failed}"
+    [[ ! -f "$PROGRESS_BANNER_PIDFILE" ]] && return 0
+    local banner_pid holder_pid fifo
+    { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$PROGRESS_BANNER_PIDFILE"
+    if ! kill -0 "$banner_pid" 2>/dev/null; then
+        rm -f "$PROGRESS_BANNER_PIDFILE"
+        return 0
+    fi
+    # Send ERROR: — the banner will auto-dismiss after 2.5s
+    [[ -n "$fifo" && -p "$fifo" ]] && (printf "ERROR:%s\n" "$msg" > "$fifo") & disown 2>/dev/null || true
+    sleep 2.6
+    [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
+    [[ -n "$fifo" ]] && rm -f "$fifo"
+    rm -f "$PROGRESS_BANNER_PIDFILE"
+}
+
 progress_banner_stop() {
     [[ -f "$PROGRESS_BANNER_PIDFILE" ]] || return 0
     local banner_pid holder_pid fifo
@@ -879,7 +896,7 @@ _create_workspace() {
 
     # Save to workspaces.json — hold the lock for the entire read→check→write
     mkdir -p "$(dirname "$WORKSPACES_FILE")"
-    _hub_lock_acquire || { progress_banner_stop; return 1; }
+    _hub_lock_acquire || { progress_banner_error "Failed to acquire lock"; return 1; }
 
     local existing="[]"
     [[ -f "$WORKSPACES_FILE" ]] && existing="$(cat "$WORKSPACES_FILE")"
@@ -888,7 +905,7 @@ _create_workspace() {
     if [[ -z "$ws_id" ]]; then
         ws_id="$(_alloc_workspace_id "$existing")" || {
             _hub_lock_release
-            progress_banner_stop
+            progress_banner_error "No free workspace IDs"
             fail "No free workspace IDs available"
             return 1
         }
@@ -896,13 +913,13 @@ _create_workspace() {
 
     if echo "$existing" | jq -e --arg id "$ws_id" '.[] | select(.workspace_id == $id)' >/dev/null 2>&1; then
         _hub_lock_release
-        progress_banner_stop
+        progress_banner_error "Workspace ID already in use"
         fail "Workspace ID '$ws_id' is already in use"
         return 1
     fi
     if echo "$existing" | jq -e --arg n "$ws_name" '.[] | select(.name == $n)' >/dev/null 2>&1; then
         _hub_lock_release
-        progress_banner_stop
+        progress_banner_error "'$ws_name' already exists"
         fail "A workspace named '$ws_name' already exists"
         return 1
     fi
