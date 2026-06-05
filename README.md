@@ -58,6 +58,7 @@ This will:
 - Deploy the SketchyBar config to `~/.config/sketchybar/`
 - Compile Swift binaries (overlay HUD, workspace dialog)
 - Install a `hub` shell alias in your shell config
+- Deploy Claude Code slash commands to `~/.claude/commands/`
 
 ### Start the environment
 

@@ -796,6 +796,20 @@ cmd_install() {
         success "Added to $config_file"
     fi
 
+    # --- Deploy Claude slash commands ---
+    # Generic commands live in commands/; private/company-specific ones live in
+    # the gitignored commands.local/. Both are deployed to ~/.claude/commands/.
+    echo
+    echo -e "${bold}Deploying Claude commands...${reset}"
+    local _cmd_dst="$HOME/.claude/commands"
+    mkdir -p "$_cmd_dst"
+    local _cmd_file
+    for _cmd_file in "$REPO_DIR/commands/"*.md "$REPO_DIR/commands.local/"*.md; do
+        [[ -f "$_cmd_file" ]] || continue
+        cp "$_cmd_file" "$_cmd_dst/$(basename "$_cmd_file")"
+        success "Deployed $(basename "$_cmd_file")"
+    done
+
     # --- Reload running services ---
     echo
     echo -e "${bold}Reloading services...${reset}"
@@ -1320,8 +1334,14 @@ _build_prompt_cmd() {
     wrapper_script="$(mktemp -t hub-prompt-run)" || { fail "mktemp failed" >&2; return 1; }
     printf '%s' "$prompt" > "$prompt_file"
     claude_bin="$(_config_get claude_binary "claude")"
-    printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\n%s "Use %s as the prompt"\n' \
-        "$claude_bin" "$prompt_file" > "$wrapper_script"
+    # The wrapper reads the staged prompt at runtime and passes the real text as
+    # claude's first message (so sessions are distinguishable in --resume / ps).
+    # Reading via "$(cat file)" keeps the prompt out of AppleScript/build-time
+    # command lines entirely, so quotes/newlines/backticks stay escape-safe.
+    # %q safely quotes the temp-file path; the prompt itself is only ever
+    # expanded through "$__hub_prompt" inside this script.
+    printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\n__hub_prompt="$(cat %q)"\nrm -f %q\n%s "$__hub_prompt"\n' \
+        "$prompt_file" "$prompt_file" "$claude_bin" > "$wrapper_script"
     chmod +x "$wrapper_script"
     # Use ';' not '&&': bash treats '&' specially in ${var//pattern/replacement}
     # expansions (it means "matched text"), so '&&' in the replacement would
