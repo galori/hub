@@ -56,16 +56,6 @@ NSLayoutConstraint.activate([
     urlLabel.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -22),
 ])
 
-func launchCommandForSlot(_ index: Int) -> String? {
-    let appsPath = NSHomeDirectory() + "/.config/hub/apps.json"
-    guard let data = try? Data(contentsOf: URL(fileURLWithPath: appsPath)),
-          let apps = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-          index < apps.count
-    else { return nil }
-    let slot = apps[index]
-    return (slot["url_launch"] as? String) ?? (slot["launch"] as? String)
-}
-
 func hubScriptPath() -> String? {
     let path = NSHomeDirectory() + "/.config/hub/hub_path"
     guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
@@ -88,15 +78,22 @@ func focusedWorkspaceID() -> String? {
     return out.isEmpty ? nil : out
 }
 
-func openURL(_ url: URL, withLaunchCommand launch: String) {
+func openURL(_ url: URL) {
     let urlString = url.absoluteString
-    let escaped = urlString.replacingOccurrences(of: "'", with: "'\\''")
-    let cmd = launch.contains("{url}")
-        ? launch.replacingOccurrences(of: "{url}", with: escaped)
-        : "\(launch) '\(escaped)'"
-    try? "cmd: \(cmd)\nurl: \(urlString)\n".appendLine(to: "/tmp/hub_handler.log")
+    // Capture the focused workspace NOW (synchronously, before launching the
+    // browser) so the new window is corralled to where the user actually is.
+    // Delegate the launch + corral to `hub open-url`, which reuses the same
+    // launch/poll/move-to-workspace logic as the keyboard launcher.
+    guard let hub = hubScriptPath() else {
+        try? "error: hub_path not found; cannot open \(urlString)\n".appendLine(to: "/tmp/hub_handler.log")
+        return
+    }
+    let wsID = focusedWorkspaceID() ?? ""
+    let escapedURL = urlString.replacingOccurrences(of: "'", with: "'\\''")
+    let escapedWS = wsID.replacingOccurrences(of: "'", with: "'\\''")
+    let cmd = "'\(hub)' open-url '\(escapedURL)' '\(escapedWS)'"
+    try? "cmd: \(cmd)\nurl: \(urlString)\nws: \(wsID)\n".appendLine(to: "/tmp/hub_handler.log")
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
-    // Arrange is handled by the on-window-detected callback in aerospace.toml
 }
 
 extension String {
@@ -131,8 +128,8 @@ func showURL(_ urlString: String) {
         }
     }
 
-    if let url = URL(string: urlString), let launch = launchCommandForSlot(1) {
-        openURL(url, withLaunchCommand: launch)
+    if let url = URL(string: urlString) {
+        openURL(url)
     }
 
     hideWork?.cancel()

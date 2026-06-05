@@ -1904,6 +1904,84 @@ arrange_after_open() {
 # arrange_workspace_windows WS_ID WID... — arranges by current geometry, ignoring the wid list.
 arrange_workspace_windows() { local ws_id="$1"; arrange_workspace "$ws_id"; }
 
+# _launch_and_corral APP_NAME LAUNCH_CMD WS_ID
+# Runs LAUNCH_CMD, waits (up to 8s) for a NEW window of APP_NAME to appear, then
+# moves it to WS_ID (if it didn't already land there) and focuses it. This is the
+# shared core used by both the keyboard launcher (open_app_slot) and URL opens
+# (cmd_open_url) so windows always end up on the intended workspace, regardless
+# of where the app decides to place them.
+# Sets OPEN_APP_SLOT_WID (the new window id, or "" if none appeared) and
+# OPEN_APP_SLOT_CORRALLED (true if a move was needed).
+_launch_and_corral() {
+    local app_name="$1" launch_cmd="$2" ws_id="$3"
+
+    # Snapshot existing window IDs for this app
+    local before_ids
+    before_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
+
+    bash -c "$launch_cmd" >/dev/null 2>/tmp/hub_open_err &
+
+    # Poll for a new window (up to 8 seconds)
+    local new_wid=""
+    for _ in $(seq 1 32); do
+        sleep 0.25
+        local after_ids
+        after_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
+        while IFS= read -r wid; do
+            [[ -z "$wid" ]] && continue
+            if ! echo "$before_ids" | grep -qxF "$wid"; then
+                new_wid="$wid"
+                break 2
+            fi
+        done <<< "$after_ids"
+    done
+
+    # Move to the correct workspace if needed, then focus
+    if [[ -n "$new_wid" ]]; then
+        local win_ws
+        win_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${new_wid}|" | cut -d'|' -f2 || echo "")"
+        if [[ "$win_ws" != "$ws_id" ]]; then
+            progress_banner_update "Corralling ${app_name}..."
+            aerospace move-node-to-workspace --window-id "$new_wid" "$ws_id" 2>/dev/null || true
+            OPEN_APP_SLOT_CORRALLED=true
+        fi
+        aerospace focus --window-id "$new_wid" 2>/dev/null || true
+        OPEN_APP_SLOT_WID="$new_wid"
+    else
+        OPEN_APP_SLOT_WID=""
+    fi
+}
+
+# cmd_open_url URL [WS_ID] — open URL in the slot-2 browser and corral the new
+# window to WS_ID (defaults to the currently focused workspace). Called by the
+# http_handler daemon so URLs opened via `open <url>` land where the user is.
+cmd_open_url() {
+    local url="$1"
+    local ws_id="${2:-}"
+    [[ -z "$ws_id" ]] && ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+    [[ -z "$url" || -z "$ws_id" ]] && return 1
+
+    # Resolve the slot-2 (index 1) browser launch command, preferring url_launch.
+    local app_info
+    app_info="$(jq -r 'if length > 1 then .[1] | [.name, (.url_launch // .launch)] | @tsv else empty end' \
+        "$APPS_FILE" 2>/dev/null)" || return 1
+    [[ -z "$app_info" ]] && return 1
+    local app_name launch_cmd
+    IFS=$'\t' read -r app_name launch_cmd <<< "$app_info"
+
+    # Substitute {url}; if the launch command has no placeholder, append the URL.
+    local esc_url="${url//\'/\'\\\'\'}"
+    if [[ "$launch_cmd" == *"{url}"* ]]; then
+        launch_cmd="${launch_cmd//\{url\}/$esc_url}"
+    else
+        launch_cmd="$launch_cmd '$esc_url'"
+    fi
+
+    OPEN_APP_SLOT_WID=""
+    OPEN_APP_SLOT_CORRALLED=false
+    _launch_and_corral "$app_name" "$launch_cmd" "$ws_id"
+}
+
 open_app_slot() {
     local slot="$1"
     local ws_id="$2"
@@ -1954,10 +2032,6 @@ open_app_slot() {
     [[ "$verbose" == "true" ]] && info "Opening $app_name..." || true
     progress_banner_update "Opening ${app_name}..."
 
-    # Snapshot existing window IDs for this app
-    local before_ids
-    before_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
-
     # For iTerm2: inject HUB_WORKSPACE_ID and optional prompt_cmd after
     # `cd {path}` so Claude Code hooks can identify the workspace exactly,
     # even when two workspaces share the same directory.
@@ -1976,40 +2050,13 @@ open_app_slot() {
     launch_cmd="${launch_cmd//\{workspace\}/$ws_id}"
     launch_cmd="${launch_cmd//\{prompt_cmd\}/$prompt_cmd}"
 
-    # Launch the app
-    bash -c "$launch_cmd" >/dev/null 2>/tmp/hub_open_err &
+    # Launch, wait for the new window, and corral it onto this workspace.
+    _launch_and_corral "$app_name" "$launch_cmd" "$ws_id"
 
-    # Poll for new window (up to 8 seconds)
-    local new_wid=""
-    for _ in $(seq 1 32); do
-        sleep 0.25
-        local after_ids
-        after_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
-
-        while IFS= read -r wid; do
-            [[ -z "$wid" ]] && continue
-            if ! echo "$before_ids" | grep -qxF "$wid"; then
-                new_wid="$wid"
-                break 2
-            fi
-        done <<< "$after_ids"
-    done
-
-    # Move to correct workspace if needed, then focus
-    if [[ -n "$new_wid" ]]; then
-        local win_ws
-        win_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${new_wid}|" | cut -d'|' -f2 || echo "")"
-        if [[ "$win_ws" != "$ws_id" ]]; then
-            progress_banner_update "Corralling ${app_name}..."
-            aerospace move-node-to-workspace --window-id "$new_wid" "$ws_id" 2>/dev/null || true
-            OPEN_APP_SLOT_CORRALLED=true
-        fi
-        aerospace focus --window-id "$new_wid" 2>/dev/null || true
+    if [[ -n "$OPEN_APP_SLOT_WID" ]]; then
         [[ "$verbose" == "true" ]] && success "$app_name opened" || true
-        OPEN_APP_SLOT_WID="$new_wid"
     else
         [[ "$verbose" == "true" ]] && warn "$app_name: window did not appear in time" || true
-        OPEN_APP_SLOT_WID=""
     fi
 }
 
@@ -2905,6 +2952,7 @@ case "$command" in
     prev)     cmd_prev ;;
     apps)     cmd_apps "$@" ;;
     open)     cmd_open "$@" ;;
+    open-url) cmd_open_url "$@" ;;
     app-switcher) cmd_app_switcher "$@" ;;
     up)       cmd_up ;;
     down)     cmd_down ;;
