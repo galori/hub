@@ -57,6 +57,7 @@
   "com.apple.Safari": {
     "name": "Safari",
     "launch": "osascript -e 'tell application \"Safari\"' -e 'activate' -e 'make new document' -e 'end tell'",
+    "url_launch": "osascript -e 'tell application \"Safari\"' -e 'activate' -e 'make new document' -e 'set URL of document 1 to \"{url}\"' -e 'end tell'",
     "description": "Activates Safari and creates a new document (empty window)"
   },
   "com.apple.TextEdit": {
