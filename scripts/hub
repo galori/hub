@@ -539,6 +539,12 @@ PLIST
         # Register with Launch Services so it appears in Default Web Browser list
         /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
             -f "$app" 2>/dev/null || true
+        # Restart if already running so the new binary takes effect
+        if pgrep -qf "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler"; then
+            pkill -f "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler" 2>/dev/null || true
+            sleep 0.3
+            open -a "$app" &
+        fi
         success "HubHTTPHandler.app built and registered: $app"
     else
         warn "HubHTTPHandler.app compilation failed"
