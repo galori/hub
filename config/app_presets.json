@@ -29,6 +29,11 @@
     "launch": "code --new-window {path}",
     "description": "Opens the workspace path in a new VS Code window (requires `code` on PATH)"
   },
+  "dev.zed.Zed": {
+    "name": "Zed",
+    "launch": "zed {path} --new",
+    "description": "Opens the workspace path in a new Zed window (requires `zed` on PATH)"
+  },
   "com.todesktop.230313mzl4w4u92": {
     "name": "Cursor",
     "launch": "cursor --new-window {path}",
