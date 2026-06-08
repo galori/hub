@@ -1301,10 +1301,12 @@ _cmd_new_cli() {
     _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$opt_prompt" "$opt_apps_set"
 }
 
-# Build the Claude prompt wrapper for terminal launch. Stages the prompt body in
-# a temp file so it never touches AppleScript; emits the path of an executable
-# wrapper script to stdout, or "" if the prompt is empty / no terminal slot has
-# a prompt_launch configured. Warnings go to stderr.
+# Build the Claude prompt wrapper for terminal launch. Writes a per-workspace
+# launcher script to ~/.config/hub/pending-prompts/<ws_id> — a stable,
+# deterministic path so terminals like Ghostty only need to authorize it once
+# per workspace ID slot (which gets reused). Emits the script path on stdout,
+# or "" if the prompt is empty / no terminal slot has prompt_launch configured.
+# Warnings go to stderr.
 #
 # Args: $1 = prompt text, $2 = ws_apps list, $3 = apps_set ("true" if user
 # passed an explicit --apps list), $4 = ws_id (baked into wrapper for exact
@@ -1329,23 +1331,19 @@ _build_prompt_cmd() {
         return 0
     fi
 
-    local prompt_file wrapper_script claude_bin
-    prompt_file="$(mktemp -t hub-prompt)" || { fail "mktemp failed" >&2; return 1; }
-    wrapper_script="$(mktemp -t hub-prompt-run)" || { fail "mktemp failed" >&2; return 1; }
-    printf '%s' "$prompt" > "$prompt_file"
+    local pending_dir wrapper_script claude_bin
+    pending_dir="$HOME/.config/hub/pending-prompts"
+    mkdir -p "$pending_dir"
+    # Stable path keyed to the workspace ID — Ghostty authorizes once per slot
+    # (IDs like 1, A, B … are reused, so the dialog fires at most once per slot).
+    wrapper_script="$pending_dir/${ws_id}"
     claude_bin="$(_config_get claude_binary "claude")"
-    # The wrapper reads the staged prompt at runtime and passes the real text as
-    # claude's first message (so sessions are distinguishable in --resume / ps).
-    # Reading via "$(cat file)" keeps the prompt out of AppleScript/build-time
-    # command lines entirely, so quotes/newlines/backticks stay escape-safe.
-    # %q safely quotes the temp-file path; the prompt itself is only ever
-    # expanded through "$__hub_prompt" inside this script.
-    # HUB_WORKSPACE_ID is baked in (ws_id is finalized before this is called)
-    # so the notify hook gets an exact workspace match for all terminal types.
-    # exec "$SHELL" -i at the end keeps Ghostty/WezTerm -e windows interactive
-    # after claude exits (harmless for iTerm2/Terminal do-script sessions).
-    printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\nexport HUB_WORKSPACE_ID=%q\n__hub_prompt="$(cat %q)"\nrm -f %q\n%s "$__hub_prompt"\nexec "$SHELL" -i\n' \
-        "$ws_id" "$prompt_file" "$prompt_file" "$claude_bin" > "$wrapper_script"
+    # The prompt text is embedded directly in the script (not a separate temp
+    # file that could race with deletion). %q quoting keeps all shell specials safe.
+    # HUB_WORKSPACE_ID is exported so the notify hook gets an exact workspace match.
+    # exec "$SHELL" -i keeps Ghostty/WezTerm -e windows interactive after claude exits.
+    printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\nexport HUB_WORKSPACE_ID=%q\n%s %q\nexec "$SHELL" -i\n' \
+        "$ws_id" "$claude_bin" "$prompt" > "$wrapper_script"
     chmod +x "$wrapper_script"
     printf '%s' "$wrapper_script"
 }
