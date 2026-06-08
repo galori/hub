@@ -1903,7 +1903,7 @@ arrange_after_open() {
 # arrange_workspace_windows WS_ID WID... — arranges by current geometry, ignoring the wid list.
 arrange_workspace_windows() { local ws_id="$1"; arrange_workspace "$ws_id"; }
 
-# _launch_and_corral APP_NAME LAUNCH_CMD WS_ID
+# _launch_and_corral APP_NAME LAUNCH_CMD WS_ID [LAUNCH_DIR]
 # Runs LAUNCH_CMD, waits (up to 8s) for a NEW window of APP_NAME to appear, then
 # moves it to WS_ID (if it didn't already land there) and focuses it. This is the
 # shared core used by both the keyboard launcher (open_app_slot) and URL opens
@@ -1912,13 +1912,18 @@ arrange_workspace_windows() { local ws_id="$1"; arrange_workspace "$ws_id"; }
 # Sets OPEN_APP_SLOT_WID (the new window id, or "" if none appeared) and
 # OPEN_APP_SLOT_CORRALLED (true if a move was needed).
 _launch_and_corral() {
-    local app_name="$1" launch_cmd="$2" ws_id="$3"
+    local app_name="$1" launch_cmd="$2" ws_id="$3" launch_dir="${4:-}"
 
     # Snapshot existing window IDs for this app
     local before_ids
     before_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
 
-    bash -c "$launch_cmd" >/dev/null 2>/tmp/hub_open_err &
+    # cd into the workspace path first so apps like Ghostty that inherit the
+    # parent process cwd (rather than honoring --working-directory) start in the
+    # right directory.
+    local cd_prefix=""
+    [[ -n "$launch_dir" && -d "$launch_dir" ]] && cd_prefix="cd $(printf '%q' "$launch_dir") && "
+    bash -c "${cd_prefix}${launch_cmd}" >/dev/null 2>/tmp/hub_open_err &
 
     # Poll for a new window (up to 8 seconds)
     local new_wid=""
@@ -2044,7 +2049,7 @@ open_app_slot() {
     launch_cmd="${launch_cmd//\{prompt_cmd\}/$prompt_cmd}"
 
     # Launch, wait for the new window, and corral it onto this workspace.
-    _launch_and_corral "$app_name" "$launch_cmd" "$ws_id"
+    _launch_and_corral "$app_name" "$launch_cmd" "$ws_id" "$ws_path"
 
     if [[ -n "$OPEN_APP_SLOT_WID" ]]; then
         [[ "$verbose" == "true" ]] && success "$app_name opened" || true
