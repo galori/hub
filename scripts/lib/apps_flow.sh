@@ -290,8 +290,11 @@ apps_add_guided() {
     }
     [ -z "$launch_tsv" ] && { warn "Skipped slot $slot"; return 0; }
 
+    # Use cut rather than IFS-read to preserve empty fields (IFS collapses consecutive tabs)
     local launch url_launch prompt_launch
-    IFS=$'\t' read -r launch url_launch prompt_launch <<< "$launch_tsv"
+    launch="$(printf '%s' "$launch_tsv" | cut -f1)"
+    url_launch="$(printf '%s' "$launch_tsv" | cut -f2)"
+    prompt_launch="$(printf '%s' "$launch_tsv" | cut -f3)"
     [ -z "$launch" ] && { warn "Skipped slot $slot"; return 0; }
 
     apps_save_slot "$slot" "$name" "$launch" "$name" "$url_launch" "$prompt_launch"
