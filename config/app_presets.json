@@ -13,8 +13,8 @@
   },
   "com.mitchellh.ghostty": {
     "name": "Ghostty",
-    "launch": "open -na Ghostty --args --working-directory={path}",
-    "prompt_launch": "open -na Ghostty --args --working-directory={path} -e {prompt_cmd}",
+    "launch": "open -na Ghostty --args --window-inherit-working-directory=false --working-directory={path}",
+    "prompt_launch": "open -na Ghostty --args --window-inherit-working-directory=false --working-directory={path} -e {prompt_cmd}",
     "description": "Opens a new Ghostty window in the workspace path"
   },
   "com.github.wez.wezterm": {
