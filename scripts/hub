@@ -118,10 +118,9 @@ print_usage() {
     echo "  hub tree --workspace A  # show tiling tree for workspace A"
     echo
     echo -e "${bold}App launcher config:${reset}"
-    echo "  Edit ~/.config/hub/apps.json to configure up to 5 app slots."
-    echo "  Each entry: { \"name\": \"App Name\", \"launch\": \"<shell cmd>\", \"icon\": \"App Name\" }"
-    echo "  Optional: \"url_launch\" for URL handlers (supports {url} placeholder)."
-    echo "  Use {path}, {workspace}, and {url} as substitution variables."
+    echo "  Use 'hub apps' to manage up to 5 slots. Slot 1 = terminal, slot 2 = browser."
+    echo "  Presets auto-wire prompt_launch (for 'hub new --prompt') and url_launch (for URL handling)."
+    echo "  Placeholders: {path} = workspace folder, {workspace} = workspace ID."
 }
 
 success() { echo -e "  ${green}✓${reset} $1"; }
@@ -892,10 +891,7 @@ cmd_new() {
         ws_root=""
     fi
 
-    local prompt_cmd
-    prompt_cmd="$(_build_prompt_cmd "$ws_prompt" "$ws_apps" "false")"
-
-    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$prompt_cmd"
+    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$ws_prompt" "false"
 }
 
 _create_workspace() {
@@ -907,7 +903,8 @@ _create_workspace() {
     local ws_setup_cmd="$6"
     local ws_apps="$7"
     local no_repo="${8:-false}"
-    local prompt_cmd="${9:-}"
+    local ws_prompt="${9:-}"
+    local ws_apps_set="${10:-false}"
 
     success "Creating workspace: $ws_name (workspace $ws_id)"
     [[ "$no_repo" == "false" ]] && info "Path: $ws_path"
@@ -958,6 +955,11 @@ _create_workspace() {
     echo "$updated" > "$WORKSPACES_FILE"
     _hub_lock_release
     success "Saved to $WORKSPACES_FILE"
+
+    # Build the prompt wrapper now that ws_id is finalized — HUB_WORKSPACE_ID
+    # can be baked in for exact workspace identification by the notify hook.
+    local prompt_cmd
+    prompt_cmd="$(_build_prompt_cmd "$ws_prompt" "$ws_apps" "$ws_apps_set" "$ws_id")"
 
     # Update recent_repos.json (skip for no-repo workspaces)
     if [[ "$no_repo" == "false" ]]; then
@@ -1045,9 +1047,10 @@ Flags:
   --color HEX        Workspace color (default: WORKTREE_COLOR from .envrc.local)
   --apps LIST        Comma-separated app slot numbers, e.g. 1,3 (default: all configured)
   --no-apps          Open zero apps. Conflicts with --apps.
-  --prompt TEXT      After opening iTerm2, run `claude "Use <tmpfile> as the prompt"`.
+  --prompt TEXT      After opening the terminal slot (slot 1), run claude with the prompt.
                      The prompt is staged in a temp file to avoid escaping issues.
-                     Requires iTerm2 to be configured in apps.json.
+                     Requires a terminal with prompt_launch set (auto-wired by hub apps for
+                     iTerm2, Terminal, Ghostty, WezTerm).
   -h, --help         Show this help
 
 Examples:
@@ -1295,37 +1298,34 @@ _cmd_new_cli() {
         ws_apps="$(_default_apps_list)"
     fi
 
-    local prompt_cmd
-    prompt_cmd="$(_build_prompt_cmd "$opt_prompt" "$ws_apps" "$opt_apps_set")"
-
-    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$prompt_cmd"
+    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$opt_prompt" "$opt_apps_set"
 }
 
-# Build the prompt_cmd injection for iTerm2 launch. Stages the prompt body in
-# a temp file so it never touches AppleScript; emits a wrapper script that
-# invokes claude pointing at that file. Echoes the prompt_cmd suffix
-# (e.g. "; /tmp/hub-prompt-run.XXXX") to stdout, or "" if the prompt is empty
-# / iTerm2 isn't going to open. Warnings go to stderr.
+# Build the Claude prompt wrapper for terminal launch. Stages the prompt body in
+# a temp file so it never touches AppleScript; emits the path of an executable
+# wrapper script to stdout, or "" if the prompt is empty / no terminal slot has
+# a prompt_launch configured. Warnings go to stderr.
 #
 # Args: $1 = prompt text, $2 = ws_apps list, $3 = apps_set ("true" if user
-# passed an explicit --apps list — controls whether the slot membership
-# check actually applies)
+# passed an explicit --apps list), $4 = ws_id (baked into wrapper for exact
+# workspace identification by the notify hook)
 _build_prompt_cmd() {
     local prompt="$1"
     local ws_apps="$2"
     local apps_set="${3:-false}"
+    local ws_id="${4:-}"
     [[ -z "$prompt" ]] && return 0
 
-    local iterm_slot=""
+    local prompt_slot=""
     if [[ -f "$APPS_FILE" ]]; then
-        iterm_slot="$(jq -r 'to_entries[] | select(.value.name == "iTerm2") | (.key + 1) | tostring' "$APPS_FILE" 2>/dev/null | head -1)"
+        prompt_slot="$(jq -r 'to_entries[] | select((.value.prompt_launch // "") != "") | (.key + 1) | tostring' "$APPS_FILE" 2>/dev/null | head -1)"
     fi
-    if [[ -z "$iterm_slot" ]]; then
-        warn "prompt has no effect: no iTerm2 slot found in apps.json" >&2
+    if [[ -z "$prompt_slot" ]]; then
+        warn "prompt has no effect: no terminal slot with prompt_launch found in apps.json (run: hub apps)" >&2
         return 0
     fi
-    if [[ "$apps_set" == "true" ]] && ! echo ",$ws_apps," | grep -q ",$iterm_slot,"; then
-        warn "prompt has no effect: iTerm2 slot ($iterm_slot) not in apps list" >&2
+    if [[ "$apps_set" == "true" ]] && ! echo ",$ws_apps," | grep -q ",$prompt_slot,"; then
+        warn "prompt has no effect: terminal slot ($prompt_slot) not in apps list" >&2
         return 0
     fi
 
@@ -1340,13 +1340,14 @@ _build_prompt_cmd() {
     # command lines entirely, so quotes/newlines/backticks stay escape-safe.
     # %q safely quotes the temp-file path; the prompt itself is only ever
     # expanded through "$__hub_prompt" inside this script.
-    printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\n__hub_prompt="$(cat %q)"\nrm -f %q\n%s "$__hub_prompt"\n' \
-        "$prompt_file" "$prompt_file" "$claude_bin" > "$wrapper_script"
+    # HUB_WORKSPACE_ID is baked in (ws_id is finalized before this is called)
+    # so the notify hook gets an exact workspace match for all terminal types.
+    # exec "$SHELL" -i at the end keeps Ghostty/WezTerm -e windows interactive
+    # after claude exits (harmless for iTerm2/Terminal do-script sessions).
+    printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\nexport HUB_WORKSPACE_ID=%q\n__hub_prompt="$(cat %q)"\nrm -f %q\n%s "$__hub_prompt"\nexec "$SHELL" -i\n' \
+        "$ws_id" "$prompt_file" "$prompt_file" "$claude_bin" > "$wrapper_script"
     chmod +x "$wrapper_script"
-    # Use ';' not '&&': bash treats '&' specially in ${var//pattern/replacement}
-    # expansions (it means "matched text"), so '&&' in the replacement would
-    # expand to the matched token twice. ';' is safe and sufficient here.
-    printf '; %s' "$wrapper_script"
+    printf '%s' "$wrapper_script"
 }
 
 rebuild_labels_file() {
@@ -1992,13 +1993,13 @@ open_app_slot() {
 
     local app_info
     app_info="$(jq -r --argjson i "$((slot - 1))" \
-        'if $i >= 0 and $i < length then .[$i] | [.name, .launch, (.icon // .name)] | @tsv else empty end' \
+        'if $i >= 0 and $i < length then .[$i] | [.name, .launch, (.icon // .name), (.prompt_launch // "")] | @tsv else empty end' \
         "$APPS_FILE" 2>/dev/null)" || return 0
 
     [[ -z "$app_info" ]] && return 0
 
-    local app_name launch_cmd app_icon
-    IFS=$'\t' read -r app_name launch_cmd app_icon <<< "$app_info"
+    local app_name launch_cmd app_icon app_prompt_launch
+    IFS=$'\t' read -r app_name launch_cmd app_icon app_prompt_launch <<< "$app_info"
 
     # Smart mode: if app has windows on current workspace, cycle focus between
     # them. Otherwise fall through to launch a new window on this workspace.
@@ -2032,17 +2033,11 @@ open_app_slot() {
     [[ "$verbose" == "true" ]] && info "Opening $app_name..." || true
     progress_banner_update "Opening ${app_name}..."
 
-    # For iTerm2: inject HUB_WORKSPACE_ID and optional prompt_cmd after
-    # `cd {path}` so Claude Code hooks can identify the workspace exactly,
-    # even when two workspaces share the same directory.
-    if [[ "$app_name" == "iTerm2" ]]; then
-        local ws_env_cmd="; export HUB_WORKSPACE_ID=${ws_id}"
-        if [[ "$launch_cmd" != *"HUB_WORKSPACE_ID"* ]]; then
-            launch_cmd="${launch_cmd//cd \{path\}/cd \{path\}${ws_env_cmd}}"
-        fi
-        if [[ -n "$prompt_cmd" && "$launch_cmd" != *"{prompt_cmd}"* ]]; then
-            launch_cmd="${launch_cmd//cd \{path\}${ws_env_cmd}/cd \{path\}${ws_env_cmd}\{prompt_cmd\}}"
-        fi
+    # When a prompt is active and this slot has a prompt_launch, use it instead
+    # of the plain launch command. HUB_WORKSPACE_ID and the exec-interactive-shell
+    # tail are baked into the wrapper by _build_prompt_cmd.
+    if [[ -n "$prompt_cmd" && -n "$app_prompt_launch" ]]; then
+        launch_cmd="$app_prompt_launch"
     fi
 
     # Substitute {path}, {workspace}, and {prompt_cmd} in launch command
@@ -2765,6 +2760,10 @@ cmd_apps() {
             echo "  remove <slot>   Remove the app from slot 1-5"
             echo "  reset           Clear all slots"
             echo "  presets         List every app preset shipped with hub"
+            echo
+            echo "Slot roles: slot 1 = terminal (supports hub new --prompt),"
+            echo "            slot 2 = browser (supports URL handling)."
+            echo "Presets auto-wire prompt_launch and url_launch when available."
             ;;
         *)
             fail "Unknown subcommand: $sub"

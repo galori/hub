@@ -36,9 +36,9 @@ WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
 WS_ID=""
 WS_NAME=""
 
-# Prefer the env var set by hub when launching iTerm2 — it's exact and works
-# even when two workspaces share the same directory. Fall back to longest-prefix
-# cwd match for terminals opened before this feature was added.
+# Prefer the env var set by hub's prompt wrapper when launching any terminal
+# with a prompt — it's exact and works even when two workspaces share the same
+# directory. Fall back to longest-prefix cwd match otherwise.
 if [ -n "${HUB_WORKSPACE_ID:-}" ] && [ -f "$WORKSPACES_FILE" ]; then
     _MATCH=$(jq -r --arg id "$HUB_WORKSPACE_ID" '.[] | select(.workspace_id == $id) | [.workspace_id, .name] | @tsv' "$WORKSPACES_FILE" 2>/dev/null | head -1)
     if [ -n "$_MATCH" ]; then

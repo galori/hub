@@ -1,6 +1,6 @@
 ---
 name: hub-new
-description: Create a new hub workspace (worktree off the current repo) for the task described in $ARGUMENTS. Uses `hub new` non-interactively. Optionally pass a prompt to launch Claude Code in the new iTerm window.
+description: Create a new hub workspace (worktree off the current repo) for the task described in $ARGUMENTS. Uses `hub new` non-interactively. Optionally pass a prompt to launch Claude Code in the new terminal window (works with any configured terminal: iTerm2, Ghostty, etc.).
 ---
 
 Create a new hub workspace for the task: **$ARGUMENTS**

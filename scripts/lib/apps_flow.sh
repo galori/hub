@@ -133,8 +133,9 @@ _apps_print_new_window_note() {
     echo >&2
 }
 
-# Given bundle_id + app_path + name, return a launch command via preset lookup or template prompt.
-# Prints the chosen launch string on stdout; empty on cancel.
+# Given bundle_id + app_path + name, return launch command (and optional url_launch,
+# prompt_launch) via preset lookup or template prompt.
+# Prints a TSV line: launch<TAB>url_launch<TAB>prompt_launch (extra fields may be empty).
 apps_pick_launch_template() {
     local bundle_id="$1" app_path="$2" display_name="$3"
 
@@ -143,8 +144,10 @@ apps_pick_launch_template() {
         local preset
         preset=$(jq -r --arg id "$bundle_id" '.[$id] // empty' "$APP_PRESETS_FILE" 2>/dev/null)
         if [ -n "$preset" ]; then
-            local preset_launch preset_desc
+            local preset_launch preset_url_launch preset_prompt_launch preset_desc
             preset_launch=$(printf "%s" "$preset" | jq -r '.launch')
+            preset_url_launch=$(printf "%s" "$preset" | jq -r '.url_launch // ""')
+            preset_prompt_launch=$(printf "%s" "$preset" | jq -r '.prompt_launch // ""')
             preset_desc=$(printf "%s" "$preset" | jq -r '.description // ""')
 
             echo >&2
@@ -152,10 +155,12 @@ apps_pick_launch_template() {
             echo >&2
             echo "    What it does: $preset_desc" >&2
             echo "    Launch cmd:   $preset_launch" >&2
+            [ -n "$preset_prompt_launch" ] && echo "    Prompt launch: (auto-wired for hub new --prompt)" >&2
+            [ -n "$preset_url_launch" ] && echo "    URL launch:    (auto-wired for URL handling)" >&2
             _apps_print_new_window_note
             read -rp "  Use this preset? [Y/n/c=custom] " yn
             case "$yn" in
-                ""|y|Y) printf "%s\n" "$preset_launch"; return 0 ;;
+                ""|y|Y) printf "%s\t%s\t%s\n" "$preset_launch" "$preset_url_launch" "$preset_prompt_launch"; return 0 ;;
                 c|C)    ;; # fall through to custom
                 *)      return 1 ;;
             esac
@@ -177,22 +182,33 @@ apps_pick_launch_template() {
     echo "       Placeholders: {path} = workspace folder, {workspace} = workspace ID." >&2
     _apps_print_new_window_note
     read -rp "  Choice [1-3/c=cancel]: " tchoice
+    local base_launch=""
     case "$tchoice" in
-        1) printf "open -na '%s'\n" "$display_name" ;;
-        2) printf "open -na '%s' --args '{path}'\n" "$display_name" ;;
+        1) base_launch="open -na '$display_name'" ;;
+        2) base_launch="open -na '$display_name' --args '{path}'" ;;
         3)
             echo >&2
-            read -rp "  Custom launch command: " custom
-            [ -z "$custom" ] && return 1
-            printf "%s\n" "$custom"
+            read -rp "  Custom launch command: " base_launch
+            [ -z "$base_launch" ] && return 1
             ;;
         *) return 1 ;;
     esac
+
+    # For custom/template commands, offer an optional run-on-launch command
+    echo >&2
+    echo "  Optional: run-on-launch command (e.g. to launch Claude Code with a prompt)." >&2
+    echo "  This is used by 'hub new --prompt'. Leave blank to skip." >&2
+    echo "  Use {path} = workspace folder, {prompt_cmd} = Claude wrapper path." >&2
+    local custom_prompt_launch=""
+    read -rp "  Run-on-launch command (blank to skip): " custom_prompt_launch
+
+    printf "%s\t\t%s\n" "$base_launch" "$custom_prompt_launch"
 }
 
 # Write a slot to apps.json atomically; preserves other slots. Triggers icon + bar refresh.
+# Optional url_launch and prompt_launch are only written when non-empty.
 apps_save_slot() {
-    local slot="$1" name="$2" launch="$3" icon="$4"
+    local slot="$1" name="$2" launch="$3" icon="$4" url_launch="${5:-}" prompt_launch="${6:-}"
     local idx=$((slot - 1))
     mkdir -p "$(dirname "$APPS_FILE")"
     [ -f "$APPS_FILE" ] || echo "[]" > "$APPS_FILE"
@@ -203,11 +219,17 @@ apps_save_slot() {
        --arg name "$name" \
        --arg launch "$launch" \
        --arg icon "$icon" \
+       --arg url_launch "$url_launch" \
+       --arg prompt_launch "$prompt_launch" \
        '
        # Pad array to idx+1 with blank slot objects if needed, then set idx
        . as $a
        | (if length <= $idx then $a + [range(length; $idx + 1)] | map(if . == null or type == "number" then {name:"", launch:"", icon:""} else . end) else $a end)
-       | .[$idx] = {name: $name, launch: $launch, icon: $icon}
+       | .[$idx] = (
+           {name: $name, launch: $launch, icon: $icon}
+           + (if $url_launch != "" then {url_launch: $url_launch} else {} end)
+           + (if $prompt_launch != "" then {prompt_launch: $prompt_launch} else {} end)
+         )
        ' "$APPS_FILE" > "$tmp" && mv "$tmp" "$APPS_FILE" || { rm -f "$tmp"; return 1; }
     success "Saved slot $slot: $name"
     apps_refresh
@@ -261,14 +283,18 @@ apps_add_guided() {
     local bundle_id name app_path
     IFS=$'\t' read -r bundle_id name app_path <<< "$app_tsv"
 
-    local launch
-    launch=$(apps_pick_launch_template "$bundle_id" "$app_path" "$name") || {
+    local launch_tsv
+    launch_tsv=$(apps_pick_launch_template "$bundle_id" "$app_path" "$name") || {
         warn "Skipped slot $slot"
         return 0
     }
+    [ -z "$launch_tsv" ] && { warn "Skipped slot $slot"; return 0; }
+
+    local launch url_launch prompt_launch
+    IFS=$'\t' read -r launch url_launch prompt_launch <<< "$launch_tsv"
     [ -z "$launch" ] && { warn "Skipped slot $slot"; return 0; }
 
-    apps_save_slot "$slot" "$name" "$launch" "$name"
+    apps_save_slot "$slot" "$name" "$launch" "$name" "$url_launch" "$prompt_launch"
 }
 
 # Pretty-print current apps.json
@@ -287,15 +313,22 @@ apps_list() {
     local i
     for ((i=1; i<=count; i++)); do
         local idx=$((i-1))
-        local name launch icon
+        local name launch icon url_launch prompt_launch role_hint
         name=$(jq -r --argjson i "$idx" '.[$i].name // ""' "$APPS_FILE")
         launch=$(jq -r --argjson i "$idx" '.[$i].launch // ""' "$APPS_FILE")
         icon=$(jq -r --argjson i "$idx" '.[$i].icon // ""' "$APPS_FILE")
+        url_launch=$(jq -r --argjson i "$idx" '.[$i].url_launch // ""' "$APPS_FILE")
+        prompt_launch=$(jq -r --argjson i "$idx" '.[$i].prompt_launch // ""' "$APPS_FILE")
+        role_hint=""
+        [ "$i" -eq 1 ] && role_hint="  ${yellow}(terminal slot)${reset}"
+        [ "$i" -eq 2 ] && role_hint="  ${yellow}(browser slot)${reset}"
         if [ -z "$name" ]; then
-            printf "  %d)  ${yellow}(empty)${reset}\n" "$i"
+            printf "  %d)  ${yellow}(empty)${reset}%b\n" "$i" "$role_hint"
         else
-            printf "  %d)  ${bold}%s${reset}\n" "$i" "$name"
+            printf "  %d)  ${bold}%s${reset}%b\n" "$i" "$name" "$role_hint"
             printf "      launch: %s\n" "$launch"
+            [ -n "$prompt_launch" ] && printf "      prompt_launch: (set — supports hub new --prompt)\n"
+            [ -n "$url_launch" ] && printf "      url_launch: (set — supports URL handling)\n"
             printf "      icon:   %s\n" "$icon"
         fi
     done

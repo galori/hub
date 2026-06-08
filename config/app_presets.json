@@ -2,21 +2,25 @@
   "com.googlecode.iterm2": {
     "name": "iTerm2",
     "launch": "osascript -e 'tell application \"iTerm2\"' -e 'activate' -e 'set w to (create window with default profile)' -e 'tell current session of w' -e 'write text \"cd {path}\"' -e 'end tell' -e 'end tell'",
+    "prompt_launch": "osascript -e 'tell application \"iTerm2\"' -e 'activate' -e 'set w to (create window with default profile)' -e 'tell current session of w' -e 'write text \"cd {path} && {prompt_cmd}\"' -e 'end tell' -e 'end tell'",
     "description": "Opens a new iTerm2 window and cd's into the workspace path"
   },
   "com.apple.Terminal": {
     "name": "Terminal",
     "launch": "osascript -e 'tell application \"Terminal\"' -e 'activate' -e 'do script \"cd {path}\"' -e 'end tell'",
+    "prompt_launch": "osascript -e 'tell application \"Terminal\"' -e 'activate' -e 'do script \"cd {path} && {prompt_cmd}\"' -e 'end tell'",
     "description": "Opens a new Terminal window and cd's into the workspace path"
   },
   "com.mitchellh.ghostty": {
     "name": "Ghostty",
     "launch": "open -na Ghostty --args --working-directory={path}",
+    "prompt_launch": "open -na Ghostty --args --working-directory={path} -e {prompt_cmd}",
     "description": "Opens a new Ghostty window in the workspace path"
   },
   "com.github.wez.wezterm": {
     "name": "WezTerm",
     "launch": "open -na WezTerm --args start --cwd {path}",
+    "prompt_launch": "open -na WezTerm --args start --cwd {path} -- {prompt_cmd}",
     "description": "Opens a new WezTerm window in the workspace path"
   },
   "dev.warp.Warp-Stable": {
