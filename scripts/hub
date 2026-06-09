@@ -132,14 +132,24 @@ warn()    { echo -e "  ${yellow}!${reset} $1"; }
 fail()    { echo -e "  ${red}✗${reset} $1"; }
 info()    { echo -e "  ${blue}→${reset} $1"; }
 
-# hub_log KIND MESSAGE — append a timestamped entry to the action log.
-# KIND: INPUT | CMD | OUT | ERR | ---
+# hub_log KIND MESSAGE — append a timestamped ANSI-colored entry to the action log.
+# KIND: INPUT | CMD | OUT | ERR
 hub_log() {
     local kind="$1" msg="$2"
     local ts
     ts="$(date '+%Y-%m-%d %H:%M:%S')"
     mkdir -p "$(dirname "$HUB_LOG_FILE")"
-    printf '[%s] %s: %s\n' "$ts" "$kind" "$msg" >> "$HUB_LOG_FILE"
+    # Dim timestamp, color by kind: green=INPUT, cyan=CMD, white=OUT, red=ERR
+    local kind_color reset_c=$'\033[0m' dim=$'\033[2m'
+    case "$kind" in
+        INPUT) kind_color=$'\033[32m' ;;  # green
+        CMD)   kind_color=$'\033[36m' ;;  # cyan
+        OUT)   kind_color=$'\033[37m' ;;  # white
+        ERR)   kind_color=$'\033[31m' ;;  # red
+        *)     kind_color=$'\033[37m' ;;
+    esac
+    printf "${dim}[%s]${reset_c} ${kind_color}%s:${reset_c} %s\n" \
+        "$ts" "$kind" "$msg" >> "$HUB_LOG_FILE"
 }
 
 read_superset_config() {
@@ -2104,10 +2114,13 @@ cmd_log() {
             exit 1
         fi
         if [[ ! -f "$HUB_LOG_FILE" ]]; then
-            # Create an empty log file so the viewer has something to open
             mkdir -p "$(dirname "$HUB_LOG_FILE")"
             touch "$HUB_LOG_FILE"
         fi
+        # Kill any existing log_viewer windows so ctrl-alt-l always lands on the
+        # current workspace rather than piling up multiple viewer instances.
+        pkill -x log_viewer 2>/dev/null || true
+        sleep 0.1
         "$LOG_VIEWER_BIN" "$HUB_LOG_FILE" &
         disown
         return
@@ -2118,7 +2131,8 @@ cmd_log() {
         echo "(no log entries yet)"
         return
     fi
-    less "$HUB_LOG_FILE"
+    # -S: don't wrap long lines  -R: pass ANSI colors  +F: start in follow mode
+    less -SR +F "$HUB_LOG_FILE"
 }
 
 _config_get() {
