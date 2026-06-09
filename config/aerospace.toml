@@ -204,6 +204,9 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     # hub: toggle repo name prefix on workspace labels
     ctrl-alt-p = 'exec-and-forget __HUB_SCRIPT__ repo-prefix toggle'
 
+    # hub: open action log viewer window
+    ctrl-alt-l = 'exec-and-forget __HUB_SCRIPT__ log --window'
+
     alt-backtick = 'focus --boundaries workspace --boundaries-action wrap-around-the-workspace dfs-next'
     alt-shift-backtick = 'focus --boundaries workspace --boundaries-action wrap-around-the-workspace dfs-prev'
     alt-ctrl-esc = 'focus-back-and-forth'

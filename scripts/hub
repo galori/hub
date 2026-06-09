@@ -45,6 +45,9 @@ ICONS_DIR="$HOME/.config/hub/icons"
 APP_PRESETS_SRC="$CONFIG_DIR/app_presets.json"
 APP_PRESETS_FILE="$HOME/.config/hub/app_presets.json"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
+LOG_VIEWER_SRC="$LIB_DIR/log_viewer.swift"
+LOG_VIEWER_BIN="$HOME/.config/hub/log_viewer"
+HUB_LOG_FILE="$HOME/.config/hub/hub.log"
 
 # AeroSpace outer.top padding (px) — see config/aerospace.toml.
 # tall = notch-avoidance / sketchybar-visible mode; normal = compact.
@@ -87,6 +90,7 @@ print_usage() {
     echo "  bar-reload    Reload sketchybar (fix rendering inconsistencies)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
     echo "  config        Get/set hub options (e.g. claude_binary)"
+    echo "  log           Show the hub action log (path + open in less; --window opens GUI viewer)"
     echo "  testing-banner Show a 'stand by' HUD while an automated session tests hub (start/stop/run)"
     echo "  claude-hooks  Manage Claude Code notification hooks (install/uninstall/status)"
     echo "  help          Show this help"
@@ -127,6 +131,16 @@ success() { echo -e "  ${green}✓${reset} $1"; }
 warn()    { echo -e "  ${yellow}!${reset} $1"; }
 fail()    { echo -e "  ${red}✗${reset} $1"; }
 info()    { echo -e "  ${blue}→${reset} $1"; }
+
+# hub_log KIND MESSAGE — append a timestamped entry to the action log.
+# KIND: INPUT | CMD | OUT | ERR | ---
+hub_log() {
+    local kind="$1" msg="$2"
+    local ts
+    ts="$(date '+%Y-%m-%d %H:%M:%S')"
+    mkdir -p "$(dirname "$HUB_LOG_FILE")"
+    printf '[%s] %s: %s\n' "$ts" "$kind" "$msg" >> "$HUB_LOG_FILE"
+}
 
 read_superset_config() {
     local repo_root="$1" key="$2"
@@ -446,6 +460,7 @@ compile_all() {
     compile_swift "testing_banner" "$TESTING_BANNER_SRC" "$TESTING_BANNER_BIN"
     compile_swift "progress_banner" "$PROGRESS_BANNER_SRC" "$PROGRESS_BANNER_BIN"
     compile_swift "app_switcher" "$APP_SWITCHER_SRC" "$APP_SWITCHER_BIN"
+    compile_swift "log_viewer" "$LOG_VIEWER_SRC" "$LOG_VIEWER_BIN"
     if [[ -f "$REPO_DIR/assets/hub-logo.png" ]]; then
         cp "$REPO_DIR/assets/hub-logo.png" "$HOME/.config/hub/hub-logo.png"
         success "hub-logo.png deployed"
@@ -906,6 +921,7 @@ _create_workspace() {
     local ws_prompt="${9:-}"
     local ws_apps_set="${10:-false}"
 
+    hub_log "INPUT" "new workspace name='$ws_name' id='$ws_id' path='$ws_path'"
     success "Creating workspace: $ws_name (workspace $ws_id)"
     [[ "$no_repo" == "false" ]] && info "Path: $ws_path"
 
@@ -1028,6 +1044,7 @@ _create_workspace() {
 
     progress_banner_stop
 
+    hub_log "OUT" "workspace '$ws_name' created on workspace $ws_id"
     echo
     echo -e "${green}${bold}Workspace '$ws_name' created on workspace $ws_id!${reset}"
 }
@@ -1431,6 +1448,7 @@ cmd_rename() {
 
     update_sketchybar_label "$ws_id" "$new_name"
 
+    hub_log "INPUT" "rename workspace $ws_id: '$ws_name' → '$new_name'"
     success "Renamed workspace $ws_id: '$ws_name' → '$new_name'"
 }
 
@@ -1702,6 +1720,7 @@ cmd_remove() {
         fi
     fi
 
+    hub_log "INPUT" "remove workspace '$ws_name' (id=$ws_id, worktree=$is_worktree)"
     progress_banner_start "Removing workspace ${ws_name}..."
 
     # Instant cleanup — before any slow teardown
@@ -1771,6 +1790,7 @@ cmd_remove() {
 
     progress_banner_stop
 
+    hub_log "OUT" "workspace '$ws_name' (id=$ws_id) removed"
     echo
     echo -e "${green}${bold}Workspace '$ws_name' (ID: $ws_id) removed.${reset}"
 }
@@ -1914,6 +1934,8 @@ arrange_workspace_windows() { local ws_id="$1"; arrange_workspace "$ws_id"; }
 _launch_and_corral() {
     local app_name="$1" launch_cmd="$2" ws_id="$3" launch_dir="${4:-}"
 
+    hub_log "CMD" "launch $app_name on workspace $ws_id: $launch_cmd"
+
     # Snapshot existing window IDs for this app
     local before_ids
     before_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
@@ -1951,8 +1973,17 @@ _launch_and_corral() {
         fi
         aerospace focus --window-id "$new_wid" 2>/dev/null || true
         OPEN_APP_SLOT_WID="$new_wid"
+        hub_log "OUT" "$app_name launched: window $new_wid on workspace $ws_id"
+        # Capture any launch errors
+        local _err
+        _err="$(cat /tmp/hub_open_err 2>/dev/null || true)"
+        [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err"
     else
         OPEN_APP_SLOT_WID=""
+        hub_log "ERR" "$app_name: window did not appear within 8s"
+        local _err
+        _err="$(cat /tmp/hub_open_err 2>/dev/null || true)"
+        [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err"
     fi
 }
 
@@ -1964,6 +1995,7 @@ cmd_open_url() {
     local ws_id="${2:-}"
     [[ -z "$ws_id" ]] && ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
     [[ -z "$url" || -z "$ws_id" ]] && return 1
+    hub_log "INPUT" "open-url $url (workspace $ws_id)"
 
     # Resolve the slot-2 (index 1) browser launch command, preferring url_launch.
     local app_info
@@ -2027,12 +2059,14 @@ open_app_slot() {
             done <<< "$cur_wins"
             [[ -z "$target" ]] && target="$first"
             aerospace focus --window-id "$target" 2>/dev/null || true
+            hub_log "INPUT" "open slot $slot → focus $app_name (window $target) on workspace $ws_id"
             [[ "$verbose" == "true" ]] && success "$app_name focused" || true
             return 0
         fi
         # Fall through: no window on this workspace, launch one here
     fi
 
+    hub_log "INPUT" "open slot $slot → launch $app_name on workspace $ws_id"
     [[ "$verbose" == "true" ]] && info "Opening $app_name..." || true
     progress_banner_update "Opening ${app_name}..."
 
@@ -2056,6 +2090,35 @@ open_app_slot() {
     else
         [[ "$verbose" == "true" ]] && warn "$app_name: window did not appear in time" || true
     fi
+}
+
+cmd_log() {
+    local open_window=false
+    for arg in "$@"; do
+        [[ "$arg" == "--window" ]] && open_window=true
+    done
+
+    if [[ "$open_window" == "true" ]]; then
+        if [[ ! -x "$LOG_VIEWER_BIN" ]]; then
+            fail "log_viewer not compiled. Run: hub install"
+            exit 1
+        fi
+        if [[ ! -f "$HUB_LOG_FILE" ]]; then
+            # Create an empty log file so the viewer has something to open
+            mkdir -p "$(dirname "$HUB_LOG_FILE")"
+            touch "$HUB_LOG_FILE"
+        fi
+        "$LOG_VIEWER_BIN" "$HUB_LOG_FILE" &
+        disown
+        return
+    fi
+
+    echo "$HUB_LOG_FILE"
+    if [[ ! -f "$HUB_LOG_FILE" ]]; then
+        echo "(no log entries yet)"
+        return
+    fi
+    less "$HUB_LOG_FILE"
 }
 
 _config_get() {
@@ -2966,6 +3029,7 @@ case "$command" in
     bar-reload)   sketchybar --reload ;;
     repo-prefix)  cmd_repo_prefix "$@" ;;
     arrange-open-window) arrange_after_open "${1:-}" ;;
+    log)            cmd_log "$@" ;;
     config)         cmd_config "$@" ;;
     testing-banner) cmd_testing_banner "$@" ;;
     claude-hooks)   cmd_claude_hooks "$@" ;;
