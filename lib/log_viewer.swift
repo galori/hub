@@ -8,10 +8,6 @@ class LogTextView: NSTextView {
     }
 }
 
-// Button action target (needs NSObject for @objc selector)
-class WrapToggle: NSObject {
-    @objc func toggle(_ sender: AnyObject) { toggleWrap() }
-}
 
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
@@ -55,40 +51,99 @@ NotificationCenter.default.addObserver(
     NSApp.terminate(nil)
 }
 
-// --- Status bar: path label + Wrap toggle button ---
-let statusBarView = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: statusBarHeight))
+// --- Status bar: path label + Wrap toggle button (Auto Layout) ---
+let statusBarView = NSView()
 statusBarView.wantsLayer = true
 statusBarView.layer?.backgroundColor = NSColor(white: 0.05, alpha: 1).cgColor
-statusBarView.autoresizingMask = [.width, .maxYMargin]
+statusBarView.translatesAutoresizingMaskIntoConstraints = false
 
-let wrapBtnWidth: CGFloat = 58
-let pathLabel = NSTextField(frame: NSRect(x: 8, y: 4, width: 900 - wrapBtnWidth - 20, height: 18))
+let pathLabel = NSTextField()
 pathLabel.isEditable = false; pathLabel.isSelectable = false; pathLabel.isBordered = false
 pathLabel.backgroundColor = .clear
 pathLabel.textColor = NSColor(white: 0.4, alpha: 1)
 pathLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
 pathLabel.stringValue = logPath
-pathLabel.autoresizingMask = [.width]
+pathLabel.lineBreakMode = .byTruncatingMiddle
+pathLabel.translatesAutoresizingMaskIntoConstraints = false
 
-let wrapToggleTarget = WrapToggle()
-let wrapBtn = NSButton(frame: NSRect(x: 900 - wrapBtnWidth - 6, y: 4, width: wrapBtnWidth, height: 18))
-wrapBtn.bezelStyle = .recessed
-wrapBtn.title = "Wrap"
-wrapBtn.font = NSFont.systemFont(ofSize: 11)
-wrapBtn.target = wrapToggleTarget
-wrapBtn.action = #selector(WrapToggle.toggle(_:))
-wrapBtn.autoresizingMask = [.minXMargin]
+// Use a custom NSView pill button — NSButton bezel styles are invisible on dark views
+class PillButton: NSView {
+    var action: () -> Void = {}
+    var isActive = false {
+        didSet { needsDisplay = true }
+    }
+    private let label = NSTextField()
+
+    init(title: String) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 4
+        label.stringValue = title
+        label.isEditable = false
+        label.isSelectable = false
+        label.isBordered = false
+        label.backgroundColor = .clear
+        label.textColor = NSColor(white: 0.55, alpha: 1)
+        label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+        let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick))
+        addGestureRecognizer(click)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let bg = isActive
+            ? NSColor(white: 0.30, alpha: 1)
+            : NSColor(white: 0.18, alpha: 1)
+        bg.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
+        NSColor(white: 0.35, alpha: 1).setStroke()
+        let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4)
+        border.lineWidth = 0.5
+        border.stroke()
+        label.textColor = isActive ? NSColor(white: 0.9, alpha: 1) : NSColor(white: 0.55, alpha: 1)
+    }
+
+    @objc private func handleClick() { action() }
+}
+
+let wrapBtn = PillButton(title: "Wrap")
+wrapBtn.translatesAutoresizingMaskIntoConstraints = false
 
 statusBarView.addSubview(pathLabel)
 statusBarView.addSubview(wrapBtn)
-win.contentView!.addSubview(statusBarView)
+
+let cv = win.contentView!
+cv.addSubview(statusBarView)
+
+NSLayoutConstraint.activate([
+    // status bar: pinned to bottom of content view, full width, fixed height
+    statusBarView.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
+    statusBarView.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
+    statusBarView.bottomAnchor.constraint(equalTo: cv.bottomAnchor),
+    statusBarView.heightAnchor.constraint(equalToConstant: statusBarHeight),
+    // path label: left edge to right edge of button
+    pathLabel.leadingAnchor.constraint(equalTo: statusBarView.leadingAnchor, constant: 8),
+    pathLabel.centerYAnchor.constraint(equalTo: statusBarView.centerYAnchor),
+    pathLabel.trailingAnchor.constraint(equalTo: wrapBtn.leadingAnchor, constant: -6),
+    // wrap button: fixed size, pinned to right
+    wrapBtn.trailingAnchor.constraint(equalTo: statusBarView.trailingAnchor, constant: -8),
+    wrapBtn.centerYAnchor.constraint(equalTo: statusBarView.centerYAnchor),
+    wrapBtn.widthAnchor.constraint(equalToConstant: 46),
+    wrapBtn.heightAnchor.constraint(equalToConstant: 18),
+])
 
 // --- Scroll + text view ---
-let scrollView = NSScrollView(
-    frame: NSRect(x: 0, y: statusBarHeight, width: 900, height: 600 - statusBarHeight))
-scrollView.autoresizingMask = [.width, .height]
+let scrollView = NSScrollView()
 scrollView.hasVerticalScroller = true
 scrollView.drawsBackground = false
+scrollView.translatesAutoresizingMaskIntoConstraints = false
 
 let textView = LogTextView(frame: scrollView.contentView.bounds)
 textView.isEditable = false
@@ -101,7 +156,14 @@ textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloa
 textView.textContainerInset = NSSize(width: 10, height: 10)
 
 scrollView.documentView = textView
-win.contentView!.addSubview(scrollView)
+cv.addSubview(scrollView)
+
+NSLayoutConstraint.activate([
+    scrollView.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
+    scrollView.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
+    scrollView.topAnchor.constraint(equalTo: cv.topAnchor),
+    scrollView.bottomAnchor.constraint(equalTo: statusBarView.topAnchor),
+])
 
 // Apply wrap/no-wrap layout to scroll + text view.
 func applyWrapMode() {
@@ -112,7 +174,6 @@ func applyWrapMode() {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(
             width: scrollView.contentSize.width, height: CGFloat.greatestFiniteMagnitude)
-        wrapBtn.contentTintColor = NSColor(white: 0.9, alpha: 1)
     } else {
         scrollView.hasHorizontalScroller = true
         textView.isHorizontallyResizable = true
@@ -120,12 +181,12 @@ func applyWrapMode() {
         textView.textContainer?.widthTracksTextView = false
         textView.textContainer?.containerSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        wrapBtn.contentTintColor = NSColor(white: 0.4, alpha: 1)
     }
+    wrapBtn.isActive = isWrapped
     scrollView.tile()
 }
 
-func toggleWrap() {
+wrapBtn.action = {
     isWrapped = !isWrapped
     applyWrapMode()
     loadFile()
