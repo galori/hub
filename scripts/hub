@@ -332,13 +332,20 @@ progress_banner_stop() {
     [[ -f "$PROGRESS_BANNER_PIDFILE" ]] || return 0
     local banner_pid holder_pid fifo
     { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$PROGRESS_BANNER_PIDFILE"
+    rm -f "$PROGRESS_BANNER_PIDFILE"
+    # Send QUIT while holder_pid is still alive (it keeps the fifo readable).
+    # Then kill the holder so EOF closes the pipe, and allow ~0.15s for the
+    # fade-out animation before killing the process as a fallback.
+    if [[ -n "$fifo" && -p "$fifo" ]]; then
+        printf "QUIT\n" > "$fifo" &
+        local write_pid=$!
+        sleep 0.05
+        kill "$write_pid" 2>/dev/null || true
+    fi
     [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
-    sleep 0.1
-    [[ -n "$fifo" && -p "$fifo" ]] && (printf "QUIT\n" > "$fifo") & disown 2>/dev/null || true
     sleep 0.2
     [[ -n "$banner_pid" ]] && kill "$banner_pid" 2>/dev/null || true
     [[ -n "$fifo" ]] && rm -f "$fifo"
-    rm -f "$PROGRESS_BANNER_PIDFILE"
 }
 
 # --- App switcher: Cmd-Tab-style cycle over the mini launch bar apps ---
@@ -936,6 +943,8 @@ _create_workspace() {
     [[ "$no_repo" == "false" ]] && info "Path: $ws_path"
 
     progress_banner_start "Creating workspace ${ws_name}..."
+    # Ensure the banner is always dismissed even on unexpected early exit.
+    trap 'progress_banner_stop 2>/dev/null || true; trap - EXIT' EXIT
 
     # Save to workspaces.json — hold the lock for the entire read→check→write
     mkdir -p "$(dirname "$WORKSPACES_FILE")"
@@ -1053,6 +1062,7 @@ _create_workspace() {
     fi
 
     progress_banner_stop
+    trap - EXIT
 
     hub_log "OUT" "workspace '$ws_name' created on workspace $ws_id"
     echo
