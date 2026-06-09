@@ -48,6 +48,7 @@ APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 LOG_VIEWER_SRC="$LIB_DIR/log_viewer.swift"
 LOG_VIEWER_BIN="$HOME/.config/hub/log_viewer"
 HUB_LOG_FILE="$HOME/.config/hub/hub.log"
+FULLSCREEN_STATE_FILE="$HOME/.config/hub/fullscreen"
 
 # AeroSpace outer.top padding (px) — see config/aerospace.toml.
 # tall = notch-avoidance / sketchybar-visible mode; normal = compact.
@@ -71,8 +72,8 @@ print_usage() {
     echo
     echo -e "${bold}Commands:${reset}"
     echo "  install       Install hub alias, check dependencies, compile binaries, and deploy configs"
-    echo "  up            Start AeroSpace, SketchyBar, JankyBorders, hide the Dock and menu bar"
-    echo "  down          Stop everything, restore the Dock and menu bar"
+    echo "  up            Start AeroSpace, SketchyBar, JankyBorders (restores fullscreen state if active)"
+    echo "  down          Stop everything, restore the Dock and menu bar (preserves fullscreen state)"
     echo "  reboot        Stop, reinstall, and restart the hub environment"
     echo "  new           Create a new workspace (opens dialog; pass flags to run silently)"
     echo "  list          List all defined workspaces
@@ -88,6 +89,7 @@ print_usage() {
     echo "  label-length  Shrink or grow workspace label max length (+/-/grow/shrink/min/max/number)"
     echo "  bar-height    Toggle bar height for notch avoidance (tall/normal/toggle)"
     echo "  bar-reload    Reload sketchybar (fix rendering inconsistencies)"
+    echo "  fullscreen    Hide/show the Dock and menu bar (on/off/toggle)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
     echo "  config        Get/set hub options (e.g. claude_binary)"
     echo "  log           Show the hub action log (path + open in less; --window opens GUI viewer)"
@@ -415,6 +417,26 @@ wait_for_menu_bar() {
         killall "System Settings" 2>/dev/null || true
         MENU_BAR_PID=""
     fi
+}
+
+# Hide the Dock and menu bar. Blocks until the menu-bar AppleScript finishes.
+_fullscreen_apply() {
+    toggle_menu_bar true
+    defaults write com.apple.dock autohide -bool true
+    defaults write com.apple.dock autohide-delay -float 1000
+    defaults write com.apple.dock autohide-time-modifier -float 0
+    killall Dock
+    wait_for_menu_bar
+}
+
+# Restore the Dock and menu bar.
+_fullscreen_restore() {
+    toggle_menu_bar false
+    defaults write com.apple.dock autohide -bool false
+    defaults delete com.apple.dock autohide-delay 2>/dev/null || true
+    defaults delete com.apple.dock autohide-time-modifier 2>/dev/null || true
+    killall Dock
+    wait_for_menu_bar
 }
 
 # --- Brew helpers ---
@@ -2567,6 +2589,43 @@ cmd_bar_height() {
     esac
 }
 
+cmd_fullscreen() {
+    local action="${1:-}"
+    local is_on=false
+    [[ -f "$FULLSCREEN_STATE_FILE" ]] && is_on=true
+
+    case "$action" in
+        on)
+            touch "$FULLSCREEN_STATE_FILE"
+            hub_log INPUT "fullscreen on"
+            _fullscreen_apply
+            success "Fullscreen on (dock and menu bar hidden)"
+            ;;
+        off)
+            rm -f "$FULLSCREEN_STATE_FILE"
+            hub_log INPUT "fullscreen off"
+            _fullscreen_restore
+            success "Fullscreen off (dock and menu bar restored)"
+            ;;
+        toggle)
+            if $is_on; then cmd_fullscreen off; else cmd_fullscreen on; fi
+            ;;
+        "")
+            echo -e "${bold}Fullscreen:${reset}"
+            if $is_on; then
+                echo -e "  on (dock and menu bar hidden)"
+            else
+                echo -e "  off"
+            fi
+            echo -e "  ${yellow}Usage: hub fullscreen [on|off|toggle]${reset}"
+            ;;
+        *)
+            fail "Usage: hub fullscreen [on|off|toggle]"
+            return 1
+            ;;
+    esac
+}
+
 ensure_general_workspace() {
     mkdir -p "$(dirname "$WORKSPACES_FILE")"
     _hub_lock_acquire || return 1
@@ -2589,13 +2648,15 @@ ensure_general_workspace() {
 cmd_up() {
     echo -e "${bold}Starting hub environment...${reset}\n"
 
-    # Show overlay while configuring system settings
-    start_overlay "Configuring System Settings"
-    update_overlay "Hiding dock and menu bar…\\nSystem Settings will open briefly."
+    # Show overlay for startup
+    start_overlay "Starting hub"
 
-    # Hide menu bar (non-blocking — runs in background)
-    toggle_menu_bar true
-    info "Setting menu bar auto-hide to ON (System Settings will open briefly)..."
+    # Apply fullscreen state if previously active
+    if [[ -f "$FULLSCREEN_STATE_FILE" ]]; then
+        update_overlay "Hiding dock and menu bar…\\nSystem Settings will open briefly."
+        _fullscreen_apply
+        success "Fullscreen restored (dock and menu bar hidden)"
+    fi
 
     # Launch HubHTTPHandler as persistent daemon
     if ! pgrep -qf "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler"; then
@@ -2605,13 +2666,6 @@ cmd_up() {
     else
         success "HubHTTPHandler already running"
     fi
-
-    # Hide the Dock
-    defaults write com.apple.dock autohide -bool true
-    defaults write com.apple.dock autohide-delay -float 1000
-    defaults write com.apple.dock autohide-time-modifier -float 0
-    killall Dock
-    success "Dock hidden"
 
     # Start or re-enable AeroSpace
     if pgrep -q AeroSpace; then
@@ -2649,10 +2703,6 @@ cmd_up() {
     else
         success "JankyBorders already running"
     fi
-
-    # Wait for menu bar AppleScript to finish
-    wait_for_menu_bar
-    success "Menu bar hidden"
 
     update_overlay "✓  Done"
     sleep 0.8
@@ -2725,28 +2775,17 @@ cmd_down() {
         warn "HubHTTPHandler was not running"
     fi
 
-    # Show overlay while restoring system settings
-    start_overlay "Restoring System Settings"
-    update_overlay "Unhiding dock and menu bar…\\nSystem Settings will open briefly."
-
-    # Unhide menu bar (non-blocking)
-    toggle_menu_bar false
-    info "Setting menu bar auto-hide to OFF (System Settings will open briefly)..."
-
-    # Restore the Dock
-    defaults write com.apple.dock autohide -bool false
-    defaults delete com.apple.dock autohide-delay 2>/dev/null || true
-    defaults delete com.apple.dock autohide-time-modifier 2>/dev/null || true
-    killall Dock
-    success "Dock restored"
-
-    # Wait for menu bar AppleScript to finish
-    wait_for_menu_bar
-    success "Menu bar restored"
-
-    update_overlay "✓  Done"
-    sleep 0.8
-    stop_overlay
+    # Restore dock and menu bar if fullscreen was active.
+    # Note: the fullscreen state file is preserved so the next `hub up` re-applies it.
+    if [[ -f "$FULLSCREEN_STATE_FILE" ]]; then
+        start_overlay "Restoring System Settings"
+        update_overlay "Unhiding dock and menu bar…\\nSystem Settings will open briefly."
+        _fullscreen_restore
+        success "Dock and menu bar restored"
+        update_overlay "✓  Done"
+        sleep 0.8
+        stop_overlay
+    fi
 
     # Restore previous default browser
     if [[ -x "$BROWSER_CTL_BIN" ]] && [[ -f "$PREV_BROWSER_FILE" ]]; then
@@ -3052,6 +3091,7 @@ case "$command" in
     bar-height)   cmd_bar_height "$@" ;;
     bar-reload)   sketchybar --reload ;;
     repo-prefix)  cmd_repo_prefix "$@" ;;
+    fullscreen)   cmd_fullscreen "$@" ;;
     arrange-open-window) arrange_after_open "${1:-}" ;;
     log)            cmd_log "$@" ;;
     config)         cmd_config "$@" ;;

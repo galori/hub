@@ -207,6 +207,9 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     # hub: open action log viewer window
     ctrl-alt-l = 'exec-and-forget __HUB_SCRIPT__ log --window'
 
+    # hub: toggle fullscreen (hide/show Dock and menu bar)
+    ctrl-alt-f = 'exec-and-forget __HUB_SCRIPT__ fullscreen toggle'
+
     alt-backtick = 'focus --boundaries workspace --boundaries-action wrap-around-the-workspace dfs-next'
     alt-shift-backtick = 'focus --boundaries workspace --boundaries-action wrap-around-the-workspace dfs-prev'
     alt-ctrl-esc = 'focus-back-and-forth'
