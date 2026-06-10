@@ -10,16 +10,23 @@ JankyBorders). They are entirely separate from the stubbed unit-test suite in
 
 ### Machine
 
-> **Only run these tests on a dedicated / isolated macOS session** — e.g. a
-> standalone test machine or a test user. Test 1 (`01_install_up.bats`) is
-> intentionally destructive:
->
-> - `rm -rf ~/.config/sketchybar` then redeploys hub's config
-> - overwrites `~/.aerospace.toml`
-> - appends an alias line to `~/.zshrc` / `~/.bash_profile` (guarded; idempotent)
-> - copies `commands/*.md` into `~/.claude/commands/`
-> - runs `swiftc` to recompile all Swift HUD binaries
-> - calls `hub up`, which swaps the system default browser to HubHTTPHandler
+Test 1 (`01_install_up.bats`) runs a full `hub install` + `hub up`. Because
+`hub install` is an **idempotent deploy** (all outputs are generated from the
+repo's own templates), this is safe to run on your normal dev machine:
+
+- `rm -rf ~/.config/sketchybar` then redeploys from `config/sketchybar/` — restores to the expected state
+- overwrites `~/.aerospace.toml` from `config/aerospace.toml` — same result
+- shell rc / global gitignore / `~/.claude/commands` — all guarded; no-op if already installed
+- recompiles Swift HUD binaries
+- `hub up` reloads sketchybar (brief flicker) and reloads AeroSpace config
+
+Visible side effects on your screen during the suite:
+- A short sketchybar reload flicker (test 1)
+- AeroSpace focus switches to the newly created test workspace (tests 2/3), then back after cleanup
+
+> For a fully hands-off run with zero screen disruption, use a dedicated test
+> machine or test user. But running on your dev machine while you step away is
+> fine.
 
 ### Software — must be pre-installed via Homebrew
 
