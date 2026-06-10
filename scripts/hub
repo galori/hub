@@ -1403,11 +1403,22 @@ _build_prompt_cmd() {
     wrapper_script="$pending_dir/${ws_id}"
     claude_bin="$(_config_get claude_binary "claude")"
     # The prompt text is embedded directly in the script (not a separate temp
-    # file that could race with deletion). %q quoting keeps all shell specials safe.
     # HUB_WORKSPACE_ID is exported so the notify hook gets an exact workspace match.
-    # exec "$SHELL" -i keeps Ghostty/WezTerm -e windows interactive after claude exits.
-    printf '#!/bin/zsh\nsource "$HOME/.zshrc" 2>/dev/null\nexport HUB_WORKSPACE_ID=%q\n%s %q\nexec "$SHELL" -i\n' \
-        "$ws_id" "$claude_bin" "$prompt" > "$wrapper_script"
+    # The prompt is written to a sidecar file so the wrapper script stays free of
+    # shell-special chars. exec replaces the wrapper process immediately — no stray
+    # pending-prompt process in ps. The final exec "$SHELL" -i keeps the terminal open.
+    local prompt_file="${wrapper_script}.prompt"
+    printf '%s' "$prompt" > "$prompt_file"
+    local quoted_id quoted_bin quoted_pf
+    quoted_id=$(printf '%q' "$ws_id")
+    quoted_bin=$(printf '%q' "$claude_bin")
+    quoted_pf=$(printf '%q' "$prompt_file")
+    cat > "$wrapper_script" <<WRAPPER
+#!/bin/zsh
+source "\$HOME/.zshrc" 2>/dev/null
+export HUB_WORKSPACE_ID=${quoted_id}
+exec "\$SHELL" -i -c "${quoted_bin} \"\$(cat ${quoted_pf})\"; exec \"\\\$SHELL\" -i"
+WRAPPER
     chmod +x "$wrapper_script"
     printf '%s' "$wrapper_script"
 }
