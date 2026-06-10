@@ -2019,14 +2019,17 @@ _launch_and_corral() {
         # Capture any launch errors
         local _err
         _err="$(cat /tmp/hub_open_err 2>/dev/null || true)"
-        [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err"
+        [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err" || true
     else
         OPEN_APP_SLOT_WID=""
         hub_log "ERR" "$app_name: window did not appear within 8s"
         local _err
         _err="$(cat /tmp/hub_open_err 2>/dev/null || true)"
-        [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err"
+        [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err" || true
     fi
+    # Never let the trailing conditional's exit status (1 when _err is empty)
+    # propagate out under `set -e` and abort the caller mid-workspace-setup.
+    return 0
 }
 
 # cmd_open_url URL [WS_ID] — open URL in the slot-2 browser and corral the new
