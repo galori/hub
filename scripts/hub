@@ -1612,6 +1612,14 @@ cmd_status() {
     echo -e "${bold}hub status${reset}"
     echo
 
+    # --- Hub up/down (HubHTTPHandler is the hub-specific long-running process) ---
+    if pgrep -qf "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler"; then
+        echo -e "${bold}Hub:${reset}  ${green}✓ up${reset}"
+    else
+        echo -e "${bold}Hub:${reset}  ${red}✗ down${reset}  (run: hub up)"
+    fi
+    echo
+
     # --- Services ---
     echo -e "${bold}Services:${reset}"
     if aerospace list-workspaces --all &>/dev/null; then
