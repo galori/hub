@@ -26,7 +26,7 @@
 - `lib/http_handler.swift` - HTTP/HTTPS URL handler daemon; receives Apple Events, shows HUD, opens URL in slot-2 browser (compiled to `~/.config/hub/http_handler`)
 - `lib/browser_ctl.swift` - Browser control helper for focus/tab management (compiled to `~/.config/hub/browser_ctl`)
 - `lib/spatial_order.swift` - CGWindowList geometry helper; in default mode takes window IDs as args and prints them sorted left-to-right; in `--tree` mode reconstructs and prints the AeroSpace tiling tree (compiled to `~/.config/hub/spatial_order`)
-- `lib/testing_banner.swift` - Small floating "stand by" HUD shown top-right while an automated session is testing hub (compiled to `~/.config/hub/testing_banner`)
+- `lib/testing_banner.swift` - Small floating "stand by" HUD shown top-right while an automated session is testing hub (compiled to `~/.config/hub/testing_banner`). Has a ✕ dismiss button and always prefixes its text with `[🤖]` to mark it as automated.
 - `lib/progress_banner.swift` - User-facing floating progress HUD shown top-right during workspace setup; blue border, ✕ dismiss button, accepts stdin message updates (compiled to `~/.config/hub/progress_banner`)
 - `lib/hide_menu_bar.applescript` - Menu bar toggle via System Settings UI automation
 - `~/.config/hub/apps.json` - App launcher configuration (up to 5 slots, created by install)
@@ -39,6 +39,7 @@
 - **Config is deployed, not symlinked**: `hub install` deploys configs to their destinations. Both aerospace.toml and sketchybar configs use `__HUB_SCRIPT__` placeholder substituted via sed.
 - **Harmless deploy**: Running `hub install` is always safe as an idempotent deploy/reload step after code changes.
 - **Responsiveness first**: UI actions must feel instant. Never block the user waiting for background work (app teardown, window closing, etc.) to complete. Move slow work off the critical path — fire-and-forget or background subshells — so the visible state updates immediately.
+- **Dismissable HUDs**: Every floating/always-on-top HUD whose lifetime is tied to an external process (banners, progress overlays — anything launched as a background Swift binary fed via stdin/FIFO) MUST render a manual ✕ dismiss button. If the launching process crashes or is `^C`'d before it sends `QUIT`, the button is the user's only escape hatch. Such windows must set `ignoresMouseEvents = false`. Reuse the `ClickView` dismiss-button pattern in `lib/progress_banner.swift` / `lib/testing_banner.swift` (hover states + `onPress = { dismiss() }`). Modal overlays that auto-dismiss on a deterministic, short-lived action (e.g. `lib/overlay.swift` during `hub up`/`down`) are exempt.
 
 ## Agent Tools
 
