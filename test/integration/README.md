@@ -52,9 +52,12 @@ in a live GUI session.
 
 ### Session
 
-Tests must run in a **real `loginwindow` GUI session** on the display. SSH
-sessions without a window server (`DISPLAY` unset, headless) will not work
-because both SketchyBar and AeroSpace bind to the WindowServer.
+Tests must run in a **real `loginwindow` GUI session** on the display. The guard
+checks for `WindowServer` (present only in a live session). SSH sessions without
+a window server (headless) will self-skip.
+
+AeroSpace and SketchyBar do **not** need to be running before you start — test 1
+launches them via `hub up`.
 
 ---
 

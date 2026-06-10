@@ -34,14 +34,11 @@ require_live_session() {
         skip "Required tools not found: ${missing_tools[*]}. Install via brew."
     fi
 
-    # Verify a real GUI session is present by checking that aerospace responds
-    if ! aerospace list-workspaces --all &>/dev/null; then
-        skip "aerospace is not responding. Ensure AeroSpace is running in a live GUI session."
-    fi
-
-    # Verify sketchybar is running
-    if ! pgrep -x sketchybar &>/dev/null; then
-        skip "sketchybar is not running. Run 'hub up' first."
+    # Verify a real GUI session is present — WindowServer only exists in a live
+    # loginwindow session (not headless SSH). We do NOT check whether aerospace
+    # or sketchybar are already running here: test 1 starts them via hub up.
+    if ! pgrep -x "WindowServer" &>/dev/null; then
+        skip "No WindowServer found. Integration tests require a live GUI login session."
     fi
 }
 
