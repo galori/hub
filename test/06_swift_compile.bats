@@ -18,7 +18,7 @@ setup() {
 }
 
 teardown() {
-    [[ -n "${COMPILE_OUT:-}" ]] && rm -rf "$COMPILE_OUT"
+    if [[ -n "${COMPILE_OUT:-}" ]]; then rm -rf "$COMPILE_OUT"; fi
 }
 
 compile_swift_file() {

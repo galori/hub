@@ -15,7 +15,7 @@ setup() {
 }
 
 teardown() {
-    [[ -n "${COMPILE_OUT:-}" ]] && rm -rf "$COMPILE_OUT"
+    if [[ -n "${COMPILE_OUT:-}" ]]; then rm -rf "$COMPILE_OUT"; fi
 }
 
 @test "spatial_order.swift compiles without errors" {

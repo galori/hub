@@ -57,7 +57,12 @@ BAR_PADDING_TALL=65
 
 # Ensure standard binary paths are available — AeroSpace's exec-and-forget
 # inherits a minimal environment that omits /usr/local/bin and /opt/homebrew/bin.
-export PATH="/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+# Append only; any caller-prepended paths (e.g. test stubs) must stay first.
+for _hub_p in /usr/local/bin /opt/homebrew/sbin /opt/homebrew/bin; do
+    [[ ":$PATH:" != *":$_hub_p:"* ]] && PATH="$PATH:$_hub_p"
+done
+export PATH
+unset _hub_p
 
 # Colors
 bold='\033[1m'
@@ -679,7 +684,7 @@ cmd_install() {
     if [[ ${#missing[@]} -gt 0 ]]; then
         echo
         echo -e "Missing packages: ${bold}${missing[*]}${reset}"
-        read -rp "Install them now? [y/N] " answer
+        if [[ "${HUB_NONINTERACTIVE:-}" == "1" ]]; then answer="n"; else read -rp "Install them now? [y/N] " answer; fi
         if [[ "$answer" =~ ^[Yy]$ ]]; then
             for i in "${!missing[@]}"; do
                 echo -e "\nInstalling ${bold}${missing[$i]}${reset}..."
@@ -740,7 +745,7 @@ cmd_install() {
         echo "  You can customize this any time with: hub apps"
         echo
         local _start
-        read -rp "  Start guided setup now? [Y/n] " _start
+        if [[ "${HUB_NONINTERACTIVE:-}" == "1" ]]; then _start="n"; else read -rp "  Start guided setup now? [Y/n] " _start; fi
         if [[ -z "$_start" || "$_start" =~ ^[Yy] ]]; then
             echo "[]" > "$APPS_FILE"
             local _slot
