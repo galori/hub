@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-INPUT=$(cat)
+INPUT=$(timeout 10 cat 2>/dev/null || true)
 
 # Skip non-interactive invocations (e.g. claude -p from scripts)
 is_non_interactive() {
