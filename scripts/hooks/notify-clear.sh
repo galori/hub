@@ -75,7 +75,6 @@ PULSE_PID_FILE="/tmp/hub_claude_pulse_${WS_ID}.pid"
 
 pulse_loop() {
     local ws="$1" sb="$2" active_file="$3" pid_file="$4"
-    echo $$ > "$pid_file"
     local bright=0xff76cce0 dim=0x3076cce0
     local phase=0
     while [ -f "$active_file" ]; do
@@ -103,6 +102,7 @@ start_active() {
         # would otherwise hold it open and stall Claude Code.
         if [ ! -f "$PULSE_PID_FILE" ] || ! kill -0 "$(cat "$PULSE_PID_FILE" 2>/dev/null)" 2>/dev/null; then
             pulse_loop "$WS_ID" "$SKETCHYBAR" "$ACTIVE_FILE" "$PULSE_PID_FILE" </dev/null >/dev/null 2>&1 &
+            echo $! > "$PULSE_PID_FILE"
             disown
         fi
     fi

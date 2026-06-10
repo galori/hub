@@ -2767,9 +2767,12 @@ cmd_down() {
         warn "JankyBorders was not running"
     fi
 
-    # Stop sketchybar
+    # Stop sketchybar and wait for it to fully exit before continuing,
+    # otherwise pgrep still finds it in a subsequent hub status call.
     if pgrep -q sketchybar; then
         killall sketchybar 2>/dev/null || true
+        local _i=0
+        while pgrep -q sketchybar && [[ $_i -lt 20 ]]; do sleep 0.1; ((_i++)); done
         success "SketchyBar stopped"
     else
         warn "SketchyBar was not running"

@@ -202,12 +202,14 @@ cleanup_workspace() {
     # hub remove handles json cleanup, sketchybar label reset, and background worktree removal
     "$hub" remove "$ws_id" -y 2>/dev/null || true
 
-    # Give the background worktree removal a moment, then prune to be sure
+    # hub remove backgrounded the worktree removal — poll until the dir is gone (max 10s),
+    # then prune and force-remove any remnant so fixture temp dirs are fully clean.
+    if [[ -n "$ws_path" ]]; then
+        local _i=0
+        while [[ -d "$ws_path" && $_i -lt 20 ]]; do sleep 0.5; ((_i++)); done
+    fi
     if [[ -n "$ws_root" && -d "$ws_root" ]]; then
-        sleep 1
         git -C "$ws_root" worktree prune 2>/dev/null || true
-        # If the worktree dir is still there (e.g. OUTPUT_WINDOW_BIN not compiled),
-        # remove it directly so the fixture temp dir is fully clean.
         if [[ -n "$ws_path" && -d "$ws_path" ]]; then
             git -C "$ws_root" worktree remove "$ws_path" --force 2>/dev/null || true
         fi
