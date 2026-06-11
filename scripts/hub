@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# bash 5.3 enables patsub_replacement by default, making & in ${var//pat/repl}
+# act as a sed-style backreference. This breaks URL substitution (& in query
+# strings gets replaced by the pattern text). Disable it globally.
+shopt -u patsub_replacement 2>/dev/null || true
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
