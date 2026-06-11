@@ -2089,6 +2089,11 @@ cmd_open_url() {
     OPEN_APP_SLOT_WID=""
     OPEN_APP_SLOT_CORRALLED=false
     _launch_and_corral "$app_name" "$launch_cmd" "$ws_id"
+    if [[ -n "$OPEN_APP_SLOT_WID" ]]; then
+        local _ws_id_copy="$ws_id"
+        (sleep 0.2; arrange_after_open "$_ws_id_copy") &
+        disown
+    fi
 }
 
 open_app_slot() {
