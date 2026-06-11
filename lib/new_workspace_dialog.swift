@@ -1599,6 +1599,11 @@ func showConfirmWorkspace(
     ])
 
     let (promptScroll, promptView) = makePromptTextView()
+    let lastPromptPath = NSString(string: "~/.config/hub/last_prompt").expandingTildeInPath
+    if let saved = try? String(contentsOfFile: lastPromptPath, encoding: .utf8) {
+        let text = saved.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { promptView.string = text }
+    }
     addView(promptScroll)
     NSLayoutConstraint.activate([
         promptScroll.topAnchor.constraint(equalTo: promptLabel.bottomAnchor, constant: 6),
@@ -1682,6 +1687,10 @@ func showConfirmWorkspace(
             // Base64-encode the prompt so newlines/tabs survive the
             // tab-delimited result format on the shell side.
             let promptText = promptView.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !promptText.isEmpty {
+                let lastPromptPath = NSString(string: "~/.config/hub/last_prompt").expandingTildeInPath
+                try? promptText.write(toFile: lastPromptPath, atomically: true, encoding: .utf8)
+            }
             let promptB64 = promptText.isEmpty
                 ? ""
                 : (promptText.data(using: .utf8)?.base64EncodedString() ?? "")
