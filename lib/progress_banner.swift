@@ -27,7 +27,7 @@ let win = NSWindow(
     contentRect: NSRect(x: originX, y: originY, width: bannerW, height: bannerH),
     styleMask: .borderless, backing: .buffered, defer: false)
 win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
-win.backgroundColor = NSColor(red: 0.08, green: 0.10, blue: 0.14, alpha: 0.94)
+win.backgroundColor = .clear
 win.isOpaque = false
 win.hasShadow = true
 win.ignoresMouseEvents = false
@@ -37,6 +37,7 @@ let cv = win.contentView!
 cv.wantsLayer = true
 cv.layer?.cornerRadius = 10
 cv.layer?.masksToBounds = true
+cv.layer?.backgroundColor = NSColor(red: 0.08, green: 0.10, blue: 0.14, alpha: 0.94).cgColor
 cv.layer?.borderWidth = 1
 cv.layer?.borderColor = NSColor(red: 0.25, green: 0.55, blue: 0.95, alpha: 0.80).cgColor
 
