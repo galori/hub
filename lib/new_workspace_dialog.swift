@@ -1620,23 +1620,23 @@ func showConfirmWorkspace(
         promptLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
     ])
 
-    // Skills dropdown button (sits right of the label)
+    // Skills dropdown button (left-aligned, between label and textarea)
     let skills = loadSkills()
     let skillsBtn = NSButton()
     skillsBtn.translatesAutoresizingMaskIntoConstraints = false
     skillsBtn.isBordered = false
     skillsBtn.wantsLayer = true
     skillsBtn.layer?.backgroundColor = itemBg2.cgColor
-    skillsBtn.layer?.cornerRadius = 4
+    skillsBtn.layer?.cornerRadius = 5
     skillsBtn.attributedTitle = NSAttributedString(string: "/ skill ▾", attributes: [
-        .foregroundColor: NSColor(white: 1, alpha: 0.55),
-        .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+        .foregroundColor: NSColor(white: 1, alpha: 0.65),
+        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
     ])
     addView(skillsBtn)
     NSLayoutConstraint.activate([
-        skillsBtn.centerYAnchor.constraint(equalTo: promptLabel.centerYAnchor),
-        skillsBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-        skillsBtn.heightAnchor.constraint(equalToConstant: 18),
+        skillsBtn.topAnchor.constraint(equalTo: promptLabel.bottomAnchor, constant: 6),
+        skillsBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        skillsBtn.heightAnchor.constraint(equalToConstant: 26),
     ])
 
     let (promptScroll, promptView) = makePromptTextView()
@@ -1659,7 +1659,7 @@ func showConfirmWorkspace(
     addView(clearBtn)
 
     NSLayoutConstraint.activate([
-        promptScroll.topAnchor.constraint(equalTo: promptLabel.bottomAnchor, constant: 6),
+        promptScroll.topAnchor.constraint(equalTo: skillsBtn.bottomAnchor, constant: 6),
         promptScroll.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         promptScroll.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         promptScroll.heightAnchor.constraint(equalToConstant: 64),
@@ -1671,6 +1671,7 @@ func showConfirmWorkspace(
     // Wire the skills popup menu
     if !skills.isEmpty {
         let menu = NSMenu()
+        menu.appearance = NSAppearance(named: .darkAqua)
         class SkillAction: NSObject {
             let skill: String
             weak var tv: NSTextView?
