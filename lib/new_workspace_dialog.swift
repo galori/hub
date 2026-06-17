@@ -1476,11 +1476,24 @@ func loadAppNames() -> [String] {
 
 func loadSkills() -> [String] {
     let commandsDir = NSString(string: "~/.claude/commands").expandingTildeInPath
-    guard let files = try? FileManager.default.contentsOfDirectory(atPath: commandsDir) else { return [] }
-    return files
-        .filter { $0.hasSuffix(".md") }
-        .map { String($0.dropLast(3)) }
-        .sorted()
+    let fm = FileManager.default
+    guard let entries = try? fm.contentsOfDirectory(atPath: commandsDir) else { return [] }
+    var skills: [String] = []
+    for entry in entries {
+        let fullPath = (commandsDir as NSString).appendingPathComponent(entry)
+        var isDir: ObjCBool = false
+        fm.fileExists(atPath: fullPath, isDirectory: &isDir)
+        if isDir.boolValue {
+            if let subs = try? fm.contentsOfDirectory(atPath: fullPath) {
+                for sub in subs where sub.hasSuffix(".md") {
+                    skills.append("\(entry):\(String(sub.dropLast(3)))")
+                }
+            }
+        } else if entry.hasSuffix(".md") {
+            skills.append(String(entry.dropLast(3)))
+        }
+    }
+    return skills.sorted()
 }
 
 func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil, setupCmd: String? = nil, pendingWorktreeName: String? = nil, back: (() -> Void)? = nil) {
