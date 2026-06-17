@@ -1627,7 +1627,7 @@ func showConfirmWorkspace(
     NSLayoutConstraint.activate([
         skillsField.topAnchor.constraint(equalTo: promptLabel.bottomAnchor, constant: 6),
         skillsField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        skillsField.widthAnchor.constraint(equalToConstant: 220),
+        skillsField.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         skillsField.heightAnchor.constraint(equalToConstant: 30),
     ])
 
@@ -1697,7 +1697,7 @@ func showConfirmWorkspace(
             let rowH: CGFloat = 28
             let maxRows: CGFloat = 8
             let panelH = min(CGFloat(filtered.count) * rowH + 8, maxRows * rowH + 8)
-            let panelW = field.frame.width == 0 ? 220 : max(field.frame.width, 220)
+            let panelW = field.frame.width > 0 ? field.frame.width : 400
 
             if panel == nil {
                 let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
