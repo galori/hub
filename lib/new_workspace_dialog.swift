@@ -1474,6 +1474,15 @@ func loadAppNames() -> [String] {
     return arr.compactMap { $0["name"] as? String }
 }
 
+func loadSkills() -> [String] {
+    let commandsDir = NSString(string: "~/.claude/commands").expandingTildeInPath
+    guard let files = try? FileManager.default.contentsOfDirectory(atPath: commandsDir) else { return [] }
+    return files
+        .filter { $0.hasSuffix(".md") }
+        .map { String($0.dropLast(3)) }
+        .sorted()
+}
+
 func showNamingWorkspace(path: String, repoRoot: String, color: String? = nil, setupCmd: String? = nil, pendingWorktreeName: String? = nil, back: (() -> Void)? = nil) {
     showConfirmWorkspace(path: path, repoRoot: repoRoot, color: color, setupCmd: setupCmd, pendingWorktreeName: pendingWorktreeName, back: back)
 }
@@ -1598,6 +1607,25 @@ func showConfirmWorkspace(
         promptLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
     ])
 
+    // Skills dropdown button (sits right of the label)
+    let skills = loadSkills()
+    let skillsBtn = NSButton()
+    skillsBtn.translatesAutoresizingMaskIntoConstraints = false
+    skillsBtn.isBordered = false
+    skillsBtn.wantsLayer = true
+    skillsBtn.layer?.backgroundColor = itemBg2.cgColor
+    skillsBtn.layer?.cornerRadius = 4
+    skillsBtn.attributedTitle = NSAttributedString(string: "/ skill ▾", attributes: [
+        .foregroundColor: NSColor(white: 1, alpha: 0.55),
+        .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+    ])
+    addView(skillsBtn)
+    NSLayoutConstraint.activate([
+        skillsBtn.centerYAnchor.constraint(equalTo: promptLabel.centerYAnchor),
+        skillsBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+        skillsBtn.heightAnchor.constraint(equalToConstant: 18),
+    ])
+
     let (promptScroll, promptView) = makePromptTextView()
     let lastPromptPath = NSString(string: "~/.config/hub/last_prompt").expandingTildeInPath
     if let saved = try? String(contentsOfFile: lastPromptPath, encoding: .utf8) {
@@ -1605,13 +1633,81 @@ func showConfirmWorkspace(
         if !text.isEmpty { promptView.string = text }
     }
     addView(promptScroll)
+
+    // Clear button — sits below the prompt, right-aligned
+    let clearBtn = NSButton()
+    clearBtn.translatesAutoresizingMaskIntoConstraints = false
+    clearBtn.isBordered = false
+    clearBtn.wantsLayer = true
+    clearBtn.attributedTitle = NSAttributedString(string: "✕ clear", attributes: [
+        .foregroundColor: NSColor(white: 1, alpha: 0.30),
+        .font: NSFont.systemFont(ofSize: 10, weight: .regular),
+    ])
+    addView(clearBtn)
+
     NSLayoutConstraint.activate([
         promptScroll.topAnchor.constraint(equalTo: promptLabel.bottomAnchor, constant: 6),
         promptScroll.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         promptScroll.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         promptScroll.heightAnchor.constraint(equalToConstant: 64),
+        clearBtn.topAnchor.constraint(equalTo: promptScroll.bottomAnchor, constant: 4),
+        clearBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
     ])
-    prevAnchor = promptScroll.bottomAnchor
+    prevAnchor = clearBtn.bottomAnchor
+
+    // Wire the skills popup menu
+    if !skills.isEmpty {
+        let menu = NSMenu()
+        class SkillAction: NSObject {
+            let skill: String
+            weak var tv: NSTextView?
+            init(_ s: String, _ tv: NSTextView) { skill = s; self.tv = tv }
+            @objc func pick(_ sender: Any) {
+                tv?.string = "/\(skill)"
+            }
+        }
+        var skillActions: [SkillAction] = []
+        for skill in skills {
+            let item = NSMenuItem(title: "/\(skill)", action: #selector(SkillAction.pick(_:)), keyEquivalent: "")
+            item.attributedTitle = NSAttributedString(string: "/\(skill)", attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
+                .foregroundColor: textWhite,
+            ])
+            let sa = SkillAction(skill, promptView)
+            skillActions.append(sa)
+            item.target = sa
+            menu.addItem(item)
+            objc_setAssociatedObject(item, "sa_\(skill)", sa, .OBJC_ASSOCIATION_RETAIN)
+        }
+        objc_setAssociatedObject(skillsBtn, "skillMenu", menu, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(skillsBtn, "skillActions", skillActions, .OBJC_ASSOCIATION_RETAIN)
+
+        class SkillsBtnAction: NSObject {
+            weak var btn: NSButton?
+            let menu: NSMenu
+            init(_ b: NSButton, _ m: NSMenu) { btn = b; menu = m }
+            @objc func showMenu(_ sender: Any) {
+                guard let b = btn else { return }
+                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: b.bounds.height + 2), in: b)
+            }
+        }
+        let sba = SkillsBtnAction(skillsBtn, menu)
+        skillsBtn.target = sba; skillsBtn.action = #selector(SkillsBtnAction.showMenu(_:))
+        objc_setAssociatedObject(skillsBtn, "sba", sba, .OBJC_ASSOCIATION_RETAIN)
+    } else {
+        skillsBtn.isEnabled = false
+        skillsBtn.alphaValue = 0.35
+    }
+
+    // Wire the clear button
+    class ClearPromptAction: NSObject {
+        weak var tv: NSTextView?
+        init(_ tv: NSTextView) { self.tv = tv }
+        @objc func clear(_ sender: Any) { tv?.string = "" }
+    }
+    let clearAction = ClearPromptAction(promptView)
+    clearBtn.target = clearAction; clearBtn.action = #selector(ClearPromptAction.clear(_:))
+    objc_setAssociatedObject(clearBtn, "cpa", clearAction, .OBJC_ASSOCIATION_RETAIN)
 
     // Wire Tab key view chain: name field → prompt text view → name field.
     // NSTextView isn't auto-registered; explicit nextKeyView is required.
