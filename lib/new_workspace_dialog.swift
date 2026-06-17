@@ -1620,23 +1620,15 @@ func showConfirmWorkspace(
         promptLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
     ])
 
-    // Skills dropdown button (left-aligned, between label and textarea)
+    // Skills autocomplete field
     let skills = loadSkills()
-    let skillsBtn = NSButton()
-    skillsBtn.translatesAutoresizingMaskIntoConstraints = false
-    skillsBtn.isBordered = false
-    skillsBtn.wantsLayer = true
-    skillsBtn.layer?.backgroundColor = itemBg2.cgColor
-    skillsBtn.layer?.cornerRadius = 5
-    skillsBtn.attributedTitle = NSAttributedString(string: "/ skill ▾", attributes: [
-        .foregroundColor: NSColor(white: 1, alpha: 0.65),
-        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-    ])
-    addView(skillsBtn)
+    let skillsField = makeField(placeholder: "/ filter skills…")
+    addView(skillsField)
     NSLayoutConstraint.activate([
-        skillsBtn.topAnchor.constraint(equalTo: promptLabel.bottomAnchor, constant: 6),
-        skillsBtn.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        skillsBtn.heightAnchor.constraint(equalToConstant: 26),
+        skillsField.topAnchor.constraint(equalTo: promptLabel.bottomAnchor, constant: 6),
+        skillsField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        skillsField.widthAnchor.constraint(equalToConstant: 220),
+        skillsField.heightAnchor.constraint(equalToConstant: 30),
     ])
 
     let (promptScroll, promptView) = makePromptTextView()
@@ -1659,7 +1651,7 @@ func showConfirmWorkspace(
     addView(clearBtn)
 
     NSLayoutConstraint.activate([
-        promptScroll.topAnchor.constraint(equalTo: skillsBtn.bottomAnchor, constant: 6),
+        promptScroll.topAnchor.constraint(equalTo: skillsField.bottomAnchor, constant: 6),
         promptScroll.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         promptScroll.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         promptScroll.heightAnchor.constraint(equalToConstant: 64),
@@ -1668,50 +1660,182 @@ func showConfirmWorkspace(
     ])
     prevAnchor = clearBtn.bottomAnchor
 
-    // Wire the skills popup menu
-    if !skills.isEmpty {
-        let menu = NSMenu()
-        menu.appearance = NSAppearance(named: .darkAqua)
-        class SkillAction: NSObject {
-            let skill: String
-            weak var tv: NSTextView?
-            init(_ s: String, _ tv: NSTextView) { skill = s; self.tv = tv }
-            @objc func pick(_ sender: Any) {
-                tv?.string = "/\(skill)"
-            }
-        }
-        var skillActions: [SkillAction] = []
-        for skill in skills {
-            let item = NSMenuItem(title: "/\(skill)", action: #selector(SkillAction.pick(_:)), keyEquivalent: "")
-            item.attributedTitle = NSAttributedString(string: "/\(skill)", attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-                .foregroundColor: textWhite,
-            ])
-            let sa = SkillAction(skill, promptView)
-            skillActions.append(sa)
-            item.target = sa
-            menu.addItem(item)
-            objc_setAssociatedObject(item, "sa_\(skill)", sa, .OBJC_ASSOCIATION_RETAIN)
-        }
-        objc_setAssociatedObject(skillsBtn, "skillMenu", menu, .OBJC_ASSOCIATION_RETAIN)
-        objc_setAssociatedObject(skillsBtn, "skillActions", skillActions, .OBJC_ASSOCIATION_RETAIN)
+    // Autocomplete panel for skills
+    class SkillsAutoComplete: NSObject, NSTextFieldDelegate {
+        let allSkills: [String]
+        let field: NSTextField
+        weak var promptView: NSTextView?
+        var panel: NSPanel?
+        var listView: FlippedView?
+        var rowButtons: [(skill: String, button: NSButton)] = []
+        var highlightedIndex: Int = -1
 
-        class SkillsBtnAction: NSObject {
-            weak var btn: NSButton?
-            let menu: NSMenu
-            init(_ b: NSButton, _ m: NSMenu) { btn = b; menu = m }
-            @objc func showMenu(_ sender: Any) {
-                guard let b = btn else { return }
-                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: b.bounds.height + 2), in: b)
+        init(skills: [String], field: NSTextField, promptView: NSTextView) {
+            self.allSkills = skills
+            self.field = field
+            self.promptView = promptView
+            super.init()
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            let query = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let filtered = query.isEmpty
+                ? allSkills
+                : allSkills.filter { $0.lowercased().contains(query) }
+            showPanel(filtered)
+        }
+
+        func controlTextDidBeginEditing(_ obj: Notification) {
+            let query = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let filtered = query.isEmpty ? allSkills : allSkills.filter { $0.lowercased().contains(query) }
+            showPanel(filtered)
+        }
+
+        func showPanel(_ filtered: [String]) {
+            if filtered.isEmpty { hidePanel(); return }
+
+            let rowH: CGFloat = 28
+            let maxRows: CGFloat = 8
+            let panelH = min(CGFloat(filtered.count) * rowH + 8, maxRows * rowH + 8)
+            let panelW = field.frame.width == 0 ? 220 : max(field.frame.width, 220)
+
+            if panel == nil {
+                let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                                backing: .buffered, defer: false)
+                p.level = NSWindow.Level(rawValue: Int(CGWindowLevelKey.floatingWindow.rawValue) + 1)
+                p.backgroundColor = NSColor(red: 0.13, green: 0.14, blue: 0.18, alpha: 0.98)
+                p.isOpaque = false
+                p.hasShadow = true
+                p.contentView?.wantsLayer = true
+                p.contentView?.layer?.cornerRadius = 8
+                p.contentView?.layer?.masksToBounds = true
+                p.contentView?.layer?.borderWidth = 1
+                p.contentView?.layer?.borderColor = NSColor(white: 1, alpha: 0.12).cgColor
+
+                let scroll = NSScrollView(frame: .zero)
+                scroll.autoresizingMask = [.width, .height]
+                scroll.hasVerticalScroller = true
+                scroll.autohidesScrollers = true
+                scroll.drawsBackground = false
+                scroll.scrollerStyle = .overlay
+
+                let lv = FlippedView()
+                lv.translatesAutoresizingMaskIntoConstraints = false
+                scroll.documentView = lv
+                p.contentView?.addSubview(scroll)
+                scroll.frame = p.contentView!.bounds
+
+                self.listView = lv
+                self.panel = p
+            }
+
+            guard let p = panel, let lv = listView else { return }
+
+            // Position below the field
+            if let fieldWindow = field.window {
+                let fieldFrameInWindow = field.convert(field.bounds, to: nil)
+                let fieldFrameOnScreen = fieldWindow.convertToScreen(fieldFrameInWindow)
+                let panelX = fieldFrameOnScreen.minX
+                let panelY = fieldFrameOnScreen.minY - panelH - 4
+                p.setFrame(NSRect(x: panelX, y: panelY, width: panelW, height: panelH), display: true)
+            }
+
+            // Rebuild rows
+            for sub in lv.subviews { sub.removeFromSuperview() }
+            rowButtons.removeAll()
+            highlightedIndex = -1
+
+            var prevAnchor: NSLayoutYAxisAnchor = lv.topAnchor
+            for (i, skill) in filtered.enumerated() {
+                let btn = NSButton()
+                btn.translatesAutoresizingMaskIntoConstraints = false
+                btn.isBordered = false
+                btn.wantsLayer = true
+                btn.layer?.cornerRadius = 4
+                btn.alignment = .left
+                setRowNormal(btn, skill: skill)
+                let skillCopy = skill
+                let action = RowAction(skill: skillCopy, owner: self)
+                btn.target = action; btn.action = #selector(RowAction.pick(_:))
+                objc_setAssociatedObject(btn, "ra\(i)", action, .OBJC_ASSOCIATION_RETAIN)
+                lv.addSubview(btn)
+                rowButtons.append((skill: skill, button: btn))
+                NSLayoutConstraint.activate([
+                    btn.topAnchor.constraint(equalTo: prevAnchor, constant: i == 0 ? 4 : 1),
+                    btn.leadingAnchor.constraint(equalTo: lv.leadingAnchor, constant: 4),
+                    btn.trailingAnchor.constraint(equalTo: lv.trailingAnchor, constant: -4),
+                    btn.heightAnchor.constraint(equalToConstant: rowH - 2),
+                ])
+                prevAnchor = btn.bottomAnchor
+            }
+            if !filtered.isEmpty {
+                prevAnchor.constraint(equalTo: lv.bottomAnchor, constant: -4).isActive = true
+            }
+            lv.layoutSubtreeIfNeeded()
+
+            if p.parent == nil, let fw = field.window {
+                fw.addChildWindow(p, ordered: .above)
+            }
+            p.orderFront(nil)
+        }
+
+        func setRowNormal(_ btn: NSButton, skill: String) {
+            btn.layer?.backgroundColor = nil
+            btn.attributedTitle = NSAttributedString(string: "/\(skill)", attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: NSColor(white: 1, alpha: 0.80),
+            ])
+        }
+
+        func setRowHighlighted(_ btn: NSButton, skill: String) {
+            btn.layer?.backgroundColor = accentBlue.withAlphaComponent(0.35).cgColor
+            btn.attributedTitle = NSAttributedString(string: "/\(skill)", attributes: [
+                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: NSColor.white,
+            ])
+        }
+
+        func moveHighlight(by delta: Int) {
+            guard !rowButtons.isEmpty else { return }
+            let old = highlightedIndex
+            highlightedIndex = max(0, min(rowButtons.count - 1, highlightedIndex + delta))
+            if old >= 0 && old < rowButtons.count { setRowNormal(rowButtons[old].button, skill: rowButtons[old].skill) }
+            setRowHighlighted(rowButtons[highlightedIndex].button, skill: rowButtons[highlightedIndex].skill)
+            (rowButtons[highlightedIndex].button.superview?.enclosingScrollView)?
+                .scrollToVisible(rowButtons[highlightedIndex].button.frame)
+        }
+
+        func confirmHighlighted() -> Bool {
+            guard highlightedIndex >= 0 && highlightedIndex < rowButtons.count else { return false }
+            selectSkill(rowButtons[highlightedIndex].skill)
+            return true
+        }
+
+        func selectSkill(_ skill: String) {
+            promptView?.string = "/\(skill)"
+            field.stringValue = ""
+            hidePanel()
+            win.makeFirstResponder(promptView)
+        }
+
+        func hidePanel() {
+            if let p = panel {
+                p.parent?.removeChildWindow(p)
+                p.orderOut(nil)
             }
         }
-        let sba = SkillsBtnAction(skillsBtn, menu)
-        skillsBtn.target = sba; skillsBtn.action = #selector(SkillsBtnAction.showMenu(_:))
-        objc_setAssociatedObject(skillsBtn, "sba", sba, .OBJC_ASSOCIATION_RETAIN)
-    } else {
-        skillsBtn.isEnabled = false
-        skillsBtn.alphaValue = 0.35
+
+        class RowAction: NSObject {
+            let skill: String
+            weak var owner: SkillsAutoComplete?
+            init(skill: String, owner: SkillsAutoComplete) { self.skill = skill; self.owner = owner }
+            @objc func pick(_ sender: Any) { owner?.selectSkill(skill) }
+        }
     }
+
+    let skillsAC = SkillsAutoComplete(skills: skills, field: skillsField, promptView: promptView)
+    skillsField.delegate = skillsAC
+    objc_setAssociatedObject(skillsField, "skillsAC", skillsAC, .OBJC_ASSOCIATION_RETAIN)
 
     // Wire the clear button
     class ClearPromptAction: NSObject {
@@ -1841,6 +1965,32 @@ func showConfirmWorkspace(
     win.makeFirstResponder(nameField)
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        // Skills field key handling
+        let skillsFieldHasFocus: Bool = {
+            if let ed = skillsField.currentEditor() { return win.firstResponder === ed }
+            return win.firstResponder === skillsField
+        }()
+        if skillsFieldHasFocus {
+            switch event.keyCode {
+            case 125: skillsAC.moveHighlight(by: 1); return nil   // down
+            case 126: skillsAC.moveHighlight(by: -1); return nil  // up
+            case 36:  // Enter — confirm highlighted or dismiss
+                if skillsAC.confirmHighlighted() { return nil }
+                skillsAC.hidePanel()
+                win.makeFirstResponder(promptView)
+                return nil
+            case 53:  // Escape — hide panel, move focus to prompt
+                skillsAC.hidePanel()
+                win.makeFirstResponder(promptView)
+                return nil
+            case 48:  // Tab — move to prompt
+                skillsAC.hidePanel()
+                win.makeFirstResponder(promptView)
+                return nil
+            default: break
+            }
+        }
+
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
         if let backFn = back,
            event.modifierFlags.contains(.command),
