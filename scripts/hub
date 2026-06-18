@@ -13,8 +13,6 @@ AEROSPACE_CONFIG="$HOME/.aerospace.toml"
 STATUS_BAR_SRC="$LIB_DIR/status_bar.swift"
 STATUS_BAR_BIN="$HOME/.config/hub/status_bar"
 STATUS_BAR_PIDFILE="$HOME/.config/hub/status_bar.pid"
-OVERLAY_SRC="$LIB_DIR/overlay.swift"
-OVERLAY_BIN="$HOME/.config/hub/overlay"
 DIALOG_SRC="$LIB_DIR/new_workspace_dialog.swift"
 DIALOG_BIN="$HOME/.config/hub/new_workspace_dialog"
 CONFIRM_SRC="$LIB_DIR/confirm_dialog.swift"
@@ -31,8 +29,6 @@ BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
 BROWSER_CTL_BIN="$HOME/.config/hub/browser_ctl"
 SPATIAL_ORDER_SRC="$LIB_DIR/spatial_order.swift"
 SPATIAL_ORDER_BIN="$HOME/.config/hub/spatial_order"
-TESTING_BANNER_SRC="$LIB_DIR/testing_banner.swift"
-TESTING_BANNER_BIN="$HOME/.config/hub/testing_banner"
 TESTING_BANNER_PIDFILE="$HOME/.config/hub/testing_banner.pid"
 PROGRESS_BANNER_SRC="$LIB_DIR/progress_banner.swift"
 PROGRESS_BANNER_BIN="$HOME/.config/hub/progress_banner"
@@ -57,7 +53,7 @@ HUB_LOG_FILE="$HOME/.config/hub/hub.log"
 FULLSCREEN_STATE_FILE="$HOME/.config/hub/fullscreen"
 
 # AeroSpace outer.top padding (px) — see config/aerospace.toml.
-# tall = notch-avoidance / sketchybar-visible mode; normal = compact.
+# tall = notch-avoidance mode; normal = compact.
 BAR_PADDING_NORMAL=55
 BAR_PADDING_TALL=65
 
@@ -193,43 +189,133 @@ _hub_lock_release() {
 # --- Overlay helpers ---
 
 OVERLAY_PID=""
-OVERLAY_FIFO=""
+# ─── Shared HUD helpers ───────────────────────────────────────────────────────
+# All progress/testing/install overlays run the same binary (progress_banner)
+# and use the same FIFO + sleep-holder + pid-file idiom.
+#
+# _hud_start <pidfile> [extra_args...] <title>
+#   Launch progress_banner with the given extra flags and initial title.
+#   Writes "banner_pid\nholder_pid\nfifo" to <pidfile>.
+#
+# _hud_send <pidfile> <line>
+#   Write one protocol line to a running HUD. No-op if banner is gone.
+#
+# _hud_stop <pidfile>
+#   Send QUIT, tear down the FIFO, kill processes.
+
+_hud_start() {
+    local pidfile="$1"; shift
+    [[ ! -x "$PROGRESS_BANNER_BIN" ]] && return 0
+    # Kill any stale instance stored in this pidfile.
+    _hud_stop "$pidfile" 2>/dev/null || true
+    local fifo
+    fifo="$(mktemp -u "${TMPDIR:-/tmp}/hub-hud.XXXXXX")"
+    mkfifo "$fifo"
+    # Keep the write-end open with a long-lived sleep so the banner doesn't see EOF prematurely.
+    (sleep 86400 > "$fifo") &
+    local holder_pid=$!
+    "$PROGRESS_BANNER_BIN" "$@" < "$fifo" >/dev/null 2>&1 &
+    local banner_pid=$!
+    disown "$banner_pid" "$holder_pid" 2>/dev/null || true
+    mkdir -p "$(dirname "$pidfile")"
+    printf "%s\n%s\n%s\n" "$banner_pid" "$holder_pid" "$fifo" > "$pidfile"
+}
+
+_hud_send() {
+    local pidfile="$1" msg="$2"
+    [[ ! -f "$pidfile" ]] && return 0
+    local banner_pid holder_pid fifo
+    { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$pidfile"
+    # If the user dismissed via ✕, the process is gone — clean up and skip.
+    if ! kill -0 "$banner_pid" 2>/dev/null; then
+        [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
+        [[ -n "$fifo" ]] && rm -f "$fifo"
+        rm -f "$pidfile"
+        return 0
+    fi
+    [[ -n "$fifo" && -p "$fifo" ]] && (printf "%s\n" "$msg" > "$fifo") & disown 2>/dev/null || true
+}
+
+_hud_stop() {
+    local pidfile="$1"
+    [[ -f "$pidfile" ]] || return 0
+    local banner_pid holder_pid fifo
+    { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$pidfile"
+    rm -f "$pidfile"
+    # Send QUIT while holder is still alive (keeps the fifo readable for writing).
+    if [[ -n "$fifo" && -p "$fifo" ]]; then
+        printf "QUIT\n" > "$fifo" &
+        local write_pid=$!
+        sleep 0.05
+        kill "$write_pid" 2>/dev/null || true
+    fi
+    [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
+    # Allow ~0.15 s for the fade-out animation, then kill as fallback.
+    sleep 0.2
+    [[ -n "$banner_pid" ]] && kill "$banner_pid" 2>/dev/null || true
+    [[ -n "$fifo" ]] && rm -f "$fifo"
+}
+
+# ─── Progress banner: user-facing HUD for workspace/app operations ────────────
+# progress_start "<Title>"      — launch the hierarchical HUD
+# progress_step  "<label>"      — complete previous step (✔), start a new one
+# progress_error "<msg>"        — show error state (auto-dismisses after 2.5 s)
+# progress_stop                 — complete final step, dismiss
+
+progress_start() {
+    local title="${1:-Setting up workspace…}"
+    _hud_start "$PROGRESS_BANNER_PIDFILE" "$title"
+    # Ensure the banner is always dismissed even on unexpected early exit.
+    # (Callers that set their own EXIT trap must call progress_stop there too.)
+}
+
+progress_step() {
+    _hud_send "$PROGRESS_BANNER_PIDFILE" "STEP	$1"
+}
+
+progress_error() {
+    local msg="${1:-Failed}"
+    [[ ! -f "$PROGRESS_BANNER_PIDFILE" ]] && return 0
+    local banner_pid holder_pid fifo
+    { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$PROGRESS_BANNER_PIDFILE"
+    if ! kill -0 "$banner_pid" 2>/dev/null; then
+        rm -f "$PROGRESS_BANNER_PIDFILE"
+        return 0
+    fi
+    [[ -n "$fifo" && -p "$fifo" ]] && (printf "ERROR:%s\n" "$msg" > "$fifo") & disown 2>/dev/null || true
+    sleep 2.6
+    [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
+    [[ -n "$fifo" ]] && rm -f "$fifo"
+    rm -f "$PROGRESS_BANNER_PIDFILE"
+}
+
+progress_stop() {
+    _hud_stop "$PROGRESS_BANNER_PIDFILE"
+}
+
+# ─── Install/uninstall modal overlay (replaces lib/overlay.swift) ─────────────
+# start_overlay <title>   — launch the modal (full-screen backdrop) HUD
+# update_overlay <text>   — add a STEP row (auto-completes previous)
+# stop_overlay            — dismiss
 
 start_overlay() {
     local title="${1:-hub}"
-    if [[ -x "$OVERLAY_BIN" ]]; then
-        OVERLAY_FIFO="$(mktemp -u "${TMPDIR:-/tmp}/hub-overlay.XXXXXX")"
-        mkfifo "$OVERLAY_FIFO" || {
-            OVERLAY_FIFO=""
-            return
-        }
-        "$OVERLAY_BIN" "$title" < "$OVERLAY_FIFO" &
-        OVERLAY_PID=$!
-        exec 3>"$OVERLAY_FIFO"
-    fi
+    _hud_start "$HOME/.config/hub/overlay.pid" --modal "$title"
+    OVERLAY_PID=""   # kept for compat; not used by the new helpers
+    OVERLAY_FIFO=""
 }
 
 update_overlay() {
-    local text="$1"
-    if [[ -n "${OVERLAY_PID:-}" ]] && kill -0 "$OVERLAY_PID" 2>/dev/null; then
-        echo "$text" >&3
-    fi
+    _hud_send "$HOME/.config/hub/overlay.pid" "STEP	$1"
 }
 
 stop_overlay() {
-    if [[ -n "${OVERLAY_PID:-}" ]] && kill -0 "$OVERLAY_PID" 2>/dev/null; then
-        echo "QUIT" >&3
-        exec 3>&-
-        wait "$OVERLAY_PID" 2>/dev/null || true
-    fi
+    _hud_stop "$HOME/.config/hub/overlay.pid"
     OVERLAY_PID=""
-    if [[ -n "${OVERLAY_FIFO:-}" ]]; then
-        rm -f "$OVERLAY_FIFO"
-        OVERLAY_FIFO=""
-    fi
+    OVERLAY_FIFO=""
 }
 
-# --- Testing banner (small top-right "stand by" HUD for automated sessions) ---
+# ─── Testing banner (small orange top-right "stand by" HUD for automated sessions) ───
 cmd_testing_banner() {
     local sub="${1:-}"
     shift || true
@@ -237,41 +323,20 @@ cmd_testing_banner() {
     case "$sub" in
         start)
             local msg="${1:-Claude Code is testing hub — stand by}"
-            if [[ ! -x "$TESTING_BANNER_BIN" ]]; then
-                fail "testing_banner not compiled. Run: hub install"
+            if [[ ! -x "$PROGRESS_BANNER_BIN" ]]; then
+                fail "progress_banner not compiled. Run: hub install"
                 return 1
             fi
-            # Kill any stale banner so there's never a duplicate.
             cmd_testing_banner stop >/dev/null 2>&1 || true
-            # Keep the banner alive independent of the caller — it reads stdin,
-            # so give it a stdin that stays open until `stop` closes it.
-            local fifo
-            fifo="$(mktemp -u "${TMPDIR:-/tmp}/hub-testing-banner.XXXXXX")"
-            mkfifo "$fifo"
-            # Hold the fifo open by redirecting a detached `sleep` into it.
-            (sleep 86400 > "$fifo") &
-            local holder_pid=$!
-            "$TESTING_BANNER_BIN" "$msg" < "$fifo" >/dev/null 2>&1 &
-            local banner_pid=$!
-            disown "$banner_pid" "$holder_pid" 2>/dev/null || true
-            mkdir -p "$(dirname "$TESTING_BANNER_PIDFILE")"
-            printf "%s\n%s\n%s\n" "$banner_pid" "$holder_pid" "$fifo" > "$TESTING_BANNER_PIDFILE"
+            _hud_start "$TESTING_BANNER_PIDFILE" --accent orange --prefix "[🤖] " "$msg"
             ;;
         stop)
-            [[ -f "$TESTING_BANNER_PIDFILE" ]] || return 0
-            local banner_pid holder_pid fifo
-            { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$TESTING_BANNER_PIDFILE"
-            [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
-            [[ -n "$banner_pid" ]] && kill "$banner_pid" 2>/dev/null || true
-            [[ -n "$fifo" ]] && rm -f "$fifo"
-            rm -f "$TESTING_BANNER_PIDFILE"
+            _hud_stop "$TESTING_BANNER_PIDFILE"
             ;;
         run)
-            # Run a command with the banner up, stop on exit regardless of status.
             cmd_testing_banner start "Claude Code is testing hub — stand by"
             local rc=0
-            "$@"
-            rc=$?
+            "$@" || rc=$?
             cmd_testing_banner stop
             return $rc
             ;;
@@ -288,78 +353,12 @@ cmd_testing_banner() {
     esac
 }
 
-# --- Progress banner: user-facing HUD shown during hub workspace setup ---
-# progress_banner_start [msg]  — launch the banner
-# progress_banner_update msg   — update the message while running
-# progress_banner_stop         — dismiss the banner
-
-progress_banner_start() {
-    local msg="${1:-Setting up workspace…}"
-    [[ ! -x "$PROGRESS_BANNER_BIN" ]] && return 0
-    progress_banner_stop 2>/dev/null || true
-    local fifo
-    fifo="$(mktemp -u "${TMPDIR:-/tmp}/hub-progress-banner.XXXXXX")"
-    mkfifo "$fifo"
-    (sleep 86400 > "$fifo") &
-    local holder_pid=$!
-    "$PROGRESS_BANNER_BIN" "$msg" < "$fifo" >/dev/null 2>&1 &
-    local banner_pid=$!
-    disown "$banner_pid" "$holder_pid" 2>/dev/null || true
-    mkdir -p "$(dirname "$PROGRESS_BANNER_PIDFILE")"
-    printf "%s\n%s\n%s\n" "$banner_pid" "$holder_pid" "$fifo" > "$PROGRESS_BANNER_PIDFILE"
-}
-
-progress_banner_update() {
-    local msg="$1"
-    [[ ! -f "$PROGRESS_BANNER_PIDFILE" ]] && return 0
-    local banner_pid holder_pid fifo
-    { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$PROGRESS_BANNER_PIDFILE"
-    # If the user dismissed the banner (✕), the process is gone — clean up and skip.
-    if ! kill -0 "$banner_pid" 2>/dev/null; then
-        [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
-        [[ -n "$fifo" ]] && rm -f "$fifo"
-        rm -f "$PROGRESS_BANNER_PIDFILE"
-        return 0
-    fi
-    [[ -n "$fifo" && -p "$fifo" ]] && (printf "%s\n" "$msg" > "$fifo") & disown 2>/dev/null || true
-}
-
-progress_banner_error() {
-    local msg="${1:-Failed}"
-    [[ ! -f "$PROGRESS_BANNER_PIDFILE" ]] && return 0
-    local banner_pid holder_pid fifo
-    { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$PROGRESS_BANNER_PIDFILE"
-    if ! kill -0 "$banner_pid" 2>/dev/null; then
-        rm -f "$PROGRESS_BANNER_PIDFILE"
-        return 0
-    fi
-    # Send ERROR: — the banner will auto-dismiss after 2.5s
-    [[ -n "$fifo" && -p "$fifo" ]] && (printf "ERROR:%s\n" "$msg" > "$fifo") & disown 2>/dev/null || true
-    sleep 2.6
-    [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
-    [[ -n "$fifo" ]] && rm -f "$fifo"
-    rm -f "$PROGRESS_BANNER_PIDFILE"
-}
-
-progress_banner_stop() {
-    [[ -f "$PROGRESS_BANNER_PIDFILE" ]] || return 0
-    local banner_pid holder_pid fifo
-    { read -r banner_pid; read -r holder_pid; read -r fifo; } < "$PROGRESS_BANNER_PIDFILE"
-    rm -f "$PROGRESS_BANNER_PIDFILE"
-    # Send QUIT while holder_pid is still alive (it keeps the fifo readable).
-    # Then kill the holder so EOF closes the pipe, and allow ~0.15s for the
-    # fade-out animation before killing the process as a fallback.
-    if [[ -n "$fifo" && -p "$fifo" ]]; then
-        printf "QUIT\n" > "$fifo" &
-        local write_pid=$!
-        sleep 0.05
-        kill "$write_pid" 2>/dev/null || true
-    fi
-    [[ -n "$holder_pid" ]] && kill "$holder_pid" 2>/dev/null || true
-    sleep 0.2
-    [[ -n "$banner_pid" ]] && kill "$banner_pid" 2>/dev/null || true
-    [[ -n "$fifo" ]] && rm -f "$fifo"
-}
+# (progress_banner_* retained as thin aliases for backward-compatibility with any
+#  external callers; real implementation is in progress_start/step/error/stop above.)
+progress_banner_start()  { progress_start  "${1:-Setting up workspace…}"; }
+progress_banner_update() { progress_step   "$1"; }
+progress_banner_error()  { progress_error  "${1:-Failed}"; }
+progress_banner_stop()   { progress_stop; }
 
 # --- App switcher: Cmd-Tab-style cycle over the mini launch bar apps ---
 # First Alt-N press launches the Swift modal and blocks until the user releases
@@ -455,10 +454,12 @@ _fullscreen_restore() {
 check_brew_package() {
     local pkg="$1"
     local cask="$2"
+    # First try brew list; fall back to `which` in case the tap is untrusted
+    # but the binary is already on PATH (aerospace with nikitabobko/tap).
     if [[ "$cask" == "true" ]]; then
-        brew list --cask "$pkg" &>/dev/null
+        brew list --cask "$pkg" &>/dev/null || command -v "$pkg" &>/dev/null
     else
-        brew list "$pkg" &>/dev/null
+        brew list "$pkg" &>/dev/null || command -v "$pkg" &>/dev/null
     fi
 }
 
@@ -500,7 +501,6 @@ compile_swift() {
 
 compile_all() {
     echo -e "${bold}Compiling Swift binaries...${reset}"
-    compile_swift "overlay" "$OVERLAY_SRC" "$OVERLAY_BIN"
     compile_swift "new_workspace_dialog" "$DIALOG_SRC" "$DIALOG_BIN"
     compile_swift "confirm_dialog" "$CONFIRM_SRC" "$CONFIRM_BIN"
     compile_swift "rename_dialog" "$RENAME_SRC" "$RENAME_BIN"
@@ -508,7 +508,6 @@ compile_all() {
     compile_swift "browser_ctl" "$BROWSER_CTL_SRC" "$BROWSER_CTL_BIN"
     compile_swift "output_window" "$OUTPUT_WINDOW_SRC" "$OUTPUT_WINDOW_BIN"
     compile_swift "spatial_order" "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
-    compile_swift "testing_banner" "$TESTING_BANNER_SRC" "$TESTING_BANNER_BIN"
     compile_swift "progress_banner" "$PROGRESS_BANNER_SRC" "$PROGRESS_BANNER_BIN"
     compile_swift "app_switcher" "$APP_SWITCHER_SRC" "$APP_SWITCHER_BIN"
     compile_swift "log_viewer" "$LOG_VIEWER_SRC" "$LOG_VIEWER_BIN"
@@ -913,13 +912,17 @@ cmd_new() {
         return
     fi
 
-    # Parse: name\tpath\troot_repo\tworkspace_id\tcolor\tsetup_cmd\tapps\tprompt_b64
-    # ("-" = empty for color/setup_cmd/apps; prompt_b64 is empty when no prompt)
-    local ws_name ws_path ws_root ws_id ws_color ws_setup_cmd ws_apps ws_prompt_b64
-    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color ws_setup_cmd ws_apps ws_prompt_b64 <<< "$result"
+    # Parse: name\tpath\troot_repo\tworkspace_id\tcolor\tsetup_cmd\tapps\tprompt_b64[\tworktree_name]
+    # ("-" = empty for color/setup_cmd/apps; prompt_b64 is empty when no prompt;
+    #  worktree_name is the last field, present only when the user chose to create a
+    #  new worktree — the dialog now passes it through so the shell creates the
+    #  worktree as the first banner step rather than inside the dialog.)
+    local ws_name ws_path ws_root ws_id ws_color ws_setup_cmd ws_apps ws_prompt_b64 ws_worktree_name
+    IFS=$'\t' read -r ws_name ws_path ws_root ws_id ws_color ws_setup_cmd ws_apps ws_prompt_b64 ws_worktree_name <<< "$result"
     [[ "$ws_color" == "-" ]] && ws_color=""
     [[ "$ws_setup_cmd" == "-" ]] && ws_setup_cmd=""
     [[ "$ws_apps" == "-" ]] && ws_apps=""
+    [[ "$ws_worktree_name" == "-" || -z "$ws_worktree_name" ]] && ws_worktree_name=""
 
     # Prompt is base64-encoded by the dialog so newlines and tabs survive
     # the tab-delimited result format.
@@ -941,7 +944,32 @@ cmd_new() {
         ws_root=""
     fi
 
-    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$ws_prompt" "false"
+    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$ws_prompt" "false" "$ws_worktree_name"
+}
+
+# _git_worktree_add <repo_root> <branch_name> <worktree_path>
+# Create a git worktree, using an existing branch or creating a new one off the
+# default branch. Returns 0 on success; prints the git error and returns 1 on failure.
+_git_worktree_add() {
+    local repo_root="$1" branch="$2" wt_path="$3"
+    local git_err
+    if git -C "$repo_root" rev-parse --verify "refs/heads/$branch" >/dev/null 2>&1; then
+        git_err="$(git -C "$repo_root" worktree add "$wt_path" "$branch" 2>&1)" || {
+            echo "$git_err"; return 1
+        }
+    else
+        local base_branch
+        base_branch="$(_default_branch "$repo_root" || true)"
+        if [[ -n "$base_branch" ]]; then
+            git_err="$(git -C "$repo_root" worktree add -b "$branch" "$wt_path" "$base_branch" 2>&1)" || {
+                echo "$git_err"; return 1
+            }
+        else
+            git_err="$(git -C "$repo_root" worktree add -b "$branch" "$wt_path" 2>&1)" || {
+                echo "$git_err"; return 1
+            }
+        fi
+    fi
 }
 
 _create_workspace() {
@@ -955,18 +983,37 @@ _create_workspace() {
     local no_repo="${8:-false}"
     local ws_prompt="${9:-}"
     local ws_apps_set="${10:-false}"
+    # Optional: when set, create this worktree as the first banner step.
+    local ws_worktree_name="${11:-}"
 
     hub_log "INPUT" "new workspace name='$ws_name' id='$ws_id' path='$ws_path'"
     success "Creating workspace: $ws_name (workspace $ws_id)"
     [[ "$no_repo" == "false" ]] && info "Path: $ws_path"
 
-    progress_banner_start "Creating workspace ${ws_name}..."
+    progress_start "Create New Hub Workspace"
     # Ensure the banner is always dismissed even on unexpected early exit.
-    trap 'progress_banner_stop 2>/dev/null || true; trap - EXIT' EXIT
+    trap 'progress_stop 2>/dev/null || true; trap - EXIT' EXIT
+
+    # Create the worktree as the first visible step (if requested).
+    if [[ -n "$ws_worktree_name" && -n "$ws_root" ]]; then
+        local worktrees_dir="$ws_root/worktrees"
+        local worktree_path="$worktrees_dir/$ws_worktree_name"
+        if [[ ! -d "$worktree_path" ]]; then
+            progress_step "Create Worktree"
+            mkdir -p "$worktrees_dir"
+            local wt_err
+            wt_err="$(_git_worktree_add "$ws_root" "$ws_worktree_name" "$worktree_path" 2>&1)" || {
+                progress_error "git worktree add failed: $wt_err"
+                fail "git worktree add failed: $wt_err"
+                return 1
+            }
+        fi
+        ws_path="$worktree_path"
+    fi
 
     # Save to workspaces.json — hold the lock for the entire read→check→write
     mkdir -p "$(dirname "$WORKSPACES_FILE")"
-    _hub_lock_acquire || { progress_banner_error "Failed to acquire lock"; return 1; }
+    _hub_lock_acquire || { progress_error "Failed to acquire lock"; return 1; }
 
     local existing="[]"
     [[ -f "$WORKSPACES_FILE" ]] && existing="$(cat "$WORKSPACES_FILE")"
@@ -975,7 +1022,7 @@ _create_workspace() {
     if [[ -z "$ws_id" ]]; then
         ws_id="$(_alloc_workspace_id "$existing")" || {
             _hub_lock_release
-            progress_banner_error "No free workspace IDs"
+            progress_error "No free workspace IDs"
             fail "No free workspace IDs available"
             return 1
         }
@@ -983,13 +1030,13 @@ _create_workspace() {
 
     if echo "$existing" | jq -e --arg id "$ws_id" '.[] | select(.workspace_id == $id)' >/dev/null 2>&1; then
         _hub_lock_release
-        progress_banner_error "Workspace ID already in use"
+        progress_error "Workspace ID already in use"
         fail "Workspace ID '$ws_id' is already in use"
         return 1
     fi
     if echo "$existing" | jq -e --arg n "$ws_name" '.[] | select(.name == $n)' >/dev/null 2>&1; then
         _hub_lock_release
-        progress_banner_error "'$ws_name' already exists"
+        progress_error "'$ws_name' already exists"
         fail "A workspace named '$ws_name' already exists"
         return 1
     fi
@@ -1051,7 +1098,7 @@ _create_workspace() {
     # (e.g. BUNDLE_WITHOUT) are available when hub is launched from AeroSpace
     # with a minimal environment, without the interactive-shell noise from zsh -i.
     if [[ -n "$ws_setup_cmd" && -n "$ws_root" ]]; then
-        progress_banner_update "Setting up worktree…"
+        progress_step "Setting up worktree…"
         local full_setup_cmd="$ws_root/$ws_setup_cmd"
         local _wrap="source \"\$HOME/.zshrc\" 2>/dev/null; cd $(printf '%q' "$ws_path") && $full_setup_cmd"
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
@@ -1074,12 +1121,12 @@ _create_workspace() {
 
     # Arrange windows in the new workspace based on count
     if [[ ${#_opened_wids[@]} -ge 1 ]]; then
-        progress_banner_update "Organizing windows…"
+        progress_step "Organizing windows…"
         (sleep 0.3; arrange_workspace "$ws_id") &
         disown
     fi
 
-    progress_banner_stop
+    progress_stop
     trap - EXIT
 
     hub_log "OUT" "workspace '$ws_name' created on workspace $ws_id"
@@ -1259,43 +1306,26 @@ _cmd_new_cli() {
                 return 2
             fi
             local worktrees_dir="$repo_root/worktrees"
-            mkdir -p "$worktrees_dir"
             local worktree_path="$worktrees_dir/$opt_worktree"
 
             if [[ -d "$worktree_path" ]]; then
-                # Reuse existing worktree directory as-is.
+                # Reuse existing worktree directory as-is — no "Create Worktree" step.
                 info "Reusing existing worktree: $worktree_path"
+                ws_path="$worktree_path"
+                opt_worktree=""  # signal to _create_workspace not to create it
             else
-                progress_banner_start "Creating worktree ${opt_worktree}..."
-                local git_err
-                if git -C "$repo_root" rev-parse --verify "refs/heads/$opt_worktree" >/dev/null 2>&1; then
-                    git_err="$(git -C "$repo_root" worktree add "$worktree_path" "$opt_worktree" 2>&1)" || {
-                        progress_banner_stop
-                        fail "git worktree add failed: $git_err"
-                        return 1
-                    }
-                else
-                    local base_branch
-                    base_branch="$(_default_branch "$repo_root" || true)"
-                    if [[ -n "$base_branch" ]]; then
-                        git_err="$(git -C "$repo_root" worktree add -b "$opt_worktree" "$worktree_path" "$base_branch" 2>&1)" || {
-                            progress_banner_stop
-                            fail "git worktree add failed: $git_err"
-                            return 1
-                        }
-                    else
-                        git_err="$(git -C "$repo_root" worktree add -b "$opt_worktree" "$worktree_path" 2>&1)" || {
-                            progress_banner_stop
-                            fail "git worktree add failed: $git_err"
-                            return 1
-                        }
-                    fi
-                fi
-                progress_banner_stop
+                # Pass the worktree name through; _create_workspace will create it
+                # as the first visible banner step.
+                ws_path="$worktree_path"
             fi
-            ws_path="$worktree_path"
             ws_root="$repo_root"
-            ws_name="${opt_name:-$opt_worktree}"
+            if [[ -n "$opt_name" ]]; then
+                ws_name="$opt_name"
+            elif [[ -n "$opt_worktree" ]]; then
+                ws_name="$opt_worktree"
+            else
+                ws_name="$(basename "$worktree_path")"
+            fi
         else
             ws_path="$resolved_path"
             ws_root="$repo_root"
@@ -1353,7 +1383,7 @@ _cmd_new_cli() {
         ws_apps="$(_default_apps_list)"
     fi
 
-    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$opt_prompt" "$opt_apps_set"
+    _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$opt_prompt" "$opt_apps_set" "${opt_worktree:-}"
 }
 
 # Build the Claude prompt wrapper for terminal launch. Writes a per-workspace
@@ -1628,10 +1658,10 @@ cmd_status() {
     else
         echo -e "  ${red}✗${reset} AeroSpace"
     fi
-    if pgrep -q sketchybar; then
-        echo -e "  ${green}✓${reset} SketchyBar"
+    if [[ -f "$STATUS_BAR_PIDFILE" ]] && kill -0 "$(cat "$STATUS_BAR_PIDFILE" 2>/dev/null)" 2>/dev/null; then
+        echo -e "  ${green}✓${reset} status bar"
     else
-        echo -e "  ${red}✗${reset} SketchyBar"
+        echo -e "  ${red}✗${reset} status bar"
     fi
     if pgrep -q borders; then
         echo -e "  ${green}✓${reset} JankyBorders"
@@ -1777,7 +1807,7 @@ cmd_remove() {
     fi
 
     hub_log "INPUT" "remove workspace '$ws_name' (id=$ws_id, worktree=$is_worktree)"
-    progress_banner_start "Removing workspace ${ws_name}..."
+    progress_start "Remove Hub Workspace"
 
     # Instant cleanup — before any slow teardown
     if [[ -f "$WORKSPACES_FILE" ]]; then
@@ -1791,7 +1821,7 @@ cmd_remove() {
     remove_sketchybar_label "$ws_id"
 
     if [[ -n "$windows" ]]; then
-        progress_banner_update "Closing windows..."
+        progress_step "Closing windows…"
         while IFS= read -r wid; do
             aerospace move-node-to-workspace --window-id "$wid" Z 2>/dev/null || true
         done <<< "$windows"
@@ -1812,7 +1842,7 @@ cmd_remove() {
 
     # Background teardown piped to output_window
     if [[ "$is_worktree" == "true" && "$remove_worktree" == "true" ]]; then
-        progress_banner_update "Removing worktree..."
+        progress_step "Removing worktree…"
         local teardown_cmd
         teardown_cmd="$(read_superset_config "$ws_root" "teardown" 2>/dev/null || echo "")"
 
@@ -1844,7 +1874,7 @@ cmd_remove() {
         disown
     fi
 
-    progress_banner_stop
+    progress_stop
 
     hub_log "OUT" "workspace '$ws_name' (id=$ws_id) removed"
     echo
@@ -2023,7 +2053,7 @@ _launch_and_corral() {
         local win_ws
         win_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${new_wid}|" | cut -d'|' -f2 || echo "")"
         if [[ "$win_ws" != "$ws_id" ]]; then
-            progress_banner_update "Corralling ${app_name}..."
+            progress_step "Corralling ${app_name}…"
             aerospace move-node-to-workspace --window-id "$new_wid" "$ws_id" 2>/dev/null || true
             OPEN_APP_SLOT_CORRALLED=true
         fi
@@ -2132,7 +2162,7 @@ open_app_slot() {
 
     hub_log "INPUT" "open slot $slot → launch $app_name on workspace $ws_id"
     [[ "$verbose" == "true" ]] && info "Opening $app_name..." || true
-    progress_banner_update "Opening ${app_name}..."
+    progress_step "Launching ${app_name}…"
 
     # When a prompt is active and this slot has a prompt_launch, use it instead
     # of the plain launch command. HUB_WORKSPACE_ID and the exec-interactive-shell
@@ -2322,6 +2352,20 @@ cmd_open() {
 
     # If called from a keybinding (no terminal), just run silently
     if [[ ! -t 0 && ! -t 1 ]]; then
+        # Determine the banner title from the requested slot (or "Open Apps" for --all).
+        local _open_title="Open App"
+        if [[ -n "$slot" ]]; then
+            local _slot_name
+            _slot_name="$(jq -r --argjson i "$((slot - 1))" \
+                'if $i >= 0 and $i < length then .[$i].name else empty end' \
+                "$APPS_FILE" 2>/dev/null || true)"
+            [[ -n "$_slot_name" ]] && _open_title="Open ${_slot_name}"
+        elif [[ "$open_all" == "true" ]]; then
+            _open_title="Open Apps"
+        fi
+        progress_start "$_open_title"
+        trap 'progress_stop 2>/dev/null || true; trap - EXIT' EXIT
+
         local _opened=false
         if [[ -n "$slot" ]]; then
             OPEN_APP_SLOT_WID=""
@@ -2335,10 +2379,13 @@ cmd_open() {
             done
         fi
         if [[ "$_opened" == "true" ]]; then
+            progress_step "Organizing windows…"
             local _ws_id_copy="$ws_id"
             (sleep 0.2; arrange_after_open "$_ws_id_copy") &
             disown
         fi
+        progress_stop
+        trap - EXIT
         refresh_app_indicators
         return
     fi
@@ -2372,6 +2419,20 @@ cmd_open() {
         esac
     fi
 
+    # Determine banner title for the interactive path too.
+    local _open_title="Open App"
+    if [[ "$open_all" == "true" ]]; then
+        _open_title="Open Apps"
+    elif [[ -n "$slot" ]]; then
+        local _slot_name
+        _slot_name="$(jq -r --argjson i "$((slot - 1))" \
+            'if $i >= 0 and $i < length then .[$i].name else empty end' \
+            "$APPS_FILE" 2>/dev/null || true)"
+        [[ -n "$_slot_name" ]] && _open_title="Open ${_slot_name}"
+    fi
+    progress_start "$_open_title"
+    trap 'progress_stop 2>/dev/null || true; trap - EXIT' EXIT
+
     local _opened=false
     if [[ "$open_all" == "true" ]]; then
         for ((i=1; i<=app_count; i++)); do
@@ -2392,10 +2453,13 @@ cmd_open() {
     fi
 
     if [[ "$_opened" == "true" ]]; then
+        progress_step "Organizing windows…"
         local _ws_id_copy="$ws_id"
         (sleep 0.2; arrange_after_open "$_ws_id_copy") &
         disown
     fi
+    progress_stop
+    trap - EXIT
     refresh_app_indicators
 }
 

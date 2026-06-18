@@ -307,13 +307,9 @@ class WorkspacePill: PillView {
         normalBG = .clear
         let hub = hubScriptPath() ?? ""
         onPress = {
-            if !hub.isEmpty {
-                Process.launchedProcess(launchPath: "/bin/sh",
-                    arguments: ["-c", "'\(hub)' workspace-switch '\(wsID)'"])
-            } else {
-                Process.launchedProcess(launchPath: "/opt/homebrew/bin/aerospace",
-                    arguments: ["workspace", wsID])
-            }
+            let aero = FileManager.default.fileExists(atPath: "/opt/homebrew/bin/aerospace")
+                ? "/opt/homebrew/bin/aerospace" : "/usr/local/bin/aerospace"
+            Process.launchedProcess(launchPath: aero, arguments: ["workspace", wsID])
         }
     }
     required init?(coder: NSCoder) { fatalError() }
