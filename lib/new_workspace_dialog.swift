@@ -422,40 +422,6 @@ func defaultBranch(_ repoRoot: String) -> String? {
     return nil
 }
 
-func createWorktree(repoRoot: String, name: String) -> (path: String?, error: String) {
-    let checkBranch = Process()
-    checkBranch.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-    checkBranch.arguments = ["-C", repoRoot, "rev-parse", "--verify", "refs/heads/\(name)"]
-    checkBranch.standardOutput = FileHandle.nullDevice
-    checkBranch.standardError = FileHandle.nullDevice
-    try? checkBranch.run()
-    checkBranch.waitUntilExit()
-    let branchExists = checkBranch.terminationStatus == 0
-
-    let worktreesDir = (repoRoot as NSString).appendingPathComponent("worktrees")
-    try? FileManager.default.createDirectory(atPath: worktreesDir, withIntermediateDirectories: true)
-    let worktreePath = (worktreesDir as NSString).appendingPathComponent(name)
-
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-    if branchExists {
-        p.arguments = ["-C", repoRoot, "worktree", "add", worktreePath, name]
-    } else {
-        var args = ["-C", repoRoot, "worktree", "add", "-b", name, worktreePath]
-        if let base = defaultBranch(repoRoot) {
-            args.append(base)
-        }
-        p.arguments = args
-    }
-    p.standardOutput = FileHandle.nullDevice
-    let stderrPipe = Pipe()
-    p.standardError = stderrPipe
-    try? p.run()
-    p.waitUntilExit()
-    let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-    let stderrStr = String(data: stderrData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    return p.terminationStatus == 0 ? (worktreePath, "") : (nil, stderrStr)
-}
 
 func lastPathComponent(_ path: String) -> String {
     (path as NSString).lastPathComponent
@@ -1404,66 +1370,6 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
 }
 
 // ============================================================================
-// STEP 3b: Creating Worktree Spinner (after confirmation)
-// ============================================================================
-func showCreatingWorktreeAndFinish(repoRoot: String, name: String, result confirmedResult: String) {
-    clearContent()
-
-    let titleLabel = NSTextField(labelWithString: "Creating Worktree")
-    titleLabel.translatesAutoresizingMaskIntoConstraints = false
-    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    titleLabel.textColor = dimWhite
-    addView(titleLabel)
-
-    let spinner = NSProgressIndicator()
-    spinner.translatesAutoresizingMaskIntoConstraints = false
-    spinner.style = .spinning
-    spinner.controlSize = .large
-    spinner.appearance = NSAppearance(named: .darkAqua)
-    spinner.startAnimation(nil)
-    addView(spinner)
-
-    let statusLabel = NSTextField(wrappingLabelWithString: "Running git worktree add...")
-    statusLabel.translatesAutoresizingMaskIntoConstraints = false
-    statusLabel.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    statusLabel.textColor = NSColor(white: 1, alpha: 0.5)
-    statusLabel.alignment = .center
-    addView(statusLabel)
-
-    NSLayoutConstraint.activate([
-        titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
-        titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        spinner.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 24),
-        spinner.centerXAnchor.constraint(equalTo: cv.centerXAnchor),
-        statusLabel.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16),
-        statusLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-        statusLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-        statusLabel.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -24),
-    ])
-
-    relayout()
-
-    DispatchQueue.global(qos: .userInitiated).async {
-        let wtResult = createWorktree(repoRoot: repoRoot, name: name)
-        DispatchQueue.main.async {
-            guard wtResult.path != nil else {
-                let errMsg = wtResult.error.isEmpty ? "Failed to create worktree" : "Failed to create worktree:\n\(wtResult.error)"
-                statusLabel.stringValue = errMsg
-                statusLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
-                spinner.stopAnimation(nil)
-                currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-                    if event.keyCode == 53 { cancelAndDismiss(); return nil }
-                    return event
-                }
-                return
-            }
-            writeResult(confirmedResult)
-            dismiss()
-        }
-    }
-}
-
-// ============================================================================
 // STEP 3: Confirm — show app checkboxes then write result
 // ============================================================================
 func loadAppNames() -> [String] {
@@ -1933,12 +1839,11 @@ func showConfirmWorkspace(
             result += "\t\(setupCmd ?? "-")"
             result += "\t\(appsField)"
             result += "\t\(promptB64)"
-            if let wtName = pendingWorktreeName {
-                showCreatingWorktreeAndFinish(repoRoot: repoRoot, name: wtName, result: result)
-            } else {
-                writeResult(result)
-                dismiss()
-            }
+            // Pass the worktree name as the final field so the shell creates it
+            // as the first visible banner step rather than inside the dialog.
+            result += "\t\(pendingWorktreeName ?? "-")"
+            writeResult(result)
+            dismiss()
         }
     }
     class CancelAction: NSObject {
