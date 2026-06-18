@@ -119,6 +119,7 @@ struct BarState {
     var focused: String = ""
     var active: Set<String> = []          // non-empty, non-focused workspaces
     var wsInfo: [String: WsInfo] = [:]    // labeled workspaces
+    var monitorWorkspaces: [Int: Set<String>] = [:]  // 1-based AeroSpace monitor → workspace IDs
     var currentWindows: [(id: Int, app: String)] = []   // windows in focused ws
     var apps: [[String: String]] = []     // apps.json array
     var labelMaxLen: Int = -1
@@ -138,6 +139,14 @@ struct BarState {
         let activeRaw = Aerospace.run(["list-workspaces", "--monitor", "all", "--empty", "no"])
         s.active = Set(activeRaw.split(separator: "\n").map { String($0) })
         s.active.remove(s.focused)
+
+        // Per-monitor workspace lists (for secondary-monitor label filtering)
+        let monCountRaw = Aerospace.run(["list-monitors", "--format", "%{monitor-id}"])
+        let monitorIDs = monCountRaw.split(separator: "\n").compactMap { Int($0) }
+        for mid in monitorIDs {
+            let wsRaw = Aerospace.run(["list-workspaces", "--monitor", "\(mid)"])
+            s.monitorWorkspaces[mid] = Set(wsRaw.split(separator: "\n").map { String($0) })
+        }
 
         // Labels file
         let labelsFile = hub + "/sketchybar_labels"
@@ -284,12 +293,15 @@ class PillView: ClickView {
     required init?(coder: NSCoder) { fatalError() }
 
     func apply(bg: UInt32, fg: UInt32, borderColor: UInt32, bw: CGFloat, text: String, font: NSFont? = nil) {
-        layer?.backgroundColor = NSColor(argb: bg).cgColor
+        let bgColor = NSColor(argb: bg)
+        layer?.backgroundColor = bgColor.cgColor
         layer?.borderColor = NSColor(argb: borderColor).cgColor
         layer?.borderWidth = bw
         textField.stringValue = text
         textField.textColor = NSColor(argb: fg)
         if let f = font { textField.font = f }
+        // Keep normalBG in sync so mouseExited restores the correct background
+        normalBG = bgColor
     }
 }
 
@@ -300,19 +312,26 @@ class PillView: ClickView {
 class WorkspacePill: PillView {
     let wsID: String
     var pulseBright = true
+    var isFocused = false
 
     init(wsID: String) {
         self.wsID = wsID
         super.init()
         normalBG = .clear
         let hub = hubScriptPath() ?? ""
-        onPress = {
+        onPress = { [weak self] in
+            guard let self = self, !self.isFocused else { return }
             let aero = FileManager.default.fileExists(atPath: "/opt/homebrew/bin/aerospace")
                 ? "/opt/homebrew/bin/aerospace" : "/usr/local/bin/aerospace"
             Process.launchedProcess(launchPath: aero, arguments: ["workspace", wsID])
         }
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard !isFocused else { return }
+        super.mouseEntered(with: event)
+    }
 
     func updatePulse(bright: Bool) {
         pulseBright = bright
@@ -467,6 +486,7 @@ class VolumePopupWindow: NSWindow {
 
 class BarWindow: NSWindow {
     let barScreen: NSScreen
+    var monitorIndex: Int = 1  // 1-based AeroSpace monitor index
     let leadingStack: NSStackView
     let trailingStack: NSStackView
 
@@ -510,6 +530,11 @@ class BarWindow: NSWindow {
 
     func buildContents(state: BarState) {
         let cv = contentView!
+        // Fully remove and recreate stacks to avoid duplicate arranged subviews on rebuild
+        leadingStack.removeFromSuperview()
+        trailingStack.removeFromSuperview()
+        leadingStack.arrangedSubviews.forEach { leadingStack.removeArrangedSubview($0); $0.removeFromSuperview() }
+        trailingStack.arrangedSubviews.forEach { trailingStack.removeArrangedSubview($0); $0.removeFromSuperview() }
         cv.subviews.forEach { $0.removeFromSuperview() }
         wsPills.removeAll()
         appSlots.removeAll()
@@ -534,9 +559,10 @@ class BarWindow: NSWindow {
         cv.addSubview(leadingStack)
         cv.addSubview(trailingStack)
 
-        // In tall mode, offset the two stacks to separate rows
-        let leadingYOffset: CGFloat = state.barTall ? -20 : 0
-        let trailingYOffset: CGFloat = state.barTall ? 20 : 0
+        // In tall mode: widgets (trailing) on top row, labels (leading) on bottom row.
+        // NSWindow content view is flipped (y=0 at top), so positive Y offset = lower on screen.
+        let leadingYOffset: CGFloat = state.barTall ? 20 : 0
+        let trailingYOffset: CGFloat = state.barTall ? -20 : 0
 
         NSLayoutConstraint.activate([
             leadingStack.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
@@ -554,7 +580,11 @@ class BarWindow: NSWindow {
     // ── Workspace pills ──────────────────────────────────────────────────────
 
     func buildWorkspaceStrip(state: BarState) {
+        // Only show workspaces assigned to this monitor (secondary screens show only their own)
+        let monitorWs = state.monitorWorkspaces[monitorIndex]
         for ws in ALL_WS {
+            // If we have per-monitor data, filter; otherwise show all (primary monitor fallback)
+            if let monWs = monitorWs, !monWs.contains(ws) { continue }
             let pill = WorkspacePill(wsID: ws)
             pill.translatesAutoresizingMaskIntoConstraints = false
             pill.heightAnchor.constraint(equalToConstant: pillHeight).isActive = true
@@ -569,6 +599,7 @@ class BarWindow: NSWindow {
             guard let pill = wsPills[ws] else { continue }
             let isActive = state.active.contains(ws) || ws == state.focused
             let isFocused = ws == state.focused
+            pill.isFocused = isFocused
             let isLabeled = state.wsInfo[ws] != nil
 
             if isActive {
@@ -1146,11 +1177,17 @@ class BarController: NSObject {
         windows.removeAll()
         DispatchQueue.global(qos: .userInitiated).async {
             let state = BarState.snapshot()
+            // Map AeroSpace monitor IDs to NSScreen by geometry: AeroSpace lists monitors
+            // sorted left-to-right by origin.x; match NSScreen by same ordering.
+            let sortedScreens = NSScreen.screens.sorted { $0.frame.minX < $1.frame.minX }
+            let monitorIDs = state.monitorWorkspaces.keys.sorted()
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.lastState = state
-                for screen in NSScreen.screens {
+                for (i, screen) in sortedScreens.enumerated() {
                     let w = BarWindow(screen: screen)
+                    // Assign 1-based AeroSpace monitor index by left-to-right screen order
+                    w.monitorIndex = monitorIDs.indices.contains(i) ? monitorIDs[i] : (i + 1)
                     w.buildContents(state: state)
                     w.orderFrontRegardless()
                     self.windows.append(w)
