@@ -466,6 +466,7 @@ install_brew_package() {
     local pkg="$1"
     local cask="$2"
     if [[ "$cask" == "true" ]]; then
+        brew trust --cask "$pkg" 2>/dev/null || true
         brew install --cask "$pkg"
     else
         brew install "$pkg"
