@@ -249,13 +249,14 @@ apps_remove_slot() {
     apps_refresh
 }
 
-# Refresh icons + sketchybar after apps.json changes.
+# Refresh status bar after apps.json changes.
 apps_refresh() {
-    if command -v extract_app_icons >/dev/null 2>&1; then
-        extract_app_icons
-    fi
-    if pgrep -q sketchybar; then
-        sketchybar --reload 2>/dev/null || true
+    if command -v bar_refresh >/dev/null 2>&1; then
+        bar_refresh
+    elif [ -f "$HOME/.config/hub/status_bar.pid" ]; then
+        local _pid
+        _pid="$(cat "$HOME/.config/hub/status_bar.pid" 2>/dev/null || true)"
+        [ -n "$_pid" ] && kill -USR1 "$_pid" 2>/dev/null || true
     fi
 }
 

@@ -4,7 +4,7 @@
 #               PermissionRequest (permission dialog appears)
 #
 # Toggles (all enabled by default; set to "0" to skip):
-#   HUB_CLAUDE_NOTIFY_COLOR — amber border on the workspace pill in sketchybar
+#   HUB_CLAUDE_NOTIFY_COLOR — amber border on the status bar workspace pill
 #   HUB_CLAUDE_NOTIFY_SOUND — play alert sound (set to a file path for custom sound)
 
 set -euo pipefail
@@ -58,21 +58,15 @@ if [ -z "$WS_ID" ] && [ -n "$CWD" ] && [ -f "$WORKSPACES_FILE" ]; then
     done < <(jq -r '.[] | [.workspace_id, .name, .path] | @tsv' "$WORKSPACES_FILE" 2>/dev/null)
 fi
 
-SKETCHYBAR=/opt/homebrew/bin/sketchybar
-[ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
+HUB_PATH_FILE="$HOME/.config/hub/hub_path"
+HUB_SCRIPT=""
+[ -f "$HUB_PATH_FILE" ] && HUB_SCRIPT="$(cat "$HUB_PATH_FILE" 2>/dev/null || true)"
 
-# --- Amber workspace pill (stop pulse, clear active state, set attention state) ---
-if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "$SKETCHYBAR" &>/dev/null; then
-    PULSE_PID_FILE="/tmp/hub_claude_pulse_${WS_ID}.pid"
-    if [ -f "$PULSE_PID_FILE" ]; then
-        kill "$(cat "$PULSE_PID_FILE" 2>/dev/null)" 2>/dev/null || true
-        rm -f "$PULSE_PID_FILE"
-    fi
+# --- Amber workspace pill (clear active state, set attention state, refresh bar) ---
+if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ]; then
     rm -f "/tmp/hub_claude_active_${WS_ID}"
     touch "/tmp/hub_claude_alert_${WS_ID}"
-    "$SKETCHYBAR" --set "space.${WS_ID}" \
-        background.border_color=0xffF9A825 \
-        background.border_width=3 2>/dev/null || true
+    [ -n "$HUB_SCRIPT" ] && "$HUB_SCRIPT" bar-refresh 2>/dev/null &
 fi
 
 # --- Sound ---

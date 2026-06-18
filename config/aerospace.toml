@@ -3,18 +3,18 @@
 
 config-version = 2
 
-# hub: launch sketchybar and jankyborders on startup
+# hub: launch status bar and jankyborders on startup
 after-startup-command = [
-    'exec-and-forget sketchybar',
+    'exec-and-forget __HUB_SCRIPT__ bar-up',
     'exec-and-forget borders active_color=0xff00ff00 width=10.0 style=round',
 ]
 
 # hub: start at login
 start-at-login = true
 
-# hub: update sketchybar workspace labels on focus change
+# hub: refresh status bar on workspace focus change
 exec-on-workspace-change = ['/bin/bash', '-c',
-    '$HOME/.config/sketchybar/plugins/aerospace.sh']
+    '__HUB_SCRIPT__ bar-refresh']
 
 # Normalizations. See: https://nikitabobko.github.io/AeroSpace/guide#normalization
 enable-normalization-flatten-containers = true
@@ -163,7 +163,7 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     alt-shift-tab = 'move-workspace-to-monitor --wrap-around next'
 
     # See: https://nikitabobko.github.io/AeroSpace/commands#mode
-    alt-shift-semicolon = ['mode service', 'exec-and-forget sketchybar --set aerospace_mode drawing=on']
+    alt-shift-semicolon = ['mode service', 'exec-and-forget /bin/sh -c "touch /tmp/hub_service_mode && __HUB_SCRIPT__ bar-refresh"']
 
     # cycle through hub-registered workspaces only
     ctrl-alt-leftSquareBracket  = 'exec-and-forget __HUB_SCRIPT__ prev'
@@ -218,12 +218,12 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
 # 'service' binding mode declaration.
 # See: https://nikitabobko.github.io/AeroSpace/guide#binding-modes
 [mode.service.binding]
-    esc = ['reload-config', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
-    r = ['flatten-workspace-tree', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off'] # reset layout
-    f = ['layout floating tiling', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off'] # Toggle between floating and tiling layout
-    backspace = ['close-all-windows-but-current', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
+    esc = ['reload-config', 'mode main', 'exec-and-forget /bin/sh -c "rm -f /tmp/hub_service_mode && __HUB_SCRIPT__ bar-refresh"']
+    r = ['flatten-workspace-tree', 'mode main', 'exec-and-forget /bin/sh -c "rm -f /tmp/hub_service_mode && __HUB_SCRIPT__ bar-refresh"'] # reset layout
+    f = ['layout floating tiling', 'mode main', 'exec-and-forget /bin/sh -c "rm -f /tmp/hub_service_mode && __HUB_SCRIPT__ bar-refresh"'] # Toggle between floating and tiling layout
+    backspace = ['close-all-windows-but-current', 'mode main', 'exec-and-forget /bin/sh -c "rm -f /tmp/hub_service_mode && __HUB_SCRIPT__ bar-refresh"']
 
-    alt-shift-h = ['join-with left', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
-    alt-shift-j = ['join-with down', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
-    alt-shift-k = ['join-with up', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
-    alt-shift-l = ['join-with right', 'mode main', 'exec-and-forget sketchybar --set aerospace_mode drawing=off']
+    alt-shift-h = ['join-with left', 'mode main', 'exec-and-forget /bin/sh -c "rm -f /tmp/hub_service_mode && __HUB_SCRIPT__ bar-refresh"']
+    alt-shift-j = ['join-with down', 'mode main', 'exec-and-forget /bin/sh -c "rm -f /tmp/hub_service_mode && __HUB_SCRIPT__ bar-refresh"']
+    alt-shift-k = ['join-with up', 'mode main', 'exec-and-forget /bin/sh -c "rm -f /tmp/hub_service_mode && __HUB_SCRIPT__ bar-refresh"']
+    alt-shift-l = ['join-with right', 'mode main', 'exec-and-forget /bin/sh -c "rm -f /tmp/hub_service_mode && __HUB_SCRIPT__ bar-refresh"']

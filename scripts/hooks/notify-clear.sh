@@ -2,9 +2,9 @@
 # Claude hook: track active/working state and clear alert state after user activity.
 # Triggered by: UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, SessionStart
 #
-# UserPromptSubmit / PreToolUse: start/maintain pulsing blue border (Claude is working).
-# PostToolUse / PostToolUseFailure: do nothing — Claude is still mid-turn, keep pulsing.
-# SessionStart: reset all state, restore normal border.
+# UserPromptSubmit / PreToolUse: set active state flag (bar pulse animation runs in Swift).
+# PostToolUse / PostToolUseFailure: do nothing — Claude is still mid-turn.
+# SessionStart: reset all state flags.
 # UserPromptSubmit with ".", "dismiss", or "clear": reset all state, block the prompt.
 
 set -euo pipefail
@@ -66,63 +66,25 @@ if [ -z "$WS_ID" ] && [ -n "$CWD" ] && [ -f "$WORKSPACES_FILE" ]; then
     done < <(jq -r '.[] | [.workspace_id, .name, .path] | @tsv' "$WORKSPACES_FILE" 2>/dev/null)
 fi
 
-SKETCHYBAR=/opt/homebrew/bin/sketchybar
-[ -x "$SKETCHYBAR" ] || SKETCHYBAR=/usr/local/bin/sketchybar
+HUB_PATH_FILE="$HOME/.config/hub/hub_path"
+HUB_SCRIPT=""
+[ -f "$HUB_PATH_FILE" ] && HUB_SCRIPT="$(cat "$HUB_PATH_FILE" 2>/dev/null || true)"
 
 ALERT_FILE="/tmp/hub_claude_alert_${WS_ID}"
 ACTIVE_FILE="/tmp/hub_claude_active_${WS_ID}"
-PULSE_PID_FILE="/tmp/hub_claude_pulse_${WS_ID}.pid"
-
-pulse_loop() {
-    local ws="$1" sb="$2" active_file="$3" pid_file="$4"
-    local bright=0xff76cce0 dim=0x3076cce0
-    local phase=0
-    while [ -f "$active_file" ]; do
-        if [ "$phase" -eq 0 ]; then
-            "$sb" --animate sin 45 --set "space.${ws}" background.border_color="$dim" 2>/dev/null || true
-            phase=1
-        else
-            "$sb" --animate sin 45 --set "space.${ws}" background.border_color="$bright" 2>/dev/null || true
-            phase=0
-        fi
-        sleep 0.75
-    done
-    rm -f "$pid_file"
-}
 
 start_active() {
     rm -f "$ALERT_FILE"
     touch "$ACTIVE_FILE"
-    FOCUSED=$(aerospace list-workspaces --focused 2>/dev/null || echo "")
-    if [ "$WS_ID" != "$FOCUSED" ]; then
-        "$SKETCHYBAR" --set "space.${WS_ID}" \
-            background.border_color=0xff76cce0 \
-            background.border_width=3 2>/dev/null || true
-        # Detach stdio so the hook pipe closes immediately — long-running loop
-        # would otherwise hold it open and stall Claude Code.
-        if [ ! -f "$PULSE_PID_FILE" ] || ! kill -0 "$(cat "$PULSE_PID_FILE" 2>/dev/null)" 2>/dev/null; then
-            pulse_loop "$WS_ID" "$SKETCHYBAR" "$ACTIVE_FILE" "$PULSE_PID_FILE" </dev/null >/dev/null 2>&1 &
-            echo $! > "$PULSE_PID_FILE"
-            disown
-        fi
-    fi
+    [ -n "$HUB_SCRIPT" ] && "$HUB_SCRIPT" bar-refresh 2>/dev/null &
 }
 
 clear_active() {
     rm -f "$ACTIVE_FILE" "$ALERT_FILE"
-    if [ -f "$PULSE_PID_FILE" ]; then
-        kill "$(cat "$PULSE_PID_FILE" 2>/dev/null)" 2>/dev/null || true
-        rm -f "$PULSE_PID_FILE"
-    fi
-    FOCUSED=$(aerospace list-workspaces --focused 2>/dev/null || echo "")
-    if [ "$WS_ID" != "$FOCUSED" ]; then
-        "$SKETCHYBAR" --set "space.${WS_ID}" \
-            background.border_color=0xff414550 \
-            background.border_width=1 2>/dev/null || true
-    fi
+    [ -n "$HUB_SCRIPT" ] && "$HUB_SCRIPT" bar-refresh 2>/dev/null &
 }
 
-if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "$SKETCHYBAR" &>/dev/null; then
+if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ]; then
     case "$HOOK_EVENT" in
         UserPromptSubmit)
             if [ "$DISMISS" = "true" ]; then
@@ -132,12 +94,10 @@ if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ] && command -v "
             fi
             ;;
         PreToolUse)
-            # Ensure active state is set — pulse should already be running but
-            # start it if it somehow died mid-turn.
             start_active
             ;;
         PostToolUse|PostToolUseFailure)
-            # Claude is still mid-turn — leave the pulse running.
+            # Claude is still mid-turn — leave state as-is.
             ;;
         SessionStart)
             clear_active

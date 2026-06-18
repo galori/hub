@@ -10,7 +10,9 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$REPO_DIR/lib"
 CONFIG_DIR="$REPO_DIR/config"
 AEROSPACE_CONFIG="$HOME/.aerospace.toml"
-SKETCHYBAR_CONFIG_DIR="$HOME/.config/sketchybar"
+STATUS_BAR_SRC="$LIB_DIR/status_bar.swift"
+STATUS_BAR_BIN="$HOME/.config/hub/status_bar"
+STATUS_BAR_PIDFILE="$HOME/.config/hub/status_bar.pid"
 OVERLAY_SRC="$LIB_DIR/overlay.swift"
 OVERLAY_BIN="$HOME/.config/hub/overlay"
 DIALOG_SRC="$LIB_DIR/new_workspace_dialog.swift"
@@ -81,7 +83,7 @@ print_usage() {
     echo
     echo -e "${bold}Commands:${reset}"
     echo "  install       Install hub alias, check dependencies, compile binaries, and deploy configs"
-    echo "  up            Start AeroSpace, SketchyBar, JankyBorders (restores fullscreen state if active)"
+    echo "  up            Start AeroSpace, status bar, JankyBorders (restores fullscreen state if active)"
     echo "  down          Stop everything, restore the Dock and menu bar (preserves fullscreen state)"
     echo "  reboot        Stop, reinstall, and restart the hub environment"
     echo "  new           Create a new workspace (opens dialog; pass flags to run silently)"
@@ -97,7 +99,7 @@ print_usage() {
     echo "  dashboard     Show status and key bindings in a full-screen modal"
     echo "  label-length  Shrink or grow workspace label max length (+/-/grow/shrink/min/max/number)"
     echo "  bar-height    Toggle bar height for notch avoidance (tall/normal/toggle)"
-    echo "  bar-reload    Reload sketchybar (fix rendering inconsistencies)"
+    echo "  bar-reload    Restart the status bar (fix rendering inconsistencies)"
     echo "  fullscreen    Hide/show the Dock and menu bar (on/off/toggle)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
     echo "  config        Get/set hub options (e.g. claude_binary)"
@@ -509,6 +511,7 @@ compile_all() {
     compile_swift "progress_banner" "$PROGRESS_BANNER_SRC" "$PROGRESS_BANNER_BIN"
     compile_swift "app_switcher" "$APP_SWITCHER_SRC" "$APP_SWITCHER_BIN"
     compile_swift "log_viewer" "$LOG_VIEWER_SRC" "$LOG_VIEWER_BIN"
+    compile_swift "status_bar" "$STATUS_BAR_SRC" "$STATUS_BAR_BIN"
     if [[ -f "$REPO_DIR/assets/hub-logo.png" ]]; then
         cp "$REPO_DIR/assets/hub-logo.png" "$HOME/.config/hub/hub-logo.png"
         success "hub-logo.png deployed"
@@ -661,14 +664,6 @@ cmd_install() {
         missing_cask+=(true)
     fi
 
-    if check_brew_package sketchybar false; then
-        success "sketchybar is installed"
-    else
-        fail "sketchybar is not installed"
-        missing+=(sketchybar)
-        missing_cask+=(false)
-    fi
-
     if check_brew_package borders false; then
         success "borders (JankyBorders) is installed"
     else
@@ -721,18 +716,12 @@ cmd_install() {
     # Write hub script path for runtime use by HubHTTPHandler and other compiled binaries
     echo "$REPO_DIR/scripts/hub" > "$HOME/.config/hub/hub_path"
 
-    # --- Deploy sketchybar config ---
-    if [[ -d "$SKETCHYBAR_CONFIG_DIR" ]]; then
-        rm -rf "$SKETCHYBAR_CONFIG_DIR"
-        info "removed existing sketchybar config"
+    # --- Clean up legacy sketchybar config (native Swift bar replaces it) ---
+    local legacy_sb_dir="$HOME/.config/sketchybar"
+    if [[ -d "$legacy_sb_dir" ]]; then
+        rm -rf "$legacy_sb_dir"
+        success "removed legacy sketchybar config"
     fi
-    mkdir -p "$SKETCHYBAR_CONFIG_DIR/plugins"
-    sed "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" "$CONFIG_DIR/sketchybar/sketchybarrc" > "$SKETCHYBAR_CONFIG_DIR/sketchybarrc"
-    for f in "$CONFIG_DIR/sketchybar/plugins/"*.sh; do
-        sed "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" "$f" > "$SKETCHYBAR_CONFIG_DIR/plugins/$(basename "$f")"
-    done
-    chmod +x "$SKETCHYBAR_CONFIG_DIR/sketchybarrc" "$SKETCHYBAR_CONFIG_DIR/plugins/"*.sh
-    success "sketchybar config deployed to $SKETCHYBAR_CONFIG_DIR"
 
     # --- Deploy app presets database ---
     mkdir -p "$(dirname "$APPS_FILE")"
@@ -774,9 +763,6 @@ cmd_install() {
     else
         info "apps.json already exists — manage slots with: hub apps list / add / edit / remove"
     fi
-
-    # --- Extract app icons for sketchybar (works even when apps are not running) ---
-    extract_app_icons
 
     # --- Global gitignore for worktrees/ ---
     echo
@@ -875,9 +861,9 @@ cmd_install() {
     # --- Reload running services ---
     echo
     echo -e "${bold}Reloading services...${reset}"
-    if pgrep -q sketchybar; then
-        sketchybar --reload 2>/dev/null || true
-        success "SketchyBar reloaded"
+    if [[ -f "$STATUS_BAR_PIDFILE" ]]; then
+        bar_restart
+        success "status bar restarted"
     fi
     if pgrep -q AeroSpace; then
         aerospace reload-config 2>/dev/null || true
@@ -1439,15 +1425,14 @@ rebuild_labels_file() {
 update_sketchybar_label() {
     local ws_id="$1"
     local ws_name="$2"
-    local label="$ws_id $ws_name"
-    sketchybar --set "space.$ws_id" "label=$label" drawing=on 2>/dev/null || true
     rebuild_labels_file
+    bar_refresh
 }
 
 remove_sketchybar_label() {
     local ws_id="$1"
-    sketchybar --set "space.$ws_id" "label=$ws_id" drawing=off 2>/dev/null || true
     rebuild_labels_file
+    bar_refresh
 }
 
 cmd_rename() {
@@ -2414,8 +2399,7 @@ cmd_open() {
 }
 
 refresh_app_indicators() {
-    local plugin="$HOME/.config/sketchybar/plugins/app_launcher.sh"
-    [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
+    bar_refresh
 }
 
 KEYS_CACHE="$HOME/.config/hub/keys_cache"
@@ -2502,8 +2486,7 @@ cmd_repo_prefix() {
 
     echo "$current" > "$prefix_file"
     rebuild_labels_file
-    local plugin="$HOME/.config/sketchybar/plugins/aerospace.sh"
-    [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
+    bar_refresh
 }
 
 cmd_label_length() {
@@ -2578,9 +2561,7 @@ cmd_label_length() {
         fi
     fi
     echo "$current" > "$maxlen_file"
-
-    local plugin="$HOME/.config/sketchybar/plugins/aerospace.sh"
-    [[ -x "$plugin" ]] && "$plugin" >/dev/null 2>&1
+    bar_refresh
 }
 
 cmd_bar_height() {
@@ -2594,13 +2575,13 @@ cmd_bar_height() {
             touch "$state_file"
             sed -i '' "s/outer\.top =.*/outer.top =        $BAR_PADDING_TALL/" "$AEROSPACE_CONFIG"
             aerospace reload-config
-            (sleep 2 && sketchybar --reload) &
+            bar_refresh
             ;;
         normal)
             rm -f "$state_file"
             sed -i '' "s/outer\.top =.*/outer.top =        $BAR_PADDING_NORMAL/" "$AEROSPACE_CONFIG"
             aerospace reload-config
-            (sleep 2 && sketchybar --reload) &
+            bar_refresh
             ;;
         toggle)
             if $is_tall; then
@@ -2681,6 +2662,41 @@ ensure_general_workspace() {
     fi
 }
 
+bar_refresh() {
+    if [[ -f "$STATUS_BAR_PIDFILE" ]]; then
+        local _pid
+        _pid="$(cat "$STATUS_BAR_PIDFILE" 2>/dev/null || true)"
+        [[ -n "$_pid" ]] && kill -USR1 "$_pid" 2>/dev/null || true
+    fi
+}
+
+bar_down() {
+    local _running=false
+    if [[ -f "$STATUS_BAR_PIDFILE" ]]; then
+        local _pid
+        _pid="$(cat "$STATUS_BAR_PIDFILE" 2>/dev/null || true)"
+        if [[ -n "$_pid" ]] && kill -0 "$_pid" 2>/dev/null; then
+            kill "$_pid" 2>/dev/null || true
+            local _i=0
+            while kill -0 "$_pid" 2>/dev/null && [[ $_i -lt 20 ]]; do sleep 0.1; ((_i++)); done
+            _running=true
+        fi
+        rm -f "$STATUS_BAR_PIDFILE"
+    fi
+    # Fallback: kill any stray process
+    pkill -f "status_bar" 2>/dev/null || true
+    $_running
+}
+
+bar_restart() {
+    bar_down 2>/dev/null || true
+    if [[ -x "$STATUS_BAR_BIN" ]]; then
+        "$STATUS_BAR_BIN" &>/dev/null &
+        disown
+        bar_refresh
+    fi
+}
+
 cmd_up() {
     echo -e "${bold}Starting hub environment...${reset}\n"
 
@@ -2716,21 +2732,16 @@ cmd_up() {
     # Rebuild workspace labels cache (/tmp is cleared on reboot)
     rebuild_labels_file
 
-    # Reap any orphaned sketchybar plugin scripts left over from prior sessions.
-    # A wedged LaunchServices (after sleep/wake or display reconfig) can hang
-    # `app_launcher.sh` indefinitely; without this, those zombies pile up and
-    # can prevent the bar from rendering correctly on restart.
-    pkill -f "$SKETCHYBAR_CONFIG_DIR/plugins/" 2>/dev/null || true
-
-    # Ensure sketchybar is running and reload config
-    if ! pgrep -q sketchybar; then
-        sketchybar &>/dev/null &
+    # Launch native status bar daemon (kill stale instance first)
+    bar_down 2>/dev/null || true
+    if [[ -x "$STATUS_BAR_BIN" ]]; then
+        "$STATUS_BAR_BIN" &>/dev/null &
         disown
-        success "SketchyBar started"
+        success "status bar started"
     else
-        sketchybar --reload 2>/dev/null
-        success "SketchyBar reloaded"
+        warn "status_bar not compiled — run hub install first"
     fi
+    bar_refresh
 
     if ! pgrep -q borders; then
         borders active_color=0xff00ff00 width=10.0 style=round &>/dev/null &
@@ -2787,15 +2798,11 @@ cmd_down() {
         warn "JankyBorders was not running"
     fi
 
-    # Stop sketchybar and wait for it to fully exit before continuing,
-    # otherwise pgrep still finds it in a subsequent hub status call.
-    if pgrep -q sketchybar; then
-        killall sketchybar 2>/dev/null || true
-        local _i=0
-        while pgrep -q sketchybar && [[ $_i -lt 20 ]]; do sleep 0.1; ((_i++)); done
-        success "SketchyBar stopped"
+    # Stop status bar
+    if bar_down 2>/dev/null; then
+        success "status bar stopped"
     else
-        warn "SketchyBar was not running"
+        warn "status bar was not running"
     fi
 
     # Stop AeroSpace
@@ -3033,7 +3040,7 @@ HOOKS_JSON
         echo "Done! Notification hooks are active."
         echo
         echo 'Toggles (all on by default; set to "0" to disable):'
-        echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on sketchybar workspace pill"
+        echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on status bar workspace pill"
         echo "  HUB_CLAUDE_NOTIFY_SOUND — play alert sound (or set to a file path)"
         ;;
     uninstall|remove)
@@ -3097,7 +3104,7 @@ HOOKS_JSON
         echo "On user activity: restores normal pill. Type '.', 'dismiss', or 'clear' to clear silently."
         echo
         echo "Toggles (env vars, all on by default):"
-        echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on sketchybar workspace pill"
+        echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on status bar workspace pill"
         echo "  HUB_CLAUDE_NOTIFY_SOUND — alert sound (path or 0)"
         ;;
     esac
@@ -3128,7 +3135,9 @@ case "$command" in
     dashboard)    cmd_dashboard ;;
     label-length) cmd_label_length "$@" ;;
     bar-height)   cmd_bar_height "$@" ;;
-    bar-reload)   sketchybar --reload ;;
+    bar-reload|bar-restart) bar_restart ;;
+    bar-refresh)  bar_refresh ;;
+    bar-up)       bar_restart ;;
     repo-prefix)  cmd_repo_prefix "$@" ;;
     fullscreen)   cmd_fullscreen "$@" ;;
     arrange-open-window) arrange_after_open "${1:-}" ;;
