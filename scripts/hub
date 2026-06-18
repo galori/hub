@@ -922,6 +922,7 @@ cmd_new() {
     [[ "$ws_color" == "-" ]] && ws_color=""
     [[ "$ws_setup_cmd" == "-" ]] && ws_setup_cmd=""
     [[ "$ws_apps" == "-" ]] && ws_apps=""
+    [[ "$ws_prompt_b64" == "-" ]] && ws_prompt_b64=""
     [[ "$ws_worktree_name" == "-" || -z "$ws_worktree_name" ]] && ws_worktree_name=""
 
     # Prompt is base64-encoded by the dialog so newlines and tabs survive

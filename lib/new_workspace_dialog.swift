@@ -1832,8 +1832,8 @@ func showConfirmWorkspace(
                 try? promptText.write(toFile: lastPromptPath, atomically: true, encoding: .utf8)
             }
             let promptB64 = promptText.isEmpty
-                ? ""
-                : (promptText.data(using: .utf8)?.base64EncodedString() ?? "")
+                ? "-"
+                : (promptText.data(using: .utf8)?.base64EncodedString() ?? "-")
             var result = "\(wsName)\t\(path)\t\(repoRoot.isEmpty ? "-" : repoRoot)\t\(wsID)"
             result += "\t\(color ?? "-")"
             result += "\t\(setupCmd ?? "-")"
