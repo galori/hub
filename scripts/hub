@@ -2771,7 +2771,7 @@ cmd_up() {
 
     # Apply fullscreen state if previously active
     if [[ -f "$FULLSCREEN_STATE_FILE" ]]; then
-        update_overlay "Hiding dock and menu bar…\\nSystem Settings will open briefly."
+        update_overlay "Hiding dock and menu bar…"
         _fullscreen_apply
         success "Fullscreen restored (dock and menu bar hidden)"
     fi
@@ -2891,7 +2891,7 @@ cmd_down() {
     # Note: the fullscreen state file is preserved so the next `hub up` re-applies it.
     if [[ -f "$FULLSCREEN_STATE_FILE" ]]; then
         start_overlay "Restoring System Settings"
-        update_overlay "Unhiding dock and menu bar…\\nSystem Settings will open briefly."
+        update_overlay "Unhiding dock and menu bar…"
         _fullscreen_restore
         success "Dock and menu bar restored"
         update_overlay "✓  Done"
