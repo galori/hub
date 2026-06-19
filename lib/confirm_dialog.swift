@@ -262,7 +262,7 @@ NSLayoutConstraint.activate([
     // Buttons row
     confirmBtn.topAnchor.constraint(equalTo: prevAnchor, constant: 22),
     confirmBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
-    confirmBtn.widthAnchor.constraint(equalToConstant: 120),
+    confirmBtn.widthAnchor.constraint(equalToConstant: 140),
     cancelBtn.topAnchor.constraint(equalTo: confirmBtn.topAnchor),
     cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -padH),
     cancelBtn.widthAnchor.constraint(equalToConstant: 110),
