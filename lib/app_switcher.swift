@@ -54,7 +54,7 @@ func iconImage(for entry: AppEntry) -> NSImage {
 
 // ── Colors (all from Theme in theme.swift) ────────────────────────────────────
 
-let CARD_BG      = NSColor(argb: 0xF814161C)              // #14161C @97%
+let CARD_BG      = Theme.Color.modalTop                    // #1C1E25 solid
 let TITLE_COLOR  = Theme.Color.textPrimary
 let TILE_HI_BG   = Theme.Color.accentBlue.withAlphaComponent(0.90)  // blue fill
 let TILE_HI_GLOW = Theme.Color.accentBlue                             // glow
@@ -99,16 +99,16 @@ class KeycapView: NSView {
     init(text: String) {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 4
+        layer?.cornerRadius = Theme.Radius.keycap
         layer?.masksToBounds = true
-        layer?.backgroundColor = NSColor(white: 1, alpha: 0.08).cgColor
+        layer?.backgroundColor = Theme.Color.border.cgColor
         layer?.borderWidth = 1
         layer?.borderColor = NSColor(white: 1, alpha: 0.18).cgColor
 
         let lbl = NSTextField(labelWithString: text)
         lbl.translatesAutoresizingMaskIntoConstraints = false
         lbl.font = monoFontSm
-        lbl.textColor = NSColor(white: 1, alpha: 0.65)
+        lbl.textColor = Theme.Color.textLabel
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         lbl.alignment = .center
         addSubview(lbl)
@@ -209,7 +209,7 @@ cardView.layer?.backgroundColor  = CARD_BG.cgColor
 cardView.layer?.cornerRadius     = cardRadius
 cardView.layer?.masksToBounds    = true
 cardView.layer?.borderWidth      = 1
-cardView.layer?.borderColor      = NSColor(white: 1, alpha: 0.08).cgColor
+cardView.layer?.borderColor      = Theme.Color.borderStrong.cgColor
 wv.addSubview(cardView)
 
 // ── Title label (inside card, top-centered) ───────────────────────────────────
@@ -246,8 +246,8 @@ func cancelImage() -> NSImage {
     img.lockFocus()
     let str = "✕" as NSString
     let attrs: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: 34, weight: .regular),
-        .foregroundColor: NSColor(white: 1, alpha: 0.85),
+        .font: Theme.Font.ui(34, weight: .regular),
+        .foregroundColor: Theme.Color.textPrimary,
     ]
     let sz = str.size(withAttributes: attrs)
     str.draw(at: NSPoint(x: (iconSize - sz.width) / 2, y: (iconSize - sz.height) / 2), withAttributes: attrs)
@@ -288,7 +288,7 @@ hintStack.translatesAutoresizingMaskIntoConstraints = false
 func dimLabel(_ text: String) -> NSTextField {
     let lbl = NSTextField(labelWithString: text)
     lbl.font = monoFontSm
-    lbl.textColor = NSColor(white: 1, alpha: 0.38)
+    lbl.textColor = Theme.Color.textFaint
     lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
     return lbl
 }
@@ -315,7 +315,7 @@ func setHighlight(_ index: Int) {
     selected = index
     if index == cancelIndex {
         nameLabel.stringValue = "Cancel"
-        nameLabel.textColor   = NSColor(white: 1, alpha: 0.45)
+        nameLabel.textColor   = Theme.Color.textMuted
     } else {
         nameLabel.stringValue = apps[index].name
         nameLabel.textColor   = TITLE_COLOR

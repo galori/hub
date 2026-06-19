@@ -3,7 +3,7 @@ import Cocoa
 // Fix selection highlight on dark background — default macOS selection is unreadable.
 class LogTextView: NSTextView {
     override var selectedTextAttributes: [NSAttributedString.Key: Any] {
-        get { [.backgroundColor: NSColor(red: 0.15, green: 0.35, blue: 0.60, alpha: 0.75)] }
+        get { [.backgroundColor: Theme.Color.accentBlue.withAlphaComponent(0.55)] }
         set { }
     }
 }
@@ -77,7 +77,7 @@ class PillButton: NSView {
     init(title: String) {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 4
+        layer?.cornerRadius = Theme.Radius.keycap
         label.stringValue = title
         label.isEditable = false
         label.isSelectable = false
@@ -100,9 +100,9 @@ class PillButton: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let bg = isActive ? Theme.Color.accentBlue.withAlphaComponent(0.85) : Theme.Color.inputField
         bg.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
+        NSBezierPath(roundedRect: bounds, xRadius: Theme.Radius.keycap, yRadius: Theme.Radius.keycap).fill()
         Theme.Color.border.setStroke()
-        let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4)
+        let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: Theme.Radius.keycap, yRadius: Theme.Radius.keycap)
         border.lineWidth = 0.5
         border.stroke()
         label.textColor = isActive ? Theme.Color.textPrimary : Theme.Color.textMuted

@@ -59,9 +59,9 @@ app.setActivationPolicy(.accessory)
 let screen = NSScreen.main ?? NSScreen.screens[0]
 let sf = screen.frame
 
-let bannerW: CGFloat = 360
-let margin: CGFloat = 16
-let barClearance: CGFloat = 100
+let bannerW: CGFloat = Theme.Metric.bannerW
+let margin: CGFloat = Theme.Metric.bannerMargin
+let barClearance: CGFloat = Theme.Metric.barClearance
 
 let win = NSWindow(
     contentRect: NSRect(x: 0, y: 0, width: bannerW, height: 60),
@@ -168,89 +168,287 @@ NSLayoutConstraint.activate([
                                      constant: -(outerStack.edgeInsets.left + outerStack.edgeInsets.right))
 ])
 
-// ── StepRow class ─────────────────────────────────────────────────────────────
+// ── SpinnerRing — style-guide accent ring ─────────────────────────────────────
+//
+// 15×15 ring: thin white track + a short accentBlue arc, spinning linearly.
+// Used in the "running" state of StepRow instead of NSProgressIndicator.
 
-class StepRow: NSStackView {
-    private let stepSpinner = NSProgressIndicator()
-    private let stepCheck  = NSTextField(labelWithString: "✔")
-    private let stepError  = NSTextField(labelWithString: "✗")
+class SpinnerRing: NSView {
+    private let trackLayer = CAShapeLayer()
+    private let arcLayer   = CAShapeLayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        setupLayers()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setupLayers() {
+        let size: CGFloat = 15
+        let lineW: CGFloat = 2
+        let r = (size - lineW) / 2
+        let center = CGPoint(x: size / 2, y: size / 2)
+        let circlePath = NSBezierPath()
+        circlePath.appendArc(withCenter: center, radius: r,
+                             startAngle: 0, endAngle: 360, clockwise: false)
+
+        // Full-circle dim track
+        trackLayer.path         = circlePath.cgPath
+        trackLayer.fillColor    = nil
+        trackLayer.strokeColor  = NSColor(white: 1, alpha: 0.15).cgColor
+        trackLayer.lineWidth    = lineW
+        trackLayer.frame        = CGRect(x: 0, y: 0, width: size, height: size)
+        layer?.addSublayer(trackLayer)
+
+        // Short accent arc (~30% of circle)
+        arcLayer.path          = circlePath.cgPath
+        arcLayer.fillColor     = nil
+        arcLayer.strokeColor   = Theme.Color.accentBlue.cgColor
+        arcLayer.lineWidth     = lineW
+        arcLayer.lineCap       = .round
+        arcLayer.strokeStart   = 0
+        arcLayer.strokeEnd     = 0.28
+        arcLayer.frame         = CGRect(x: 0, y: 0, width: size, height: size)
+        layer?.addSublayer(arcLayer)
+
+        startSpinning()
+    }
+
+    func startSpinning() {
+        let anim = CABasicAnimation(keyPath: "transform.rotation.z")
+        anim.fromValue = 0
+        anim.toValue   = 2 * Double.pi
+        anim.duration  = 0.7
+        anim.repeatCount = .infinity
+        anim.timingFunction = CAMediaTimingFunction(name: .linear)
+        arcLayer.add(anim, forKey: "spin")
+    }
+
+    func stopSpinning() {
+        arcLayer.removeAnimation(forKey: "spin")
+    }
+}
+
+// Helper: CGPath from NSBezierPath
+extension NSBezierPath {
+    var cgPath: CGPath {
+        let path = CGMutablePath()
+        var pts = [NSPoint](repeating: .zero, count: 3)
+        for i in 0..<elementCount {
+            let type = element(at: i, associatedPoints: &pts)
+            switch type {
+            case .moveTo:       path.move(to: pts[0])
+            case .lineTo:       path.addLine(to: pts[0])
+            case .curveTo:      path.addCurve(to: pts[2], control1: pts[0], control2: pts[1])
+            case .cubicCurveTo: path.addCurve(to: pts[2], control1: pts[0], control2: pts[1])
+            case .quadraticCurveTo: path.addQuadCurve(to: pts[1], control: pts[0])
+            case .closePath:    path.closeSubpath()
+            @unknown default:   break
+            }
+        }
+        return path
+    }
+}
+
+// ── StepRow class ─────────────────────────────────────────────────────────────
+//
+// Three visual states per the style guide "Progress & state" component:
+//   pending  — 6px dim dot white@16% + textMuted label
+//   active   — raised row bg white@4% + accent SpinnerRing + textPrimary bold label
+//   done     — okSoft circle badge + green ✓ with pop-in animation
+//   error    — destructive ✗ badge + destructive-colored label
+
+class StepRow: NSView {
+    // The 18×18 slot that holds the dot / spinner / badge
+    private let indicatorSlot = NSView()
+
+    // Indicator states (only one visible at a time)
+    private let pendingDot  = NSView()       // 6px circle white@16%
+    private let spinner     = SpinnerRing()  // accent spinning ring
+    private let badgeCircle = NSView()       // okSoft filled circle
+    private let checkLabel  = NSTextField(labelWithString: "✓")
+    private let errorLabel  = NSTextField(labelWithString: "✗")
+
     let stepLabel = NSTextField(labelWithString: "")
+
+    // Raised row background (active state only)
+    private var rowBgLayer: CALayer?
 
     init(text: String) {
         super.init(frame: .zero)
-        orientation  = .horizontal
-        alignment    = .centerY
-        spacing      = 8
         translatesAutoresizingMaskIntoConstraints = false
+        wantsLayer = true
 
-        // Leading indent to distinguish from parent
-        let indent = NSView()
-        indent.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            indent.widthAnchor.constraint(equalToConstant: 6),
-            indent.heightAnchor.constraint(equalToConstant: 1),
-        ])
-        addArrangedSubview(indent)
+        // ── Raised-row bg layer (hidden initially) ──
+        let bg = CALayer()
+        bg.backgroundColor = NSColor(white: 1, alpha: 0.04).cgColor
+        bg.cornerRadius    = 9
+        bg.frame           = .zero   // sized in layout
+        bg.opacity         = 0
+        layer?.addSublayer(bg)
+        rowBgLayer = bg
 
-        // Spinner
-        stepSpinner.translatesAutoresizingMaskIntoConstraints = false
-        stepSpinner.style = .spinning
-        stepSpinner.controlSize = .small
-        stepSpinner.appearance = NSAppearance(named: .darkAqua)
-        stepSpinner.startAnimation(nil)
-        NSLayoutConstraint.activate([
-            stepSpinner.widthAnchor.constraint(equalToConstant: 13),
-            stepSpinner.heightAnchor.constraint(equalToConstant: 13),
-        ])
-        addArrangedSubview(stepSpinner)
+        // ── Indicator slot (18×18) ──
+        indicatorSlot.translatesAutoresizingMaskIntoConstraints = false
+        indicatorSlot.wantsLayer = true
+        addSubview(indicatorSlot)
 
-        // Check mark
-        stepCheck.translatesAutoresizingMaskIntoConstraints = false
-        stepCheck.font = Theme.Font.mono(12, weight: .medium)
-        stepCheck.textColor = Theme.Color.ok
-        stepCheck.isEditable = false; stepCheck.isBordered = false
-        stepCheck.backgroundColor = .clear
-        stepCheck.isHidden = true
-        NSLayoutConstraint.activate([
-            stepCheck.widthAnchor.constraint(equalToConstant: 13),
-        ])
-        addArrangedSubview(stepCheck)
+        // Pending dot (6×6, centered in slot)
+        pendingDot.translatesAutoresizingMaskIntoConstraints = false
+        pendingDot.wantsLayer = true
+        pendingDot.layer?.cornerRadius = 3
+        pendingDot.layer?.backgroundColor = NSColor(white: 1, alpha: 0.16).cgColor
+        indicatorSlot.addSubview(pendingDot)
 
-        // Error mark
-        stepError.translatesAutoresizingMaskIntoConstraints = false
-        stepError.font = Theme.Font.mono(12, weight: .semibold)
-        stepError.textColor = Theme.Color.destructive
-        stepError.isEditable = false; stepError.isBordered = false
-        stepError.backgroundColor = .clear
-        stepError.isHidden = true
-        NSLayoutConstraint.activate([
-            stepError.widthAnchor.constraint(equalToConstant: 13),
-        ])
-        addArrangedSubview(stepError)
+        // Spinner (15×15, centered in slot)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.isHidden = true
+        indicatorSlot.addSubview(spinner)
 
-        // Label
+        // Badge circle (18×18, okSoft fill)
+        badgeCircle.translatesAutoresizingMaskIntoConstraints = false
+        badgeCircle.wantsLayer = true
+        badgeCircle.layer?.cornerRadius = 9
+        badgeCircle.layer?.backgroundColor = Theme.Color.okSoft.cgColor
+        badgeCircle.isHidden = true
+        indicatorSlot.addSubview(badgeCircle)
+
+        // Check label (centered in badge)
+        checkLabel.translatesAutoresizingMaskIntoConstraints = false
+        checkLabel.font = Theme.Font.mono(10, weight: .bold)
+        checkLabel.textColor = Theme.Color.ok
+        checkLabel.isEditable = false; checkLabel.isBordered = false
+        checkLabel.backgroundColor = .clear
+        checkLabel.isHidden = true
+        indicatorSlot.addSubview(checkLabel)
+
+        // Error label (centered in slot)
+        errorLabel.translatesAutoresizingMaskIntoConstraints = false
+        errorLabel.font = Theme.Font.mono(11, weight: .semibold)
+        errorLabel.textColor = Theme.Color.destructive
+        errorLabel.isEditable = false; errorLabel.isBordered = false
+        errorLabel.backgroundColor = .clear
+        errorLabel.isHidden = true
+        indicatorSlot.addSubview(errorLabel)
+
+        // ── Step label ──
         stepLabel.translatesAutoresizingMaskIntoConstraints = false
         stepLabel.font = Theme.Font.mono(12, weight: .regular)
-        stepLabel.textColor = Theme.Color.textSecondary
+        stepLabel.textColor = Theme.Color.textMuted
         stepLabel.lineBreakMode = .byTruncatingTail
         stepLabel.maximumNumberOfLines = 1
         stepLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         stepLabel.stringValue = text
-        addArrangedSubview(stepLabel)
+        addSubview(stepLabel)
+
+        // ── Constraints ──
+        NSLayoutConstraint.activate([
+            // slot: fixed 18×18, leading edge, vertically centered
+            indicatorSlot.widthAnchor.constraint(equalToConstant: 18),
+            indicatorSlot.heightAnchor.constraint(equalToConstant: 18),
+            indicatorSlot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            indicatorSlot.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            // pending dot: 6×6 centered in slot
+            pendingDot.widthAnchor.constraint(equalToConstant: 6),
+            pendingDot.heightAnchor.constraint(equalToConstant: 6),
+            pendingDot.centerXAnchor.constraint(equalTo: indicatorSlot.centerXAnchor),
+            pendingDot.centerYAnchor.constraint(equalTo: indicatorSlot.centerYAnchor),
+
+            // spinner: 15×15 centered in slot
+            spinner.widthAnchor.constraint(equalToConstant: 15),
+            spinner.heightAnchor.constraint(equalToConstant: 15),
+            spinner.centerXAnchor.constraint(equalTo: indicatorSlot.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: indicatorSlot.centerYAnchor),
+
+            // badge: fills slot
+            badgeCircle.widthAnchor.constraint(equalToConstant: 18),
+            badgeCircle.heightAnchor.constraint(equalToConstant: 18),
+            badgeCircle.centerXAnchor.constraint(equalTo: indicatorSlot.centerXAnchor),
+            badgeCircle.centerYAnchor.constraint(equalTo: indicatorSlot.centerYAnchor),
+
+            // check: centered in slot
+            checkLabel.centerXAnchor.constraint(equalTo: indicatorSlot.centerXAnchor),
+            checkLabel.centerYAnchor.constraint(equalTo: indicatorSlot.centerYAnchor),
+
+            // error: centered in slot
+            errorLabel.centerXAnchor.constraint(equalTo: indicatorSlot.centerXAnchor),
+            errorLabel.centerYAnchor.constraint(equalTo: indicatorSlot.centerYAnchor),
+
+            // label: 8px right of slot, vertically centered, fills remaining width
+            stepLabel.leadingAnchor.constraint(equalTo: indicatorSlot.trailingAnchor, constant: 8),
+            stepLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            stepLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            // self height
+            heightAnchor.constraint(equalToConstant: 28),
+        ])
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
+    // Called when this step becomes the active (running) step.
+    func markActive() {
+        // Show spinner, hide dot
+        pendingDot.isHidden = true
+        spinner.isHidden = false
+
+        // Bold label, textPrimary
+        stepLabel.font = Theme.Font.mono(12, weight: .semibold)
+        stepLabel.textColor = Theme.Color.textPrimary
+
+        // Raise row background
+        rowBgLayer?.opacity = 1
+    }
+
+    // Called when the next STEP arrives or QUIT is received — marks this step done.
     func markDone() {
-        stepSpinner.stopAnimation(nil)
-        stepSpinner.isHidden = true
-        stepCheck.isHidden = false
+        // Hide spinner, show badge + check
+        spinner.isHidden = true
+        spinner.stopSpinning()
+        badgeCircle.isHidden = false
+        checkLabel.isHidden = false
+
+        // Restore label weight/color (done = muted, non-bold)
+        stepLabel.font = Theme.Font.mono(12, weight: .regular)
+        stepLabel.textColor = Theme.Color.textSecondary
+
+        // Dismiss raised bg
+        rowBgLayer?.opacity = 0
+
+        // Pop-in animation: scale 0.6→1 + fade in, 0.2s
+        let scale = CABasicAnimation(keyPath: "transform.scale")
+        scale.fromValue = 0.6
+        scale.toValue   = 1.0
+        scale.duration  = 0.2
+        scale.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue   = 1
+        fade.duration  = 0.2
+
+        let group = CAAnimationGroup()
+        group.animations = [scale, fade]
+        group.duration   = 0.2
+        badgeCircle.layer?.add(group, forKey: "popin")
+        checkLabel.layer?.add(group, forKey: "popin")
     }
 
     func markError() {
-        stepSpinner.stopAnimation(nil)
-        stepSpinner.isHidden = true
-        stepError.isHidden = false
+        spinner.isHidden = true
+        spinner.stopSpinning()
+        errorLabel.isHidden = false
+        pendingDot.isHidden = true
+        rowBgLayer?.opacity = 0
+        stepLabel.textColor = Theme.Color.destructive
+    }
+
+    // Size the raised-bg layer to match our bounds (called after layout).
+    override func layout() {
+        super.layout()
+        rowBgLayer?.frame = bounds
     }
 }
 
@@ -269,6 +467,7 @@ func addStep(_ text: String) {
         row.widthAnchor.constraint(equalTo: outerStack.widthAnchor,
                                    constant: -(outerStack.edgeInsets.left + outerStack.edgeInsets.right))
     ])
+    row.markActive()
     activeStep = row
     resizeWindow(animated: true)
 }

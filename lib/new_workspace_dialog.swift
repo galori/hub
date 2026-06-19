@@ -33,14 +33,13 @@ app.mainMenu = mainMenu
 let screen = NSScreen.main ?? NSScreen.screens[0]
 let sf = screen.frame
 
-// --- Colors (matching hub palette) ---
-let bgColor = NSColor(white: 0.08, alpha: 0.93)
-let itemBg = NSColor(red: 0.21, green: 0.22, blue: 0.27, alpha: 1)
-let itemBg2 = NSColor(red: 0.25, green: 0.27, blue: 0.31, alpha: 1)
-let textWhite = NSColor(red: 0.89, green: 0.89, blue: 0.89, alpha: 1)
-let dimWhite = NSColor(white: 1, alpha: 0.45)
-let accentBlue = NSColor(red: 0.20, green: 0.45, blue: 0.85, alpha: 1)
-let greenColor = NSColor(red: 0.62, green: 0.82, blue: 0.45, alpha: 1)
+// --- Colors (Theme tokens — see lib/theme.swift) ---
+// itemBg → Theme.Color.inputField
+// textWhite / dimWhite → Theme.Color.textPrimary / Theme.Color.textMuted
+// accentBlue → Theme.Color.accentBlue
+// greenColor → Theme.Color.ok
+// Kept as locals for brevity at call-sites
+let itemBg = Theme.Color.inputField
 
 // --- Window ---
 class KeyableWindow: NSWindow {
@@ -55,16 +54,14 @@ let dialogW: CGFloat = min(sf.width * 0.45, 600)
 let win = KeyableWindow(contentRect: NSRect(x: 0, y: 0, width: dialogW, height: 100),
                         styleMask: .borderless, backing: .buffered, defer: false)
 win.level = .normal
-win.backgroundColor = bgColor
+win.backgroundColor = .clear
 win.isOpaque = false
 win.hasShadow = true
 win.isMovableByWindowBackground = true
 win.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
 let cv = win.contentView!
-cv.wantsLayer = true
-cv.layer?.cornerRadius = 18
-cv.layer?.masksToBounds = true
+Theme.applyCardBackground(to: cv, radius: Theme.Radius.modal, kind: .modal)
 
 // --- Result writing ---
 func writeResult(_ value: String) {
@@ -89,8 +86,8 @@ func cancelAndDismiss() {
 func makeLabel(_ s: String) -> NSTextField {
     let f = NSTextField(labelWithString: s)
     f.translatesAutoresizingMaskIntoConstraints = false
-    f.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-    f.textColor = dimWhite
+    f.font = Theme.Font.ui(10, weight: .semibold)
+    f.textColor = Theme.Color.textMuted
     return f
 }
 
@@ -156,15 +153,15 @@ func makeField(placeholder: String, value: String = "") -> NSTextField {
     f.isEditable = true
     f.isBordered = false
     f.wantsLayer = true
-    f.layer?.backgroundColor = itemBg.cgColor
-    f.layer?.cornerRadius = 6
-    f.textColor = .white
-    f.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+    f.layer?.backgroundColor = Theme.Color.inputField.cgColor
+    f.layer?.cornerRadius = Theme.Radius.control
+    f.textColor = Theme.Color.textPrimary
+    f.font = Theme.Font.mono(14)
     f.focusRingType = .none
     (f.cell as? NSTextFieldCell)?.placeholderAttributedString = NSAttributedString(
         string: placeholder,
-        attributes: [.foregroundColor: NSColor(white: 1, alpha: 0.25),
-                     .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)])
+        attributes: [.foregroundColor: Theme.Color.textFaint,
+                     .font: Theme.Font.mono(14)])
     f.stringValue = value
     return f
 }
@@ -188,41 +185,41 @@ class CustomCheckbox: NSView {
     @objc func toggle() { isChecked.toggle() }
 
     override func draw(_ dirtyRect: NSRect) {
-        let boxSize: CGFloat = 16
+        let boxSize: CGFloat = Theme.Metric.checkboxSize
         let boxY = (bounds.height - boxSize) / 2
         let boxRect = NSRect(x: 0, y: boxY, width: boxSize, height: boxSize)
-        let path = NSBezierPath(roundedRect: boxRect, xRadius: 3, yRadius: 3)
+        let path = NSBezierPath(roundedRect: boxRect, xRadius: Theme.Radius.checkbox, yRadius: Theme.Radius.checkbox)
         if isChecked {
-            NSColor(red: 0.20, green: 0.45, blue: 0.85, alpha: 1).setFill()
+            Theme.Color.accentBlue.setFill()
             path.fill()
             let check = NSBezierPath()
-            check.move(to: NSPoint(x: boxRect.minX + 3.5, y: boxRect.midY))
-            check.line(to: NSPoint(x: boxRect.minX + 6.5, y: boxRect.minY + 3.5))
-            check.line(to: NSPoint(x: boxRect.maxX - 3, y: boxRect.maxY - 3.5))
-            check.lineWidth = 1.8
+            check.move(to: NSPoint(x: boxRect.minX + 5, y: boxRect.midY))
+            check.line(to: NSPoint(x: boxRect.minX + 9, y: boxRect.minY + 5))
+            check.line(to: NSPoint(x: boxRect.maxX - 4, y: boxRect.maxY - 5))
+            check.lineWidth = 2
             check.lineCapStyle = .round
             check.lineJoinStyle = .round
             NSColor.white.setStroke()
             check.stroke()
         } else {
-            NSColor(white: 0.08, alpha: 1).setFill()
+            Theme.Color.inputField.setFill()
             path.fill()
-            NSColor(white: 1, alpha: 0.5).setStroke()
+            NSColor(white: 1, alpha: 0.22).setStroke()
             path.lineWidth = 1.5
             path.stroke()
         }
         let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor(white: 1, alpha: 0.75),
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
+            .foregroundColor: Theme.Color.textLabel,
+            .font: Theme.Font.ui(fontSize, weight: .regular),
         ]
         let str = NSAttributedString(string: label, attributes: attrs)
-        str.draw(at: NSPoint(x: boxSize + 8, y: (bounds.height - str.size().height) / 2))
+        str.draw(at: NSPoint(x: boxSize + 10, y: (bounds.height - str.size().height) / 2))
     }
 
     override var intrinsicContentSize: NSSize {
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: fontSize, weight: .regular)]
+        let attrs: [NSAttributedString.Key: Any] = [.font: Theme.Font.ui(fontSize, weight: .regular)]
         let w = (label as NSString).size(withAttributes: attrs).width
-        return NSSize(width: 16 + 8 + w, height: 22)
+        return NSSize(width: Theme.Metric.checkboxSize + 10 + w, height: 26)
     }
 }
 
@@ -233,7 +230,7 @@ func makeBtn(label: String, shortcut: String? = nil, bg: NSColor, fg: NSColor, b
     b.isBordered = false
     b.wantsLayer = true
     b.layer?.backgroundColor = bg.cgColor
-    b.layer?.cornerRadius = 8
+    b.layer?.cornerRadius = Theme.Radius.control
     b.alignment = .center
     let weight: NSFont.Weight = bold ? .semibold : .medium
     let style = NSMutableParagraphStyle()
@@ -241,13 +238,13 @@ func makeBtn(label: String, shortcut: String? = nil, bg: NSColor, fg: NSColor, b
     let attr = NSMutableAttributedString()
     attr.append(NSAttributedString(string: label, attributes: [
         .foregroundColor: fg,
-        .font: NSFont.systemFont(ofSize: 12, weight: weight),
+        .font: Theme.Font.ui(12, weight: weight),
         .paragraphStyle: style,
     ]))
     if let key = shortcut {
         attr.append(NSAttributedString(string: "  \(key)", attributes: [
             .foregroundColor: fg.withAlphaComponent(0.4),
-            .font: NSFont.systemFont(ofSize: 9, weight: .medium),
+            .font: Theme.Font.ui(9, weight: .medium),
             .paragraphStyle: style,
         ]))
     }
@@ -472,14 +469,8 @@ func parseANSI(_ raw: String, baseFont: NSFont, baseColor: NSColor) -> NSAttribu
                     for c in (codes.isEmpty ? [0] : codes) {
                         switch c {
                         case 0: curColor = baseColor; curFont = baseFont
-                        case 1: curFont = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .bold)
-                        case 31: curColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
-                        case 32: curColor = NSColor(red: 0.62, green: 0.82, blue: 0.45, alpha: 1)
-                        case 33: curColor = NSColor(red: 0.91, green: 0.78, blue: 0.39, alpha: 1)
-                        case 34: curColor = NSColor(red: 0.46, green: 0.80, blue: 0.88, alpha: 1)
-                        case 35: curColor = NSColor(red: 0.70, green: 0.62, blue: 0.95, alpha: 1)
-                        case 36: curColor = NSColor(red: 0.00, green: 0.82, blue: 1.00, alpha: 1)
-                        default: break
+                        case 1: curFont = Theme.Font.mono(baseFont.pointSize, weight: .bold)
+                        default: curColor = Theme.ansiColor(c)
                         }
                     }
                     i = raw.index(after: j)
@@ -574,8 +565,8 @@ func showNoRepoName() {
 
     let titleLabel = NSTextField(labelWithString: "New Workspace")
     titleLabel.translatesAutoresizingMaskIntoConstraints = false
-    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    titleLabel.textColor = dimWhite
+    titleLabel.font = Theme.Font.ui(15, weight: .semibold)
+    titleLabel.textColor = Theme.Color.textMuted
     addView(titleLabel)
 
     let nameLabel = makeLabel("NAME")
@@ -585,15 +576,15 @@ func showNoRepoName() {
 
     let errorLabel = NSTextField(labelWithString: "")
     errorLabel.translatesAutoresizingMaskIntoConstraints = false
-    errorLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-    errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
+    errorLabel.font = Theme.Font.ui(11, weight: .medium)
+    errorLabel.textColor = Theme.Color.destructive
     addView(errorLabel)
 
-    let createBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
+    let createBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: Theme.Color.accentBlue, fg: .white, bold: true)
     addView(createBtn)
-    let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: Theme.Color.textLabel)
     addView(backBtn)
-    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: Theme.Color.textLabel)
     addView(cancelBtn)
 
     NSLayoutConstraint.activate([
@@ -668,8 +659,8 @@ func showPickPath() {
 
     let titleLabel = NSTextField(labelWithString: "New Workspace")
     titleLabel.translatesAutoresizingMaskIntoConstraints = false
-    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    titleLabel.textColor = dimWhite
+    titleLabel.font = Theme.Font.ui(15, weight: .semibold)
+    titleLabel.textColor = Theme.Color.textMuted
     addView(titleLabel)
 
     let pathLabel = makeLabel("PATH (enter path or browse)")
@@ -677,15 +668,15 @@ func showPickPath() {
     let pathField = makeField(placeholder: "/path/to/repo")
     addView(pathField)
 
-    let browseBtn = makeBtn(label: "BROWSE", shortcut: "tab", bg: NSColor(white: 0.22, alpha: 1), fg: NSColor(white: 1, alpha: 0.75))
+    let browseBtn = makeBtn(label: "BROWSE", shortcut: "tab", bg: Theme.Color.inputField, fg: Theme.Color.textLabel)
     addView(browseBtn)
-    let noRepoBtn = makeBtn(label: "NO REPO", shortcut: "⌘↵", bg: NSColor(white: 0.18, alpha: 1), fg: NSColor(white: 1, alpha: 0.45))
+    let noRepoBtn = makeBtn(label: "NO REPO", shortcut: "⌘↵", bg: Theme.Color.inputField, fg: Theme.Color.textMuted)
     addView(noRepoBtn)
 
     let errorLabel = NSTextField(labelWithString: "")
     errorLabel.translatesAutoresizingMaskIntoConstraints = false
-    errorLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-    errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
+    errorLabel.font = Theme.Font.ui(11, weight: .medium)
+    errorLabel.textColor = Theme.Color.destructive
     addView(errorLabel)
 
     // Recent paths
@@ -735,10 +726,10 @@ func showPickPath() {
             removeBtn.translatesAutoresizingMaskIntoConstraints = false
             removeBtn.isBordered = false
             removeBtn.wantsLayer = true
-            removeBtn.layer?.cornerRadius = 3
+            removeBtn.layer?.cornerRadius = Theme.Radius.keycap
             removeBtn.attributedTitle = NSAttributedString(string: "✕", attributes: [
-                .font: NSFont.systemFont(ofSize: 10, weight: .medium),
-                .foregroundColor: NSColor(white: 1, alpha: 0.3),
+                .font: Theme.Font.ui(10, weight: .medium),
+                .foregroundColor: Theme.Color.textFaint,
             ])
             removeBtn.toolTip = "Remove from recent"
             let removeAction = RemoveRecentAction(rp)
@@ -751,11 +742,11 @@ func showPickPath() {
             btn.translatesAutoresizingMaskIntoConstraints = false
             btn.isBordered = false
             btn.wantsLayer = true
-            btn.layer?.cornerRadius = 4
+            btn.layer?.cornerRadius = Theme.Radius.keycap
             btn.alignment = .left
             btn.attributedTitle = NSAttributedString(string: "  \(displayPath)", attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-                .foregroundColor: NSColor(white: 1, alpha: 0.55),
+                .font: Theme.Font.mono(12),
+                .foregroundColor: Theme.Color.textMuted,
             ])
             let action = RecentPathAction(rp, errorLabel)
             action.btn = btn
@@ -777,9 +768,9 @@ func showPickPath() {
         }
     }
 
-    let nextBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
+    let nextBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: Theme.Color.accentBlue, fg: .white, bold: true)
     addView(nextBtn)
-    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: Theme.Color.textLabel)
     addView(cancelBtn)
 
     NSLayoutConstraint.activate([
@@ -898,8 +889,8 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
 
     let titleLabel = NSTextField(labelWithString: "Select Worktree")
     titleLabel.translatesAutoresizingMaskIntoConstraints = false
-    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    titleLabel.textColor = dimWhite
+    titleLabel.font = Theme.Font.ui(15, weight: .semibold)
+    titleLabel.textColor = Theme.Color.textMuted
     addView(titleLabel)
 
     let subtitle: String
@@ -910,8 +901,8 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
     }
     let subtitleLabel = NSTextField(labelWithString: subtitle)
     subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-    subtitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
-    subtitleLabel.textColor = NSColor(white: 1, alpha: 0.3)
+    subtitleLabel.font = Theme.Font.ui(12, weight: .regular)
+    subtitleLabel.textColor = Theme.Color.textMuted
     addView(subtitleLabel)
 
     class WtAction: NSObject {
@@ -942,17 +933,17 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
         btn.isBordered = false
         btn.bezelStyle = .inline
         btn.wantsLayer = true
-        btn.layer?.cornerRadius = 6
+        btn.layer?.cornerRadius = Theme.Radius.control
         btn.alignment = .left
 
         let attr = NSMutableAttributedString()
         attr.append(NSAttributedString(string: "  \(i + 1)  \(displayName)", attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 15, weight: .regular),
-            .foregroundColor: textWhite,
+            .font: Theme.Font.mono(15),
+            .foregroundColor: Theme.Color.textPrimary,
         ]))
         attr.append(NSAttributedString(string: branchInfo, attributes: [
-            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-            .foregroundColor: NSColor(white: 1, alpha: 0.35),
+            .font: Theme.Font.mono(12),
+            .foregroundColor: Theme.Color.textMuted,
         ]))
         btn.attributedTitle = attr
 
@@ -974,7 +965,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
     let sep = NSView()
     sep.translatesAutoresizingMaskIntoConstraints = false
     sep.wantsLayer = true
-    sep.layer?.backgroundColor = NSColor(white: 1, alpha: 0.08).cgColor
+    sep.layer?.backgroundColor = Theme.Color.borderStrong.cgColor
     addView(sep)
 
     let newWtRow = NSButton()
@@ -982,12 +973,12 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
     newWtRow.isBordered = false
     newWtRow.bezelStyle = .inline
     newWtRow.wantsLayer = true
-    newWtRow.layer?.cornerRadius = 6
+    newWtRow.layer?.cornerRadius = Theme.Radius.control
     newWtRow.alignment = .left
     let newWtAttr = NSMutableAttributedString()
     newWtAttr.append(NSAttributedString(string: "  n  + new worktree", attributes: [
-        .font: NSFont.monospacedSystemFont(ofSize: 15, weight: .regular),
-        .foregroundColor: greenColor,
+        .font: Theme.Font.mono(15),
+        .foregroundColor: Theme.Color.ok,
     ]))
     newWtRow.attributedTitle = newWtAttr
     addView(newWtRow)
@@ -1005,9 +996,9 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
     newWtRow.target = newWtAction; newWtRow.action = #selector(NewWtAction.create(_:))
     objc_setAssociatedObject(newWtRow, "a", newWtAction, .OBJC_ASSOCIATION_RETAIN)
 
-    let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: Theme.Color.textLabel)
     addView(backBtn)
-    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: Theme.Color.textLabel)
     addView(cancelBtn)
     class BackAction: NSObject {
         @objc func back(_ sender: Any) { showPickPath() }
@@ -1076,8 +1067,8 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
 
     let titleLabel = NSTextField(labelWithString: "Create New Worktree")
     titleLabel.translatesAutoresizingMaskIntoConstraints = false
-    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    titleLabel.textColor = dimWhite
+    titleLabel.font = Theme.Font.ui(15, weight: .semibold)
+    titleLabel.textColor = Theme.Color.textMuted
     addView(titleLabel)
 
     let nameLabel = makeLabel("NAME (used for branch and worktree directory)")
@@ -1087,8 +1078,8 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
 
     let errorLabel = NSTextField(labelWithString: "")
     errorLabel.translatesAutoresizingMaskIntoConstraints = false
-    errorLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-    errorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
+    errorLabel.font = Theme.Font.ui(11, weight: .medium)
+    errorLabel.textColor = Theme.Color.destructive
     addView(errorLabel)
 
     // --- Branch list (scrollable, filterable) ---
@@ -1101,8 +1092,8 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
     scrollView.autohidesScrollers = false
     scrollView.drawsBackground = false
     scrollView.wantsLayer = true
-    scrollView.layer?.backgroundColor = itemBg.cgColor
-    scrollView.layer?.cornerRadius = 6
+    scrollView.layer?.backgroundColor = Theme.Color.inputField.cgColor
+    scrollView.layer?.cornerRadius = Theme.Radius.control
     scrollView.scrollerStyle = .legacy
     if let scroller = scrollView.verticalScroller {
         scroller.knobStyle = .light
@@ -1168,11 +1159,11 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
                 btn.translatesAutoresizingMaskIntoConstraints = false
                 btn.isBordered = false
                 btn.wantsLayer = true
-                btn.layer?.cornerRadius = 4
+                btn.layer?.cornerRadius = Theme.Radius.keycap
                 btn.alignment = .left
                 btn.attributedTitle = NSAttributedString(string: "  \(branch)", attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-                    .foregroundColor: NSColor(white: 1, alpha: 0.65),
+                    .font: Theme.Font.mono(12),
+                    .foregroundColor: Theme.Color.textSecondary,
                 ])
                 let branchCopy = branch
                 let action = BranchPickAction(branch: branchCopy, field: field, errLabel: errLabel,
@@ -1208,17 +1199,17 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
                 let old = branchButtons[highlightedIndex].button
                 old.layer?.backgroundColor = nil
                 old.attributedTitle = NSAttributedString(string: "  \(branchButtons[highlightedIndex].branch)", attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-                    .foregroundColor: NSColor(white: 1, alpha: 0.65),
+                    .font: Theme.Font.mono(12),
+                    .foregroundColor: Theme.Color.textSecondary,
                 ])
             }
             highlightedIndex = index
             if index >= 0 && index < branchButtons.count {
                 let btn = branchButtons[index].button
-                btn.layer?.backgroundColor = NSColor(white: 1, alpha: 0.08).cgColor
+                btn.layer?.backgroundColor = Theme.Color.insetHighlight.cgColor
                 btn.attributedTitle = NSAttributedString(string: "  \(branchButtons[index].branch)", attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
-                    .foregroundColor: NSColor.white,
+                    .font: Theme.Font.mono(12),
+                    .foregroundColor: Theme.Color.textPrimary,
                 ])
                 (btn.superview?.enclosingScrollView)?.scrollToVisible(btn.frame)
             }
@@ -1259,11 +1250,11 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
     objc_setAssociatedObject(nameField, "listMgr", listMgr, .OBJC_ASSOCIATION_RETAIN)
 
     // --- Buttons ---
-    let createBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
+    let createBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: Theme.Color.accentBlue, fg: .white, bold: true)
     addView(createBtn)
-    let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let backBtn = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: Theme.Color.textLabel)
     addView(backBtn)
-    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: Theme.Color.textLabel)
     addView(cancelBtn)
 
     NSLayoutConstraint.activate([
@@ -1423,8 +1414,8 @@ func showConfirmWorkspace(
 
     let titleLabel = NSTextField(labelWithString: "Create Workspace")
     titleLabel.translatesAutoresizingMaskIntoConstraints = false
-    titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    titleLabel.textColor = dimWhite
+    titleLabel.font = Theme.Font.ui(15, weight: .semibold)
+    titleLabel.textColor = Theme.Color.textMuted
     addView(titleLabel)
 
     let nameField = makeField(placeholder: "workspace name", value: wsName)
@@ -1432,8 +1423,8 @@ func showConfirmWorkspace(
 
     let nameErrorLabel = NSTextField(labelWithString: "")
     nameErrorLabel.translatesAutoresizingMaskIntoConstraints = false
-    nameErrorLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-    nameErrorLabel.textColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
+    nameErrorLabel.font = Theme.Font.ui(11, weight: .medium)
+    nameErrorLabel.textColor = Theme.Color.destructive
     addView(nameErrorLabel)
 
     var prevAnchor: NSLayoutYAxisAnchor = nameErrorLabel.bottomAnchor
@@ -1442,8 +1433,8 @@ func showConfirmWorkspace(
         let abbreviated = (path as NSString).abbreviatingWithTildeInPath
         let pathLabel = NSTextField(labelWithString: abbreviated)
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
-        pathLabel.textColor = dimWhite
+        pathLabel.font = Theme.Font.ui(11, weight: .regular)
+        pathLabel.textColor = Theme.Color.textMuted
         pathLabel.lineBreakMode = .byTruncatingMiddle
         addView(pathLabel)
         NSLayoutConstraint.activate([
@@ -1471,8 +1462,8 @@ func showConfirmWorkspace(
         func updateToggleAllLabel() {
             let allChecked = checkboxes.allSatisfy { $0.isChecked }
             let attrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: NSColor(white: 1, alpha: 0.45),
-                .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
+                .foregroundColor: Theme.Color.textMuted,
+                .font: Theme.Font.ui(10, weight: .semibold),
             ]
             toggleAllBtn.attributedTitle = NSAttributedString(
                 string: allChecked ? "☐  None" : "☑  All", attributes: attrs)
@@ -1551,8 +1542,8 @@ func showConfirmWorkspace(
     clearBtn.isBordered = false
     clearBtn.wantsLayer = true
     clearBtn.attributedTitle = NSAttributedString(string: "✕ clear", attributes: [
-        .foregroundColor: NSColor(white: 1, alpha: 0.30),
-        .font: NSFont.systemFont(ofSize: 10, weight: .regular),
+        .foregroundColor: Theme.Color.textFaint,
+        .font: Theme.Font.ui(10, weight: .regular),
     ])
     addView(clearBtn)
 
@@ -1609,14 +1600,14 @@ func showConfirmWorkspace(
                 let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                                 backing: .buffered, defer: false)
                 p.level = NSWindow.Level(rawValue: Int(CGWindowLevelKey.floatingWindow.rawValue) + 1)
-                p.backgroundColor = NSColor(red: 0.13, green: 0.14, blue: 0.18, alpha: 0.98)
+                p.backgroundColor = Theme.Color.modalTop
                 p.isOpaque = false
                 p.hasShadow = true
                 p.contentView?.wantsLayer = true
-                p.contentView?.layer?.cornerRadius = 8
+                p.contentView?.layer?.cornerRadius = Theme.Radius.control
                 p.contentView?.layer?.masksToBounds = true
                 p.contentView?.layer?.borderWidth = 1
-                p.contentView?.layer?.borderColor = NSColor(white: 1, alpha: 0.12).cgColor
+                p.contentView?.layer?.borderColor = Theme.Color.borderStrong.cgColor
 
                 let scroll = NSScrollView(frame: .zero)
                 scroll.autoresizingMask = [.width, .height]
@@ -1657,7 +1648,7 @@ func showConfirmWorkspace(
                 btn.translatesAutoresizingMaskIntoConstraints = false
                 btn.isBordered = false
                 btn.wantsLayer = true
-                btn.layer?.cornerRadius = 4
+                btn.layer?.cornerRadius = Theme.Radius.keycap
                 btn.alignment = .left
                 setRowNormal(btn, skill: skill)
                 let skillCopy = skill
@@ -1688,16 +1679,16 @@ func showConfirmWorkspace(
         func setRowNormal(_ btn: NSButton, skill: String) {
             btn.layer?.backgroundColor = nil
             btn.attributedTitle = NSAttributedString(string: "/\(skill)", attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-                .foregroundColor: NSColor(white: 1, alpha: 0.80),
+                .font: Theme.Font.mono(13),
+                .foregroundColor: Theme.Color.textLabel,
             ])
         }
 
         func setRowHighlighted(_ btn: NSButton, skill: String) {
-            btn.layer?.backgroundColor = accentBlue.withAlphaComponent(0.35).cgColor
+            btn.layer?.backgroundColor = Theme.Color.accentBlueSoft.cgColor
             btn.attributedTitle = NSAttributedString(string: "/\(skill)", attributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
-                .foregroundColor: NSColor.white,
+                .font: Theme.Font.mono(13),
+                .foregroundColor: Theme.Color.textPrimary,
             ])
         }
 
@@ -1758,13 +1749,13 @@ func showConfirmWorkspace(
     nameField.nextKeyView = promptView
     promptView.nextKeyView = nameField
 
-    let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
+    let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: Theme.Color.accentBlue, fg: .white, bold: true)
     addView(createBtn)
-    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+    let cancelBtn = makeBtn(label: "CANCEL", shortcut: "esc", bg: itemBg, fg: Theme.Color.textLabel)
     addView(cancelBtn)
     var backBtn: NSButton? = nil
     if back != nil {
-        let b = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+        let b = makeBtn(label: "BACK", shortcut: "⌘[", bg: itemBg, fg: Theme.Color.textLabel)
         addView(b)
         backBtn = b
     }
@@ -1930,8 +1921,8 @@ class PromptTextView: NSTextView {
         super.draw(rect)
         if string.isEmpty {
             let attrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: NSColor(white: 1, alpha: 0.25),
-                .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: Theme.Color.textFaint,
+                .font: Theme.Font.mono(13),
             ]
             let inset = textContainerInset
             let origin = NSPoint(x: inset.width + 5, y: inset.height + 1)
@@ -1949,10 +1940,10 @@ func makePromptTextView() -> (NSScrollView, PromptTextView) {
     scroll.autohidesScrollers = true
     scroll.drawsBackground = false
     scroll.wantsLayer = true
-    scroll.layer?.backgroundColor = itemBg.cgColor
-    scroll.layer?.cornerRadius = 6
+    scroll.layer?.backgroundColor = Theme.Color.inputField.cgColor
+    scroll.layer?.cornerRadius = Theme.Radius.control
     scroll.layer?.borderWidth = 1
-    scroll.layer?.borderColor = NSColor(white: 1, alpha: 0.12).cgColor
+    scroll.layer?.borderColor = Theme.Color.borderStrong.cgColor
     scroll.borderType = .noBorder
 
     let tv = PromptTextView()
@@ -1963,10 +1954,10 @@ func makePromptTextView() -> (NSScrollView, PromptTextView) {
     tv.isRichText = false
     tv.importsGraphics = false
     tv.drawsBackground = true
-    tv.backgroundColor = itemBg
-    tv.textColor = .white
-    tv.insertionPointColor = .white
-    tv.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+    tv.backgroundColor = Theme.Color.inputField
+    tv.textColor = Theme.Color.textPrimary
+    tv.insertionPointColor = Theme.Color.textPrimary
+    tv.font = Theme.Font.mono(13)
     tv.textContainerInset = NSSize(width: 8, height: 6)
     tv.autoresizingMask = [.width]
     tv.minSize = NSSize(width: 0, height: 0)
