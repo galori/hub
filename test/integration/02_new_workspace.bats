@@ -2,7 +2,7 @@
 # Integration test: hub new — plain workspace creation
 #
 # Creates a real worktree-based hub workspace from a temporary fixture repo,
-# asserts the worktree, workspaces.json entry, and sketchybar pill all land
+# asserts the worktree, workspaces.json entry, and bar label all land
 # correctly, then cleans up via hub remove.
 #
 # IMPORTANT: This test switches AeroSpace focus to the newly created workspace
@@ -59,7 +59,7 @@ teardown() {
     # Entry must exist
     jq -e --arg n "$WS_NAME" '.[] | select(.name == $n)' "$wsfile" >/dev/null
 
-    # Capture the allocated ID for the sketchybar assertion and teardown
+    # Capture the allocated ID for the bar label assertion and teardown
     WS_ID="$(ws_id_for_name "$WS_NAME")"
     echo "# allocated workspace ID: $WS_ID" >&3
     [[ -n "$WS_ID" ]]
@@ -78,27 +78,14 @@ teardown() {
 }
 
 # ---------------------------------------------------------------------------
-@test "hub new creates a visible sketchybar workspace pill" {
+@test "hub new creates a bar_labels entry for the workspace" {
     run "$(hub_bin)" new --path "$FIXTURE_REPO" --worktree "$WS_NAME" --no-apps
     [[ "$status" -eq 0 ]]
 
     WS_ID="$(ws_id_for_name "$WS_NAME")"
     [[ -n "$WS_ID" ]]
 
-    # hub new calls update_sketchybar_label synchronously, then aerospace
-    # triggers an async re-render via aerospace.sh. Allow a moment for both.
-    local expected_label="$WS_ID $WS_NAME"
-
-    wait_for 10 "space.$WS_ID label is '$expected_label'" \
-        "[[ \"\$(sketchybar_label 'space.$WS_ID')\" == \"$expected_label\" ]]"
-
-    local lbl
-    lbl="$(sketchybar_label "space.$WS_ID")"
-    echo "# sketchybar label: '$lbl'" >&3
-    [[ "$lbl" == "$expected_label" ]]
-
-    local drawing
-    drawing="$(sketchybar_drawing "space.$WS_ID")"
-    echo "# sketchybar drawing: '$drawing'" >&3
-    [[ "$drawing" == "on" ]]
+    local labels_file="$HOME/.config/hub/bar_labels"
+    [[ -f "$labels_file" ]]
+    grep -q "^$WS_ID:$WS_NAME:" "$labels_file"
 }

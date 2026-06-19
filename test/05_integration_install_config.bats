@@ -12,7 +12,6 @@ setup() {
 
     # Override all path vars to keep everything in the temp dir
     export AEROSPACE_CONFIG="$HOME/.aerospace.toml"
-    export SKETCHYBAR_CONFIG_DIR="$HOME/.config/sketchybar"
     export WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
     export APPS_FILE="$HOME/.config/hub/apps.json"
     export KEYS_CACHE="$HOME/.config/hub/keys_cache"
@@ -55,15 +54,6 @@ HUB_SCRIPT="$REPO_DIR/scripts/hub"
 # Deploy aerospace config
 sed "s|__HUB_SCRIPT__|\$HUB_SCRIPT|g" \
     "$REPO_DIR/config/aerospace.toml" > "$AEROSPACE_CONFIG"
-
-# Deploy sketchybar config
-mkdir -p "$SKETCHYBAR_CONFIG_DIR/plugins"
-sed "s|__HUB_SCRIPT__|\$HUB_SCRIPT|g" \
-    "$REPO_DIR/config/sketchybar/sketchybarrc" > "$SKETCHYBAR_CONFIG_DIR/sketchybarrc"
-for f in "$REPO_DIR/config/sketchybar/plugins/"*.sh; do
-    sed "s|__HUB_SCRIPT__|\$HUB_SCRIPT|g" "\$f" > \
-        "$SKETCHYBAR_CONFIG_DIR/plugins/\$(basename "\$f")"
-done
 SCRIPT
     chmod +x "$deploy_script"
     bash "$deploy_script"
@@ -96,33 +86,6 @@ SCRIPT
 @test "all __HUB_SCRIPT__ placeholders replaced in aerospace.toml" {
     run_deploy
     count="$(grep -c '__HUB_SCRIPT__' "$AEROSPACE_CONFIG" || true)"
-    [[ "$count" == "0" ]]
-}
-
-# ---------------------------------------------------------------------------
-# sketchybar config deployment
-# ---------------------------------------------------------------------------
-
-@test "install deploys sketchybarrc with placeholder replaced" {
-    run_deploy
-    [[ -f "$SKETCHYBAR_CONFIG_DIR/sketchybarrc" ]]
-    ! grep -q '__HUB_SCRIPT__' "$SKETCHYBAR_CONFIG_DIR/sketchybarrc"
-}
-
-@test "install deploys all plugin scripts" {
-    run_deploy
-    for plugin in aerospace.sh app_launcher.sh app_slot.sh aerospace_mode.sh \
-                  clock.sh battery.sh volume.sh wifi.sh; do
-        [[ -f "$SKETCHYBAR_CONFIG_DIR/plugins/$plugin" ]] || {
-            echo "Missing plugin: $plugin" >&3
-            false
-        }
-    done
-}
-
-@test "all __HUB_SCRIPT__ placeholders replaced in plugin scripts" {
-    run_deploy
-    count="$(grep -rl '__HUB_SCRIPT__' "$SKETCHYBAR_CONFIG_DIR/plugins/" | wc -l | tr -d ' ')"
     [[ "$count" == "0" ]]
 }
 

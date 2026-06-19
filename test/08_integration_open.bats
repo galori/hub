@@ -37,10 +37,6 @@ esac
 SH
     chmod +x "$STUB_BIN/aerospace"
 
-    # Stub app_launcher.sh so refresh_app_indicators succeeds
-    mkdir -p "$HOME/.config/sketchybar/plugins"
-    printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/.config/sketchybar/plugins/app_launcher.sh"
-    chmod +x "$HOME/.config/sketchybar/plugins/app_launcher.sh"
 }
 
 teardown() {

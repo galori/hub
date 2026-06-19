@@ -29,6 +29,7 @@ BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
 BROWSER_CTL_BIN="$HOME/.config/hub/browser_ctl"
 SPATIAL_ORDER_SRC="$LIB_DIR/spatial_order.swift"
 SPATIAL_ORDER_BIN="$HOME/.config/hub/spatial_order"
+THEME_SRC="$LIB_DIR/theme.swift"
 TESTING_BANNER_PIDFILE="$HOME/.config/hub/testing_banner.pid"
 PROGRESS_BANNER_SRC="$LIB_DIR/progress_banner.swift"
 PROGRESS_BANNER_BIN="$HOME/.config/hub/progress_banner"
@@ -480,38 +481,62 @@ compile_swift() {
     local name="$1"
     local src="$2"
     local bin="$3"
+    # Optional 4th arg: extra source file (e.g. theme.swift) compiled alongside src.
+    local extra="${4:-}"
 
     if [[ ! -f "$src" ]]; then
         warn "$name source not found — skipping"
         return
     fi
 
-    if [[ -f "$bin" ]] && [[ "$bin" -nt "$src" ]]; then
+    # Recompile when binary is older than src, extra source, or this script.
+    local needs_build=false
+    [[ ! -f "$bin" ]] && needs_build=true
+    [[ -f "$bin" && "$src" -nt "$bin" ]] && needs_build=true
+    [[ -n "$extra" && -f "$extra" && "$extra" -nt "$bin" ]] && needs_build=true
+
+    if [[ "$needs_build" != true ]]; then
         info "$name up to date"
         return
     fi
 
     mkdir -p "$(dirname "$bin")"
-    if swiftc -O -o "$bin" -framework Cocoa "$src" 2>/dev/null; then
-        success "$name compiled: $bin"
+    if [[ -n "$extra" ]]; then
+        # Multi-file Swift: only a file named main.swift may have top-level code.
+        # Copy the main source to a temp main.swift so the compiler accepts it.
+        local tmp_dir
+        tmp_dir="$(mktemp -d /tmp/hub_swift_XXXXXX)"
+        cp "$src" "$tmp_dir/main.swift"
+        if swiftc -O -o "$bin" -framework Cocoa "$extra" "$tmp_dir/main.swift" 2>/dev/null; then
+            success "$name compiled: $bin"
+        else
+            warn "$name compilation failed"
+        fi
+        rm -rf "$tmp_dir"
     else
-        warn "$name compilation failed"
+        if swiftc -O -o "$bin" -framework Cocoa "$src" 2>/dev/null; then
+            success "$name compiled: $bin"
+        else
+            warn "$name compilation failed"
+        fi
     fi
 }
 
 compile_all() {
     echo -e "${bold}Compiling Swift binaries...${reset}"
-    compile_swift "new_workspace_dialog" "$DIALOG_SRC" "$DIALOG_BIN"
-    compile_swift "confirm_dialog" "$CONFIRM_SRC" "$CONFIRM_BIN"
-    compile_swift "rename_dialog" "$RENAME_SRC" "$RENAME_BIN"
-    compile_swift "dashboard_dialog" "$DASHBOARD_SRC" "$DASHBOARD_BIN"
-    compile_swift "browser_ctl" "$BROWSER_CTL_SRC" "$BROWSER_CTL_BIN"
-    compile_swift "output_window" "$OUTPUT_WINDOW_SRC" "$OUTPUT_WINDOW_BIN"
-    compile_swift "spatial_order" "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
-    compile_swift "progress_banner" "$PROGRESS_BANNER_SRC" "$PROGRESS_BANNER_BIN"
-    compile_swift "app_switcher" "$APP_SWITCHER_SRC" "$APP_SWITCHER_BIN"
-    compile_swift "log_viewer" "$LOG_VIEWER_SRC" "$LOG_VIEWER_BIN"
-    compile_swift "status_bar" "$STATUS_BAR_SRC" "$STATUS_BAR_BIN"
+    # UI binaries are compiled with theme.swift; CLI-only helpers are compiled standalone.
+    compile_swift "new_workspace_dialog" "$DIALOG_SRC"        "$DIALOG_BIN"        "$THEME_SRC"
+    compile_swift "confirm_dialog"       "$CONFIRM_SRC"       "$CONFIRM_BIN"       "$THEME_SRC"
+    compile_swift "rename_dialog"        "$RENAME_SRC"        "$RENAME_BIN"        "$THEME_SRC"
+    compile_swift "dashboard_dialog"     "$DASHBOARD_SRC"     "$DASHBOARD_BIN"     "$THEME_SRC"
+    compile_swift "output_window"        "$OUTPUT_WINDOW_SRC" "$OUTPUT_WINDOW_BIN" "$THEME_SRC"
+    compile_swift "progress_banner"      "$PROGRESS_BANNER_SRC" "$PROGRESS_BANNER_BIN" "$THEME_SRC"
+    compile_swift "app_switcher"         "$APP_SWITCHER_SRC"  "$APP_SWITCHER_BIN"  "$THEME_SRC"
+    compile_swift "log_viewer"           "$LOG_VIEWER_SRC"    "$LOG_VIEWER_BIN"    "$THEME_SRC"
+    compile_swift "status_bar"           "$STATUS_BAR_SRC"    "$STATUS_BAR_BIN"    "$THEME_SRC"
+    # CLI-only helpers — no UI, no theme
+    compile_swift "browser_ctl"          "$BROWSER_CTL_SRC"   "$BROWSER_CTL_BIN"
+    compile_swift "spatial_order"        "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
     if [[ -f "$REPO_DIR/assets/hub-logo.png" ]]; then
         cp "$REPO_DIR/assets/hub-logo.png" "$HOME/.config/hub/hub-logo.png"
         success "hub-logo.png deployed"
@@ -600,7 +625,11 @@ build_http_handler() {
 </plist>
 PLIST
 
-    if swiftc -O -o "$bin" -framework Cocoa "$src" 2>/dev/null; then
+    local tmp_http_dir
+    tmp_http_dir="$(mktemp -d /tmp/hub_swift_XXXXXX)"
+    cp "$src" "$tmp_http_dir/main.swift"
+    if swiftc -O -o "$bin" -framework Cocoa "$THEME_SRC" "$tmp_http_dir/main.swift" 2>/dev/null; then
+        rm -rf "$tmp_http_dir"
         # Register with Launch Services so it appears in Default Web Browser list
         /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
             -f "$app" 2>/dev/null || true
@@ -612,6 +641,7 @@ PLIST
         fi
         success "HubHTTPHandler.app built and registered: $app"
     else
+        rm -rf "$tmp_http_dir"
         warn "HubHTTPHandler.app compilation failed"
     fi
 }
@@ -629,7 +659,7 @@ extract_app_icons() {
     while IFS= read -r icon_name; do
         [ -z "$icon_name" ] && continue
         local out="$ICONS_DIR/${icon_name}.png"
-        # Use osascript to resolve the app path by display name (same lookup SketchyBar uses)
+        # Use osascript to resolve the app path by display name
         local app_path
         app_path=$(osascript -e "POSIX path of (path to application \"$icon_name\")" 2>/dev/null || true)
         [ -z "$app_path" ] && continue
@@ -716,11 +746,15 @@ cmd_install() {
     # Write hub script path for runtime use by HubHTTPHandler and other compiled binaries
     echo "$REPO_DIR/scripts/hub" > "$HOME/.config/hub/hub_path"
 
-    # --- Clean up legacy sketchybar config (native Swift bar replaces it) ---
+    # --- Clean up legacy configs ---
     local legacy_sb_dir="$HOME/.config/sketchybar"
     if [[ -d "$legacy_sb_dir" ]]; then
         rm -rf "$legacy_sb_dir"
         success "removed legacy sketchybar config"
+    fi
+    local legacy_labels="$HOME/.config/hub/sketchybar_labels"
+    if [[ -f "$legacy_labels" ]]; then
+        mv "$legacy_labels" "$HOME/.config/hub/bar_labels"
     fi
 
     # --- Deploy app presets database ---
@@ -1073,8 +1107,8 @@ _create_workspace() {
             '[$r] + (map(select(. != $r))) | .[0:20]' > "$RECENT_REPOS_FILE"
     fi
 
-    # Update sketchybar label
-    update_sketchybar_label "$ws_id" "$ws_name"
+    # Update bar label
+    update_bar_label "$ws_id" "$ws_name"
 
     # Switch to the workspace
     aerospace workspace "$ws_id"
@@ -1446,7 +1480,7 @@ WRAPPER
 }
 
 rebuild_labels_file() {
-    local labels_file="$HOME/.config/hub/sketchybar_labels"
+    local labels_file="$HOME/.config/hub/bar_labels"
     if [[ -f "$WORKSPACES_FILE" ]]; then
         # Format: workspace_id:name:color:repo_basename
         jq -r '.[] | [.workspace_id, .name, (.color // ""), ((.root_repo // "") | if . == "" then "" else (. | gsub(".*/"; "")) end)] | join(":")' \
@@ -1454,14 +1488,14 @@ rebuild_labels_file() {
     fi
 }
 
-update_sketchybar_label() {
+update_bar_label() {
     local ws_id="$1"
     local ws_name="$2"
     rebuild_labels_file
     bar_refresh
 }
 
-remove_sketchybar_label() {
+remove_bar_label() {
     local ws_id="$1"
     rebuild_labels_file
     bar_refresh
@@ -1525,7 +1559,7 @@ cmd_rename() {
     echo "$updated" > "$WORKSPACES_FILE"
     _hub_lock_release
 
-    update_sketchybar_label "$ws_id" "$new_name"
+    update_bar_label "$ws_id" "$new_name"
 
     hub_log "INPUT" "rename workspace $ws_id: '$ws_name' → '$new_name'"
     success "Renamed workspace $ws_id: '$ws_name' → '$new_name'"
@@ -1819,7 +1853,7 @@ cmd_remove() {
         _hub_lock_release
     fi
 
-    remove_sketchybar_label "$ws_id"
+    remove_bar_label "$ws_id"
 
     if [[ -n "$windows" ]]; then
         progress_step "Closing windows…"
@@ -2564,7 +2598,7 @@ cmd_label_length() {
 
     # Find longest label to cap the max
     local longest=0
-    local labels_file="$HOME/.config/hub/sketchybar_labels"
+    local labels_file="$HOME/.config/hub/bar_labels"
     if [[ -f "$labels_file" ]]; then
         while IFS=: read -r _ name _; do
             (( ${#name} > longest )) && longest=${#name}
@@ -2721,7 +2755,7 @@ ensure_general_workspace() {
         updated="$(echo "$existing" | jq '. + [{name: "General", path: $ENV.HOME, root_repo: "", workspace_id: "Z"}]')"
         echo "$updated" > "$WORKSPACES_FILE"
         _hub_lock_release
-        update_sketchybar_label "Z" "General"
+        update_bar_label "Z" "General"
         success "Created General workspace (Z)"
     else
         _hub_lock_release

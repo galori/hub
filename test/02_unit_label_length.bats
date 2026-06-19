@@ -12,17 +12,12 @@ set_current() {
 
 set_labels() {
     # Each arg is a "ID:Name:" line
-    printf '%s\n' "$@" > "$HOME/.config/hub/sketchybar_labels"
+    printf '%s\n' "$@" > "$HOME/.config/hub/bar_labels"
 }
 
 setup() {
     setup_stubs
-    mkdir -p "$HOME/.config/hub" "$HOME/.config/sketchybar/plugins"
-    cat > "$HOME/.config/sketchybar/plugins/aerospace.sh" <<'SH'
-#!/usr/bin/env bash
-exit 0
-SH
-    chmod +x "$HOME/.config/sketchybar/plugins/aerospace.sh"
+    mkdir -p "$HOME/.config/hub"
 }
 
 teardown() {
@@ -89,7 +84,7 @@ teardown() {
 }
 
 @test "label-length shrink from unlimited with no labels stays at 0" {
-    rm -f "$HOME/.config/hub/sketchybar_labels"
+    rm -f "$HOME/.config/hub/bar_labels"
     set_current -1
     bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_label_length -" >/dev/null 2>&1
     result="$(cat "$HOME/.config/hub/label_maxlen")"

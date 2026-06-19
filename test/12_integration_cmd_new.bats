@@ -14,10 +14,7 @@ setup() {
     export WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
     export RECENT_REPOS_FILE="$HOME/.config/hub/recent_repos.json"
     export STUB_CALLS="$HOME/stub_calls"
-    make_stub_recording sketchybar "" 0
-    mkdir -p "$HOME/.config/sketchybar/plugins"
-    printf '#!/usr/bin/env bash\nexit 0\n' > "$HOME/.config/sketchybar/plugins/aerospace.sh"
-    chmod +x "$HOME/.config/sketchybar/plugins/aerospace.sh"
+    mkdir -p "$HOME/.config/hub"
 }
 
 teardown() {
@@ -47,9 +44,9 @@ write_workspace() {
         source '$HUB_SCRIPT' >/dev/null 2>&1
         rebuild_labels_file
     " 2>/dev/null
-    [[ -f "$HOME/.config/hub/sketchybar_labels" ]]
-    grep -q "^1:Alpha:" "$HOME/.config/hub/sketchybar_labels"
-    grep -q "^2:Beta:"  "$HOME/.config/hub/sketchybar_labels"
+    [[ -f "$HOME/.config/hub/bar_labels" ]]
+    grep -q "^1:Alpha:" "$HOME/.config/hub/bar_labels"
+    grep -q "^2:Beta:"  "$HOME/.config/hub/bar_labels"
 }
 
 @test "rebuild_labels_file includes repo basename when root_repo set" {
@@ -60,7 +57,7 @@ write_workspace() {
         source '$HUB_SCRIPT' >/dev/null 2>&1
         rebuild_labels_file
     " 2>/dev/null
-    grep -q "^3:feature::repo" "$HOME/.config/hub/sketchybar_labels"
+    grep -q "^3:feature::repo" "$HOME/.config/hub/bar_labels"
 }
 
 # ---------------------------------------------------------------------------

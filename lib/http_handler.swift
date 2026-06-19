@@ -20,26 +20,24 @@ let win = KeyableWindow(
     contentRect: NSRect(x: 0, y: 0, width: dialogW, height: 120),
     styleMask: .borderless, backing: .buffered, defer: false)
 win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
-win.backgroundColor = NSColor(white: 0.08, alpha: 0.93)
+win.backgroundColor = .clear
 win.isOpaque = false
 win.hasShadow = true
 win.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
 let cv = win.contentView!
-cv.wantsLayer = true
-cv.layer?.cornerRadius = 18
-cv.layer?.masksToBounds = true
+Theme.applyCardBackground(to: cv, radius: Theme.Radius.modal, kind: .modal)
 
 let titleLabel = NSTextField(labelWithString: "[hub]")
 titleLabel.translatesAutoresizingMaskIntoConstraints = false
-titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-titleLabel.textColor = NSColor(white: 1, alpha: 0.45)
+titleLabel.font = Theme.Font.mono(11, weight: .semibold)
+titleLabel.textColor = Theme.Color.textMuted
 cv.addSubview(titleLabel)
 
 let urlLabel = NSTextField(wrappingLabelWithString: "")
 urlLabel.translatesAutoresizingMaskIntoConstraints = false
-urlLabel.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
-urlLabel.textColor = NSColor.white
+urlLabel.font = Theme.Font.mono(14)
+urlLabel.textColor = Theme.Color.textPrimary
 urlLabel.isEditable = false
 urlLabel.isBordered = false
 urlLabel.backgroundColor = .clear

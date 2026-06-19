@@ -24,11 +24,10 @@ let rawMsg = CommandLine.arguments.count > 1
     : "Claude Code is testing hub"
 let msg = withRobotPrefix(rawMsg)
 
-let bannerW: CGFloat = 360
+let bannerW: CGFloat = Theme.Metric.bannerW
 let bannerH: CGFloat = 96
-let margin: CGFloat = 16
-// Top-right corner, sitting just below the bar area.
-let barClearance: CGFloat = 100
+let margin: CGFloat = Theme.Metric.bannerMargin
+let barClearance: CGFloat = Theme.Metric.barClearance
 let originX = sf.maxX - bannerW - margin
 let originY = sf.maxY - bannerH - barClearance
 
@@ -36,7 +35,7 @@ let win = NSWindow(
     contentRect: NSRect(x: originX, y: originY, width: bannerW, height: bannerH),
     styleMask: .borderless, backing: .buffered, defer: false)
 win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
-win.backgroundColor = NSColor(white: 0.08, alpha: 0.92)
+win.backgroundColor = .clear
 win.isOpaque = false
 win.hasShadow = true
 // Must accept mouse events so the ✕ dismiss button is clickable. Without a
@@ -46,10 +45,12 @@ win.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
 
 let cv = win.contentView!
 cv.wantsLayer = true
-cv.layer?.cornerRadius = 10
+cv.layer?.cornerRadius = Theme.Radius.control
 cv.layer?.masksToBounds = true
+cv.layer?.backgroundColor = Theme.Color.modalTop.cgColor
 cv.layer?.borderWidth = 1
-cv.layer?.borderColor = NSColor(red: 0.99, green: 0.58, blue: 0.38, alpha: 0.75).cgColor
+// Activity/orange border distinguishes testing banner from progress banner (blue)
+cv.layer?.borderColor = Theme.Color.activity.withAlphaComponent(0.75).cgColor
 
 let spinner = NSProgressIndicator()
 spinner.translatesAutoresizingMaskIntoConstraints = false
@@ -64,8 +65,8 @@ label.translatesAutoresizingMaskIntoConstraints = false
 label.isEditable = false
 label.isBordered = false
 label.backgroundColor = .clear
-label.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-label.textColor = NSColor(white: 1, alpha: 0.9)
+label.font = Theme.Font.ui(13, weight: .medium)
+label.textColor = Theme.Color.textSecondary
 label.lineBreakMode = .byWordWrapping
 label.maximumNumberOfLines = 3
 cv.addSubview(label)
@@ -81,41 +82,10 @@ func dismiss() {
 
 // Manual dismiss button (✕). Escape hatch so the banner can always be closed
 // even if the launching process crashed or was ^C'd before calling `stop`.
-class ClickView: NSView {
-    var onPress: (() -> Void)?
-    override func mouseDown(with event: NSEvent) { onPress?() }
-    override func mouseEntered(with event: NSEvent) {
-        layer?.backgroundColor = NSColor(white: 1, alpha: 0.20).cgColor
-    }
-    override func mouseExited(with event: NSEvent) {
-        layer?.backgroundColor = NSColor(white: 1, alpha: 0.10).cgColor
-    }
-    override var acceptsFirstResponder: Bool { false }
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        addTrackingArea(NSTrackingArea(rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways],
-            owner: self, userInfo: nil))
-    }
-}
-
-let dismissView = ClickView(frame: .zero)
-dismissView.translatesAutoresizingMaskIntoConstraints = false
-dismissView.wantsLayer = true
-dismissView.layer?.cornerRadius = 8
-dismissView.layer?.backgroundColor = NSColor(white: 1, alpha: 0.10).cgColor
-dismissView.onPress = { dismiss() }
-
-let xLabel = NSTextField(labelWithString: "✕")
-xLabel.translatesAutoresizingMaskIntoConstraints = false
-xLabel.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-xLabel.textColor = NSColor(white: 1, alpha: 0.55)
-xLabel.isEditable = false
-xLabel.isBordered = false
-xLabel.backgroundColor = .clear
-dismissView.addSubview(xLabel)
+let dismissView = Theme.makeDismissButton(onPress: { dismiss() })
 cv.addSubview(dismissView)
+
+let xLabel = dismissView.subviews.first as? NSTextField
 
 NSLayoutConstraint.activate([
     spinner.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 24),
@@ -132,8 +102,6 @@ NSLayoutConstraint.activate([
     dismissView.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12),
     dismissView.widthAnchor.constraint(equalToConstant: 20),
     dismissView.heightAnchor.constraint(equalToConstant: 20),
-    xLabel.centerXAnchor.constraint(equalTo: dismissView.centerXAnchor),
-    xLabel.centerYAnchor.constraint(equalTo: dismissView.centerYAnchor),
 ])
 
 win.alphaValue = 0

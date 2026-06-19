@@ -40,7 +40,7 @@ let win = NSWindow(
     backing: .buffered,
     defer: false)
 win.title = "Hub Log"
-win.backgroundColor = NSColor(white: 0.08, alpha: 1)
+win.backgroundColor = Theme.Color.canvas
 win.isMovableByWindowBackground = true
 win.center()
 win.makeKeyAndOrderFront(nil)
@@ -54,14 +54,14 @@ NotificationCenter.default.addObserver(
 // --- Status bar: path label + Wrap toggle button (Auto Layout) ---
 let statusBarView = NSView()
 statusBarView.wantsLayer = true
-statusBarView.layer?.backgroundColor = NSColor(white: 0.05, alpha: 1).cgColor
+statusBarView.layer?.backgroundColor = Theme.Color.panelBot.cgColor
 statusBarView.translatesAutoresizingMaskIntoConstraints = false
 
 let pathLabel = NSTextField()
 pathLabel.isEditable = false; pathLabel.isSelectable = false; pathLabel.isBordered = false
 pathLabel.backgroundColor = .clear
-pathLabel.textColor = NSColor(white: 0.4, alpha: 1)
-pathLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+pathLabel.textColor = Theme.Color.textMuted
+pathLabel.font = Theme.Font.mono(11)
 pathLabel.stringValue = logPath
 pathLabel.lineBreakMode = .byTruncatingMiddle
 pathLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -83,8 +83,8 @@ class PillButton: NSView {
         label.isSelectable = false
         label.isBordered = false
         label.backgroundColor = .clear
-        label.textColor = NSColor(white: 0.55, alpha: 1)
-        label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        label.textColor = Theme.Color.textMuted
+        label.font = Theme.Font.mono(11, weight: .medium)
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
@@ -98,16 +98,14 @@ class PillButton: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func draw(_ dirtyRect: NSRect) {
-        let bg = isActive
-            ? NSColor(white: 0.30, alpha: 1)
-            : NSColor(white: 0.18, alpha: 1)
+        let bg = isActive ? Theme.Color.accentBlue.withAlphaComponent(0.85) : Theme.Color.inputField
         bg.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
-        NSColor(white: 0.35, alpha: 1).setStroke()
+        Theme.Color.border.setStroke()
         let border = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4)
         border.lineWidth = 0.5
         border.stroke()
-        label.textColor = isActive ? NSColor(white: 0.9, alpha: 1) : NSColor(white: 0.55, alpha: 1)
+        label.textColor = isActive ? Theme.Color.textPrimary : Theme.Color.textMuted
     }
 
     @objc private func handleClick() { action() }
@@ -148,9 +146,9 @@ scrollView.translatesAutoresizingMaskIntoConstraints = false
 let textView = LogTextView(frame: scrollView.contentView.bounds)
 textView.isEditable = false
 textView.isSelectable = true
-textView.backgroundColor = NSColor(white: 0.08, alpha: 1)
-textView.textColor = .white
-textView.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+textView.backgroundColor = Theme.Color.canvas
+textView.textColor = Theme.Color.textPrimary
+textView.font = Theme.Font.mono(12)
 textView.isVerticallyResizable = true
 textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
 textView.textContainerInset = NSSize(width: 10, height: 10)
@@ -194,9 +192,9 @@ wrapBtn.action = {
 
 applyWrapMode()
 
-// --- ANSI color parsing (same palette as output_window.swift) ---
-let baseFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-let baseColor = NSColor(white: 0.85, alpha: 1)
+// --- ANSI color parsing (uses Theme.ansiColor — canonical single palette) ---
+let baseFont  = Theme.Font.mono(12)
+let baseColor = Theme.Color.textPrimary
 
 func parseANSI(_ raw: String) -> NSAttributedString {
     let result = NSMutableAttributedString()
@@ -223,17 +221,10 @@ func parseANSI(_ raw: String) -> NSAttributedString {
                     let codes = seq.split(separator: ";").compactMap { Int($0) }
                     for c in (codes.isEmpty ? [0] : codes) {
                         switch c {
-                        case 0:  curColor = baseColor; curFont = baseFont
-                        case 1:  curFont = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .bold)
-                        case 2:  curColor = NSColor(white: 0.45, alpha: 1)   // dim → timestamp gray
-                        case 31: curColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
-                        case 32: curColor = NSColor(red: 0.62, green: 0.82, blue: 0.45, alpha: 1)
-                        case 33: curColor = NSColor(red: 0.91, green: 0.78, blue: 0.39, alpha: 1)
-                        case 34: curColor = NSColor(red: 0.46, green: 0.80, blue: 0.88, alpha: 1)
-                        case 35: curColor = NSColor(red: 0.70, green: 0.62, blue: 0.95, alpha: 1)
-                        case 36: curColor = NSColor(red: 0.00, green: 0.82, blue: 1.00, alpha: 1)
-                        case 37: curColor = NSColor(white: 0.85, alpha: 1)
-                        default: break
+                        case 0: curColor = baseColor; curFont = baseFont
+                        case 1: curFont = Theme.Font.mono(baseFont.pointSize, weight: .bold)
+                        case 2: curColor = Theme.Color.textFaint  // dim → timestamp gray
+                        default: curColor = Theme.ansiColor(c)
                         }
                     }
                     i = raw.index(after: j); continue
@@ -254,7 +245,7 @@ func parseANSI(_ raw: String) -> NSAttributedString {
 func loadFile() {
     guard let content = try? String(contentsOfFile: logPath, encoding: .utf8) else {
         let attr = NSAttributedString(string: "(log file not found: \(logPath))\n",
-            attributes: [.foregroundColor: NSColor(white: 0.5, alpha: 1), .font: baseFont])
+            attributes: [.foregroundColor: Theme.Color.textMuted, .font: baseFont])
         textView.textStorage?.setAttributedString(attr)
         return
     }

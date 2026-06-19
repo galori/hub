@@ -15,8 +15,7 @@
 - `commands/` - Generic Claude Code slash commands (e.g. `hub-new.md`); deployed to `~/.claude/commands/` by install
 - `commands.local/` - Gitignored, user-private slash commands (company-specific, etc.); also deployed to `~/.claude/commands/` by install
 - `config/aerospace.toml` - AeroSpace config template (`__HUB_SCRIPT__` placeholder replaced during install)
-- `config/sketchybar/` - SketchyBar config and plugin scripts
-- `config/sketchybar/plugins/app_launcher.sh` - Updates app icon visual state on workspace change
+- `lib/status_bar.swift` - Native Swift status bar (compiled to `~/.config/hub/status_bar`); replaces the retired SketchyBar dependency
 - `lib/overlay.swift` - Status overlay HUD (compiled to `~/.config/hub/overlay`)
 - `lib/new_workspace_dialog.swift` - Workspace creation dialog (compiled to `~/.config/hub/new_workspace_dialog`)
 - `lib/confirm_dialog.swift` - Confirmation dialog (compiled to `~/.config/hub/confirm_dialog`)
@@ -36,13 +35,13 @@
 - **Keyboard-first**: All UI must be fully navigable with keyboard alone. Mouse support is secondary. Dialogs should have tab navigation, enter to submit, escape to cancel, and keyboard shortcuts for actions.
 - **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command. Commands without full flags show a GUI dialog; with all flags + `-y`, they execute silently. The same code path runs from both CLI and keybinding.
 - **Single-binary Swift UIs**: GUI elements are standalone Swift files compiled with `swiftc -O -framework Cocoa`. No Xcode project, no storyboards.
-- **Config is deployed, not symlinked**: `hub install` deploys configs to their destinations. Both aerospace.toml and sketchybar configs use `__HUB_SCRIPT__` placeholder substituted via sed.
+- **Config is deployed, not symlinked**: `hub install` deploys configs to their destinations. `aerospace.toml` uses an `__HUB_SCRIPT__` placeholder substituted via sed.
 - **Harmless deploy**: Running `hub install` is always safe as an idempotent deploy/reload step after code changes.
 - **Responsiveness first**: UI actions must feel instant. Never block the user waiting for background work (app teardown, window closing, etc.) to complete. Move slow work off the critical path — fire-and-forget or background subshells — so the visible state updates immediately.
 - **Dismissable HUDs**: Every floating/always-on-top HUD whose lifetime is tied to an external process (banners, progress overlays — anything launched as a background Swift binary fed via stdin/FIFO) MUST render a manual ✕ dismiss button. If the launching process crashes or is `^C`'d before it sends `QUIT`, the button is the user's only escape hatch. Such windows must set `ignoresMouseEvents = false`. Reuse the `ClickView` dismiss-button pattern in `lib/progress_banner.swift` / `lib/testing_banner.swift` (hover states + `onPress = { dismiss() }`). Modal overlays that auto-dismiss on a deterministic, short-lived action (e.g. `lib/overlay.swift` during `hub up`/`down`) are exempt.
 
 ## Agent Tools
 
-- `agents/bin/screenshot-bar` - Captures a screenshot of just the sketchybar region (top of screen). **MUST be used to visually confirm the bar looks correct after any sketchybar-related change** — layout, icons, spacing, colors. Run it, read the PNG, and verify before committing. Outputs a PNG path: `agents/bin/screenshot-bar [output.png]`
+- `agents/bin/screenshot-bar` - Captures a screenshot of just the bar region (top of screen). **MUST be used to visually confirm the bar looks correct after any bar-related change** — layout, icons, spacing, colors. Run it, read the PNG, and verify before committing. Outputs a PNG path: `agents/bin/screenshot-bar [output.png]`
 - `hub testing-banner start|stop|run` - Raise/dismiss a small top-right "stand by" HUD so the user knows not to interact with the UI while you're testing. MUST be used before triggering transient UI, timing-sensitive screenshots, or focus-dependent flows. Always pair `start` with `stop`, even on failure paths. See CLAUDE.md for full guidance.
 

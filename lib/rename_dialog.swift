@@ -10,11 +10,6 @@ app.setActivationPolicy(.accessory)
 let screen = NSScreen.main ?? NSScreen.screens[0]
 let sf = screen.frame
 
-let bgColor = NSColor(white: 0.08, alpha: 0.93)
-let itemBg = NSColor(red: 0.21, green: 0.22, blue: 0.27, alpha: 1)
-let accentBlue = NSColor(red: 0.10, green: 0.45, blue: 0.91, alpha: 1)
-let dimWhite = NSColor(white: 1, alpha: 0.45)
-
 class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
 }
@@ -64,22 +59,20 @@ class StyledField: NSTextField {
     }
 }
 
-let wsID = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "?"
+let wsID        = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "?"
 let currentName = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : ""
 
-let dialogW: CGFloat = min(sf.width * 0.4, 480)
+let dialogW: CGFloat = min(sf.width * 0.4, Theme.Metric.dialogW)
 let win = KeyableWindow(contentRect: NSRect(x: 0, y: 0, width: dialogW, height: 100),
                         styleMask: .borderless, backing: .buffered, defer: false)
 win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
-win.backgroundColor = bgColor
+win.backgroundColor = .clear
 win.isOpaque = false
 win.hasShadow = true
 win.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
 let cv = win.contentView!
-cv.wantsLayer = true
-cv.layer?.cornerRadius = 18
-cv.layer?.masksToBounds = true
+Theme.applyCardBackground(to: cv, radius: Theme.Radius.modal, kind: .modal)
 
 let backdrop: NSWindow = {
     let w = NSWindow(contentRect: sf, styleMask: .borderless, backing: .buffered, defer: false)
@@ -111,12 +104,22 @@ func dismiss(newName: String?) {
     })
 }
 
+// Title
 let titleLabel = NSTextField(labelWithString: "Rename Workspace \(wsID)")
 titleLabel.translatesAutoresizingMaskIntoConstraints = false
-titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-titleLabel.textColor = dimWhite
+titleLabel.font = Theme.Font.ui(19, weight: .bold)
+titleLabel.textColor = Theme.Color.textPrimary
 cv.addSubview(titleLabel)
 
+// Field label
+let fieldLabel = NSTextField(labelWithString: "NAME")
+fieldLabel.translatesAutoresizingMaskIntoConstraints = false
+fieldLabel.font = Theme.Font.mono(11, weight: .semibold)
+fieldLabel.textColor = Theme.Color.textMuted
+fieldLabel.isEditable = false; fieldLabel.isBordered = false; fieldLabel.backgroundColor = .clear
+cv.addSubview(fieldLabel)
+
+// Input field
 let nameField: NSTextField = {
     let f = StyledField()
     f.cell = PaddedCell()
@@ -124,70 +127,83 @@ let nameField: NSTextField = {
     f.isEditable = true
     f.isBordered = false
     f.wantsLayer = true
-    f.layer?.backgroundColor = itemBg.cgColor
-    f.layer?.cornerRadius = 6
-    f.textColor = .white
-    f.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+    f.layer?.backgroundColor = Theme.Color.inputField.cgColor
+    f.layer?.cornerRadius = Theme.Radius.control
+    f.layer?.borderWidth = 1
+    f.layer?.borderColor = Theme.Color.border.cgColor
+    f.textColor = Theme.Color.textPrimary
+    f.font = Theme.Font.mono(15, weight: .regular)
     f.focusRingType = .none
     (f.cell as? NSTextFieldCell)?.placeholderAttributedString = NSAttributedString(
         string: "workspace name",
-        attributes: [.foregroundColor: NSColor(white: 1, alpha: 0.25),
-                     .font: NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)])
+        attributes: [.foregroundColor: Theme.Color.textFaint,
+                     .font: Theme.Font.mono(15, weight: .regular)])
     f.stringValue = currentName
     return f
 }()
 cv.addSubview(nameField)
 
-func makeBtn(_ label: String, shortcut: String, bg: NSColor, fg: NSColor, bold: Bool = false) -> NSButton {
-    let b = NSButton()
-    b.translatesAutoresizingMaskIntoConstraints = false
-    b.bezelStyle = .rounded
-    b.isBordered = false
-    b.wantsLayer = true
-    b.layer?.backgroundColor = bg.cgColor
-    b.layer?.cornerRadius = 8
-    b.alignment = .center
-    let weight: NSFont.Weight = bold ? .semibold : .medium
-    let style = NSMutableParagraphStyle()
-    style.alignment = .center
-    let attr = NSMutableAttributedString()
-    attr.append(NSAttributedString(string: label, attributes: [
-        .foregroundColor: fg,
-        .font: NSFont.systemFont(ofSize: 12, weight: weight),
-        .paragraphStyle: style,
-    ]))
-    attr.append(NSAttributedString(string: "  \(shortcut)", attributes: [
-        .foregroundColor: fg.withAlphaComponent(0.4),
-        .font: NSFont.systemFont(ofSize: 9, weight: .medium),
-        .paragraphStyle: style,
-    ]))
-    b.attributedTitle = attr
-    return b
+// Buttons
+func makeBtn(_ label: String, shortcut: String, isPrimary: Bool) -> NSView {
+    let container = NSView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+    container.wantsLayer = true
+    container.layer?.cornerRadius = Theme.Radius.control
+    container.layer?.masksToBounds = true
+    if isPrimary {
+        container.layer?.backgroundColor = Theme.Color.accentBlue.cgColor
+    } else {
+        container.layer?.backgroundColor = Theme.Color.inputField.cgColor
+        container.layer?.borderWidth = 1
+        container.layer?.borderColor = Theme.Color.border.cgColor
+    }
+    let stack = NSStackView()
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    stack.orientation = .horizontal
+    stack.alignment = .centerY
+    stack.spacing = 9
+    container.addSubview(stack)
+    NSLayoutConstraint.activate([
+        stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+        stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+    ])
+    let titleLbl = NSTextField(labelWithString: label)
+    titleLbl.translatesAutoresizingMaskIntoConstraints = false
+    titleLbl.font = Theme.Font.ui(13, weight: .bold)
+    titleLbl.textColor = isPrimary ? .white : Theme.Color.textLabel
+    titleLbl.isEditable = false; titleLbl.isBordered = false; titleLbl.backgroundColor = .clear
+    stack.addArrangedSubview(titleLbl)
+    stack.addArrangedSubview(Theme.makeKeycapLabel(shortcut, onAccent: isPrimary))
+    NSLayoutConstraint.activate([
+        container.heightAnchor.constraint(equalToConstant: Theme.Metric.buttonH),
+    ])
+    return container
 }
 
-let renameBtn = makeBtn("RENAME", shortcut: "enter", bg: accentBlue, fg: .white, bold: true)
+let renameBtn = makeBtn("RENAME", shortcut: "enter", isPrimary: true)
 cv.addSubview(renameBtn)
-
-let cancelBtn = makeBtn("CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+let cancelBtn = makeBtn("CANCEL", shortcut: "esc", isPrimary: false)
 cv.addSubview(cancelBtn)
 
+let padH = Theme.Metric.dialogPadH
+let padV = Theme.Metric.dialogPadV
 NSLayoutConstraint.activate([
-    titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
-    titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-    titleLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-    nameField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 16),
-    nameField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-    nameField.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-    nameField.heightAnchor.constraint(equalToConstant: 34),
-    renameBtn.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 20),
+    titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: padV),
+    titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: padH),
+    titleLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -padH),
+    fieldLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 20),
+    fieldLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: padH),
+    nameField.topAnchor.constraint(equalTo: fieldLabel.bottomAnchor, constant: 8),
+    nameField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: padH),
+    nameField.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -padH),
+    nameField.heightAnchor.constraint(equalToConstant: Theme.Metric.inputH),
+    renameBtn.topAnchor.constraint(equalTo: nameField.bottomAnchor, constant: 22),
     renameBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
-    renameBtn.heightAnchor.constraint(equalToConstant: 34),
-    renameBtn.widthAnchor.constraint(equalToConstant: 100),
+    renameBtn.widthAnchor.constraint(equalToConstant: 120),
     cancelBtn.topAnchor.constraint(equalTo: renameBtn.topAnchor),
-    cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-    cancelBtn.heightAnchor.constraint(equalToConstant: 34),
-    cancelBtn.widthAnchor.constraint(equalToConstant: 100),
-    cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
+    cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -padH),
+    cancelBtn.widthAnchor.constraint(equalToConstant: 110),
+    cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -padV),
 ])
 
 class RenameAction: NSObject {
@@ -203,8 +219,11 @@ class CancelAction: NSObject {
 }
 let renameAction = RenameAction()
 let cancelAction = CancelAction()
-renameBtn.target = renameAction; renameBtn.action = #selector(RenameAction.rename(_:))
-cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
+
+let renameGesture = NSClickGestureRecognizer(target: renameAction, action: #selector(RenameAction.rename(_:)))
+let cancelGesture = NSClickGestureRecognizer(target: cancelAction, action: #selector(CancelAction.cancel(_:)))
+renameBtn.addGestureRecognizer(renameGesture)
+cancelBtn.addGestureRecognizer(cancelGesture)
 objc_setAssociatedObject(renameBtn, "a", renameAction, .OBJC_ASSOCIATION_RETAIN)
 objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
 

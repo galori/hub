@@ -14,30 +14,26 @@ let sf = screen.frame
 let statusPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : ""
 let keysPath   = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : ""
 
-// --- Colors ---
-let bgColor   = NSColor(white: 0.08, alpha: 0.96)
-let divColor  = NSColor(white: 1, alpha: 0.08)
-let baseColor = NSColor(red: 0.89, green: 0.89, blue: 0.89, alpha: 1)
-
-let ansiColors: [String: NSColor] = [
-    "31": NSColor(red: 0.86, green: 0.38, blue: 0.36, alpha: 1),
-    "32": NSColor(red: 0.62, green: 0.82, blue: 0.45, alpha: 1),
-    "33": NSColor(red: 0.95, green: 0.78, blue: 0.40, alpha: 1),
-    "34": NSColor(red: 0.20, green: 0.55, blue: 0.95, alpha: 1),
-    "36": NSColor(red: 0.30, green: 0.78, blue: 0.85, alpha: 1),
-]
+// --- Colors (from Theme) ---
+let divColor  = Theme.Color.border
+let baseColor = Theme.Color.textSecondary
 
 func ansiToAttributedString(_ input: String, baseFont: NSFont) -> NSAttributedString {
     let result = NSMutableAttributedString()
     var bold = false
     var dim  = false
-    var color: NSColor? = nil
+    var colorCode: Int? = nil
 
     func attrs() -> [NSAttributedString.Key: Any] {
         let f = bold
-            ? NSFontManager.shared.convert(baseFont, toHaveTrait: .boldFontMask)
+            ? Theme.Font.mono(baseFont.pointSize, weight: .bold)
             : baseFont
-        let c = (color ?? baseColor).withAlphaComponent(dim ? 0.45 : 1.0)
+        let c: NSColor
+        if let code = colorCode {
+            c = Theme.ansiColor(code).withAlphaComponent(dim ? 0.45 : 1.0)
+        } else {
+            c = baseColor.withAlphaComponent(dim ? 0.45 : 1.0)
+        }
         return [.font: f, .foregroundColor: c]
     }
 
@@ -53,10 +49,11 @@ func ansiToAttributedString(_ input: String, baseFont: NSFont) -> NSAttributedSt
             }
             if j < input.endIndex {
                 switch code {
-                case "0":  bold = false; dim = false; color = nil
+                case "0":  bold = false; dim = false; colorCode = nil
                 case "1":  bold = true
                 case "2":  dim  = true
-                default:   color = ansiColors[code]
+                default:
+                    if let n = Int(code) { colorCode = n }
                 }
                 i = input.index(after: j)
                 continue
@@ -81,15 +78,13 @@ let win = KeyableWindow(
     contentRect: NSRect(x: sf.midX - winW/2, y: sf.midY - winH/2, width: winW, height: winH),
     styleMask: .borderless, backing: .buffered, defer: false)
 win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
-win.backgroundColor = bgColor
+win.backgroundColor = .clear
 win.isOpaque = false
 win.hasShadow = true
 win.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
 let cv = win.contentView!
-cv.wantsLayer = true
-cv.layer?.cornerRadius = 18
-cv.layer?.masksToBounds = true
+Theme.applyCardBackground(to: cv, radius: Theme.Radius.modal, kind: .modal)
 
 // --- Backdrop ---
 let backdrop: NSWindow = {
@@ -118,10 +113,10 @@ NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
     return event
 }
 
-class ClickView: NSView {
+class DashBackdropView: NSView {
     override func mouseDown(with event: NSEvent) { dismiss() }
 }
-let clickView = ClickView(frame: sf)
+let clickView = DashBackdropView(frame: sf)
 backdrop.contentView = clickView
 
 // --- Scroll pane factory (no-wrap, horizontal scroll) ---
@@ -175,8 +170,8 @@ cv.addSubview(titleBorder)
 func makeTitle(_ text: String) -> NSTextField {
     let t = NSTextField(labelWithString: text)
     t.translatesAutoresizingMaskIntoConstraints = false
-    t.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-    t.textColor = NSColor(white: 1, alpha: 0.50)
+    t.font = Theme.Font.mono(11, weight: .semibold)
+    t.textColor = Theme.Color.textMuted
     return t
 }
 class ClickLabel: NSTextField {
@@ -188,8 +183,8 @@ let statusTitle = makeTitle("status")
 let keysTitle   = makeTitle("keys")
 let hint = ClickLabel(labelWithString: "esc to close")
 hint.translatesAutoresizingMaskIntoConstraints = false
-hint.font = NSFont.systemFont(ofSize: 11, weight: .regular)
-hint.textColor = NSColor(white: 1, alpha: 0.50)
+hint.font = Theme.Font.mono(11, weight: .regular)
+hint.textColor = Theme.Color.textFaint
 titleBar.addSubview(statusTitle)
 titleBar.addSubview(keysTitle)
 titleBar.addSubview(hint)
@@ -202,7 +197,7 @@ divider.layer?.backgroundColor = divColor.cgColor
 cv.addSubview(divider)
 
 // --- Panes ---
-let baseFont = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+let baseFont = Theme.Font.mono(14)
 
 let statusPane = NSView()
 statusPane.translatesAutoresizingMaskIntoConstraints = false

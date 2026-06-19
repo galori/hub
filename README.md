@@ -2,7 +2,7 @@
 
 <img src="assets/hub-logo.png" width="20%" align="right" style="padding:20px; ">
 
-A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https://github.com/nikitabobko/AeroSpace) (tiling window manager), [SketchyBar](https://github.com/FelixKratz/SketchyBar) (custom menu bar), and [JankyBorders](https://github.com/FelixKratz/JankyBorders) (window borders) into a unified workspace manager.
+A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https://github.com/nikitabobko/AeroSpace) (tiling window manager) and [JankyBorders](https://github.com/FelixKratz/JankyBorders) (window borders) with a native Swift status bar into a unified workspace manager.
 
 <img src="assets/hub-screenshot.png">
 <br/>
@@ -53,10 +53,9 @@ cd ~/workspace/hub
 ```
 
 This will:
-- Check and optionally install dependencies via Homebrew (aerospace, sketchybar, borders)
+- Check and optionally install dependencies via Homebrew (aerospace, borders)
 - Deploy the AeroSpace config to `~/.aerospace.toml`
-- Deploy the SketchyBar config to `~/.config/sketchybar/`
-- Compile Swift binaries (overlay HUD, workspace dialog)
+- Compile Swift binaries (status bar, overlay HUD, workspace dialog, and more)
 - Install a `hub` shell alias in your shell config
 - Deploy Claude Code slash commands to `~/.claude/commands/`
 
@@ -66,7 +65,7 @@ This will:
 hub up
 ```
 
-Starts AeroSpace, SketchyBar, and JankyBorders. Hides the macOS Dock and menu bar for a distraction-free tiled workspace.
+Starts AeroSpace, the native bar, and JankyBorders. Hides the macOS Dock and menu bar for a distraction-free tiled workspace.
 
 ### Stop the environment
 
@@ -86,7 +85,7 @@ CLI alternative: `hub new`
 
 ### List workspaces
 
-SketchyBar displays all workspace labels in the menu bar at all times.
+The status bar displays all workspace labels at all times.
 
 CLI alternative: `hub list` — shows a table of all defined workspaces with their ID, name, path, and root repo.
 
@@ -94,7 +93,7 @@ CLI alternative: `hub list` — shows a table of all defined workspaces with the
 
 Press **`Ctrl+Alt+D`** to remove the current workspace (prompts for confirmation).
 
-Removes the workspace from configuration, clears its sketchybar label, and moves any windows to workspace 1. For worktree-backed workspaces, offers to teardown and remove the git worktree.
+Removes the workspace from configuration, clears its bar label, and moves any windows to workspace 1. For worktree-backed workspaces, offers to teardown and remove the git worktree.
 
 CLI alternative:
 ```sh
@@ -107,7 +106,7 @@ hub remove A -y   # remove without confirmation
 
 Press **`Ctrl+Alt+R`** to rename the current workspace.
 
-Opens a dialog to rename the workspace. Updates the sketchybar label immediately.
+Opens a dialog to rename the workspace. Updates the bar label immediately.
 
 CLI alternative:
 ```sh
@@ -123,7 +122,7 @@ Opens the apps defined in `~/.config/hub/apps.json` in the current workspace. Sk
 
 Default apps: iTerm2, Safari, VS Code. Edit `~/.config/hub/apps.json` to customize (up to 5 slots).
 
-SketchyBar shows clickable app icons on the right side — full-size when open on the current workspace, dimmed when not.
+The status bar shows clickable app icons on the right side — full-size when open on the current workspace, dimmed when not.
 
 CLI alternative:
 ```sh
@@ -136,26 +135,22 @@ hub open 2         # open just the second configured app (e.g., Safari)
 
 - **Keyboard-first**: Everything should be keyboard-only accessible, similar to how AeroSpace is designed for keyboard use, but also usable with the mouse.
 - **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command.
-- **Minimal chrome**: Hide the Dock and menu bar. SketchyBar provides only what's needed.
+- **Minimal chrome**: Hide the Dock and menu bar. The native bar provides only what's needed.
 - **Single command**: `hub up` to start, `hub down` to stop. No manual config needed after install.
 
 ## Development
 
 * If working from a worktree, run `hub reboot` after making changes to get everything running from the worktree path for testing.
-* The AeroSpace and SketchyBar configs in this repo serve as templates with some replacements. They templates get converted to the acutal config files and placed in the right location in the system during `hub install`
+* The AeroSpace config in this repo serves as a template. It gets converted to the actual config file and placed in the right location during `hub install`
 * AeroSpace
-  * AeroSpace is configured via `1aerospace.toml`
+  * AeroSpace is configured via `aerospace.toml`
   * See the docs here: https://github.com/nikitabobko/AeroSpace/blob/main/README.md
   * AeroSpace can also be managed at runtime with the `aerospace` cli. (see `aerospace --help`)
-* SketchyBar 
-  * SketchyBar is configured via the `sketchybarrc`
-  * SketchyBar also gets configured during runtime with the `sketchybar` cli. (see `sketchybar --help`)
-* If working off of a git worktree, to test first install the worktree's version with `scripts/hub install` q
+* If working off of a git worktree, to test first install the worktree's version with `scripts/hub install`
 
 ## Dependencies
 
-- [AeroSpace](https://github.com/nikitabobko/AeroSpace) -  MacOS Spaces alternative for managing workspaces
-- [SketchyBar](https://github.com/FelixKratz/SketchyBar) - Custom menu bar
+- [AeroSpace](https://github.com/nikitabobko/AeroSpace) - MacOS Spaces alternative for managing workspaces
 - [JankyBorders](https://github.com/FelixKratz/JankyBorders) - window borders
 - macOS with Homebrew
 - Swift compiler (included with Xcode Command Line Tools)

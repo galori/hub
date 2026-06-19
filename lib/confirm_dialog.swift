@@ -13,28 +13,21 @@ app.setActivationPolicy(.accessory)
 let screen = NSScreen.main ?? NSScreen.screens[0]
 let sf = screen.frame
 
-let bgColor = NSColor(white: 0.08, alpha: 0.93)
-let itemBg = NSColor(red: 0.21, green: 0.22, blue: 0.27, alpha: 1)
-let accentRed = NSColor(red: 0.85, green: 0.22, blue: 0.30, alpha: 1)
-let dimWhite = NSColor(white: 1, alpha: 0.45)
-
 class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
 }
 
-let dialogW: CGFloat = min(sf.width * 0.4, 480)
+let dialogW: CGFloat = min(sf.width * 0.4, Theme.Metric.dialogW)
 let win = KeyableWindow(contentRect: NSRect(x: 0, y: 0, width: dialogW, height: 100),
                         styleMask: .borderless, backing: .buffered, defer: false)
 win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
-win.backgroundColor = bgColor
+win.backgroundColor = .clear
 win.isOpaque = false
 win.hasShadow = true
 win.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
 let cv = win.contentView!
-cv.wantsLayer = true
-cv.layer?.cornerRadius = 18
-cv.layer?.masksToBounds = true
+Theme.applyCardBackground(to: cv, radius: Theme.Radius.modal, kind: .modal)
 
 let backdrop: NSWindow = {
     let w = NSWindow(contentRect: sf, styleMask: .borderless, backing: .buffered, defer: false)
@@ -63,7 +56,7 @@ for i in 3..<CommandLine.arguments.count {
     }
 }
 
-// Custom checkbox: always-visible border, works on dark background
+// Custom checkbox: 22×22 accent-fill square, rounded 6px
 class CustomCheckbox: NSView {
     var isChecked: Bool { didSet { needsDisplay = true } }
     var label: String
@@ -83,37 +76,37 @@ class CustomCheckbox: NSView {
     @objc func toggle() { isChecked.toggle(); onChange?() }
 
     override func draw(_ dirtyRect: NSRect) {
-        let boxSize: CGFloat = 16
-        let boxY = (bounds.height - boxSize) / 2
-        let boxRect = NSRect(x: 0, y: boxY, width: boxSize, height: boxSize)
-        let path = NSBezierPath(roundedRect: boxRect, xRadius: 3, yRadius: 3)
+        let size: CGFloat = Theme.Metric.checkboxSize
+        let boxY = (bounds.height - size) / 2
+        let boxRect = NSRect(x: 0, y: boxY, width: size, height: size)
+        let path = NSBezierPath(roundedRect: boxRect, xRadius: Theme.Radius.checkbox, yRadius: Theme.Radius.checkbox)
 
         if isChecked {
-            NSColor(red: 0.10, green: 0.45, blue: 0.91, alpha: 1).setFill()
+            Theme.Color.accentBlue.setFill()
             path.fill()
             // Checkmark
             let check = NSBezierPath()
-            check.move(to: NSPoint(x: boxRect.minX + 3.5, y: boxRect.midY))
-            check.line(to: NSPoint(x: boxRect.minX + 6.5, y: boxRect.minY + 3.5))
-            check.line(to: NSPoint(x: boxRect.maxX - 3, y: boxRect.maxY - 3.5))
-            check.lineWidth = 1.8
+            check.move(to: NSPoint(x: boxRect.minX + 5, y: boxRect.midY))
+            check.line(to: NSPoint(x: boxRect.minX + 9, y: boxRect.minY + 5))
+            check.line(to: NSPoint(x: boxRect.maxX - 4, y: boxRect.maxY - 5))
+            check.lineWidth = 2
             check.lineCapStyle = .round
             check.lineJoinStyle = .round
             NSColor.white.setStroke()
             check.stroke()
         } else {
-            NSColor(white: 0.08, alpha: 1).setFill()
+            Theme.Color.inputField.setFill()
             path.fill()
-            NSColor(white: 1, alpha: 0.5).setStroke()
+            NSColor(white: 1, alpha: 0.22).setStroke()
             path.lineWidth = 1.5
             path.stroke()
         }
 
         // Label
-        let labelX = boxSize + 8
+        let labelX = size + 10
         let attrs: [NSAttributedString.Key: Any] = [
-            .foregroundColor: NSColor(white: 1, alpha: 0.7),
-            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+            .foregroundColor: Theme.Color.textLabel,
+            .font: Theme.Font.ui(14, weight: .medium),
         ]
         let str = NSAttributedString(string: label, attributes: attrs)
         let strSize = str.size()
@@ -121,9 +114,9 @@ class CustomCheckbox: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .regular)]
+        let attrs: [NSAttributedString.Key: Any] = [.font: Theme.Font.ui(14, weight: .medium)]
         let w = (label as NSString).size(withAttributes: attrs).width
-        return NSSize(width: 16 + 8 + w, height: 20)
+        return NSSize(width: Theme.Metric.checkboxSize + 10 + w, height: 26)
     }
 }
 
@@ -146,54 +139,79 @@ func dismiss(confirmed: Bool) {
     })
 }
 
-func makeBtn(_ label: String, shortcut: String, bg: NSColor, fg: NSColor, bold: Bool = false) -> NSButton {
-    let b = NSButton()
-    b.translatesAutoresizingMaskIntoConstraints = false
-    b.bezelStyle = .rounded
-    b.isBordered = false
-    b.wantsLayer = true
-    b.layer?.backgroundColor = bg.cgColor
-    b.layer?.cornerRadius = 8
-    b.alignment = .center
-    let weight: NSFont.Weight = bold ? .semibold : .medium
-    let style = NSMutableParagraphStyle()
-    style.alignment = .center
-    let attr = NSMutableAttributedString()
-    attr.append(NSAttributedString(string: label, attributes: [
-        .foregroundColor: fg,
-        .font: NSFont.systemFont(ofSize: 12, weight: weight),
-        .paragraphStyle: style,
-    ]))
-    attr.append(NSAttributedString(string: "  \(shortcut)", attributes: [
-        .foregroundColor: fg.withAlphaComponent(0.4),
-        .font: NSFont.systemFont(ofSize: 9, weight: .medium),
-        .paragraphStyle: style,
-    ]))
-    b.attributedTitle = attr
-    return b
+// Keyed button matching design guide: slate secondary / accent primary
+func makeBtn(_ label: String, shortcut: String, kind: BtnKind) -> NSView {
+    let container = NSView()
+    container.translatesAutoresizingMaskIntoConstraints = false
+    container.wantsLayer = true
+    container.layer?.cornerRadius = Theme.Radius.control
+    container.layer?.masksToBounds = true
+
+    switch kind {
+    case .primary:
+        container.layer?.backgroundColor = Theme.Color.accentBlue.cgColor
+    case .destructive:
+        container.layer?.backgroundColor = Theme.Color.destructive.cgColor
+    case .secondary:
+        container.layer?.backgroundColor = Theme.Color.inputField.cgColor
+        container.layer?.borderWidth = 1
+        container.layer?.borderColor = Theme.Color.border.cgColor
+    }
+
+    let stack = NSStackView()
+    stack.translatesAutoresizingMaskIntoConstraints = false
+    stack.orientation = .horizontal
+    stack.alignment = .centerY
+    stack.spacing = 9
+    container.addSubview(stack)
+    NSLayoutConstraint.activate([
+        stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+        stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 16),
+        stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -16),
+    ])
+
+    let titleLbl = NSTextField(labelWithString: label)
+    titleLbl.translatesAutoresizingMaskIntoConstraints = false
+    titleLbl.font = Theme.Font.ui(13, weight: .bold)
+    titleLbl.textColor = kind == .secondary ? Theme.Color.textLabel : .white
+    titleLbl.isEditable = false; titleLbl.isBordered = false; titleLbl.backgroundColor = .clear
+    stack.addArrangedSubview(titleLbl)
+
+    let keyLbl = Theme.makeKeycapLabel(shortcut, onAccent: kind != .secondary)
+    stack.addArrangedSubview(keyLbl)
+
+    NSLayoutConstraint.activate([
+        container.heightAnchor.constraint(equalToConstant: Theme.Metric.buttonH),
+    ])
+    return container
 }
 
-let titleText = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Confirm"
+enum BtnKind { case primary, secondary, destructive }
+
+let titleText   = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Confirm"
 let messageText = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "Are you sure?"
 
+// Title
 let titleLabel = NSTextField(labelWithString: titleText)
 titleLabel.translatesAutoresizingMaskIntoConstraints = false
-titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-titleLabel.textColor = dimWhite
+titleLabel.font = Theme.Font.ui(19, weight: .bold)
+titleLabel.textColor = Theme.Color.textPrimary
 cv.addSubview(titleLabel)
 
+// Message body
 let msgLabel = NSTextField(wrappingLabelWithString: "")
 msgLabel.translatesAutoresizingMaskIntoConstraints = false
 msgLabel.isEditable = false
 msgLabel.isBordered = false
 msgLabel.backgroundColor = .clear
 let normalAttrs: [NSAttributedString.Key: Any] = [
-    .font: NSFont.systemFont(ofSize: 13, weight: .regular),
-    .foregroundColor: NSColor(white: 1, alpha: 0.8),
+    .font: Theme.Font.ui(14, weight: .regular),
+    .foregroundColor: Theme.Color.textSecondary,
 ]
 let highlightAttrs: [NSAttributedString.Key: Any] = [
-    .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-    .foregroundColor: NSColor(red: 0.45, green: 0.75, blue: 0.98, alpha: 1),
+    .font: Theme.Font.mono(14, weight: .medium),
+    .foregroundColor: Theme.Color.textPrimary,
 ]
 let msgAttributed = NSMutableAttributedString()
 var remaining = messageText
@@ -206,42 +224,52 @@ msgAttributed.append(NSAttributedString(string: remaining, attributes: normalAtt
 msgLabel.attributedStringValue = msgAttributed
 cv.addSubview(msgLabel)
 
-// Build checkboxes
+// Checkboxes
 var prevAnchor: NSLayoutYAxisAnchor = msgLabel.bottomAnchor
 for info in checkboxInfos {
     let cb = CustomCheckbox(label: info.label, checked: info.defaultOn)
     cv.addSubview(cb)
     NSLayoutConstraint.activate([
-        cb.topAnchor.constraint(equalTo: prevAnchor, constant: 14),
-        cb.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        cb.topAnchor.constraint(equalTo: prevAnchor, constant: 16),
+        cb.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: Theme.Metric.dialogPadH),
     ])
     prevAnchor = cb.bottomAnchor
     customCheckboxes.append(cb)
 }
 
-let confirmBtn = makeBtn("REMOVE", shortcut: "enter", bg: accentRed, fg: .white, bold: true)
+// Determine action button kind from title text
+let isCancelTitle = titleText.lowercased().contains("cancel")
+let isDeleteTitle = titleText.lowercased().contains("remov") ||
+                    titleText.lowercased().contains("delet") ||
+                    titleText.lowercased().contains("destroy")
+let primaryKind: BtnKind = isDeleteTitle ? .destructive : .primary
+let primaryLabel = isDeleteTitle ? "REMOVE" : "CONFIRM"
+
+let confirmBtn = makeBtn(primaryLabel, shortcut: "enter", kind: primaryKind)
 cv.addSubview(confirmBtn)
-let cancelBtn = makeBtn("CANCEL", shortcut: "esc", bg: itemBg, fg: NSColor(white: 1, alpha: 0.75))
+let cancelBtn  = makeBtn("CANCEL",  shortcut: "esc",   kind: .secondary)
 cv.addSubview(cancelBtn)
 
+let padH = Theme.Metric.dialogPadH
+let padV = Theme.Metric.dialogPadV
 NSLayoutConstraint.activate([
-    titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: 24),
-    titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-    titleLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
+    titleLabel.topAnchor.constraint(equalTo: cv.topAnchor, constant: padV),
+    titleLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: padH),
+    titleLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -padH),
     msgLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
-    msgLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
-    msgLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-    confirmBtn.topAnchor.constraint(equalTo: prevAnchor, constant: 20),
+    msgLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: padH),
+    msgLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -padH),
+    // Buttons row
+    confirmBtn.topAnchor.constraint(equalTo: prevAnchor, constant: 22),
     confirmBtn.trailingAnchor.constraint(equalTo: cancelBtn.leadingAnchor, constant: -10),
-    confirmBtn.heightAnchor.constraint(equalToConstant: 34),
-    confirmBtn.widthAnchor.constraint(equalToConstant: 100),
+    confirmBtn.widthAnchor.constraint(equalToConstant: 120),
     cancelBtn.topAnchor.constraint(equalTo: confirmBtn.topAnchor),
-    cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
-    cancelBtn.heightAnchor.constraint(equalToConstant: 34),
-    cancelBtn.widthAnchor.constraint(equalToConstant: 100),
-    cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -20),
+    cancelBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -padH),
+    cancelBtn.widthAnchor.constraint(equalToConstant: 110),
+    cancelBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor, constant: -padV),
 ])
 
+// Wire button actions
 class ConfirmAction: NSObject {
     @objc func confirm(_ sender: Any) { dismiss(confirmed: true) }
 }
@@ -249,15 +277,18 @@ class CancelAction: NSObject {
     @objc func cancel(_ sender: Any) { dismiss(confirmed: false) }
 }
 let confirmAction = ConfirmAction()
-let cancelAction = CancelAction()
-confirmBtn.target = confirmAction; confirmBtn.action = #selector(ConfirmAction.confirm(_:))
-cancelBtn.target = cancelAction; cancelBtn.action = #selector(CancelAction.cancel(_:))
+let cancelAction  = CancelAction()
+
+let confirmGesture = NSClickGestureRecognizer(target: confirmAction, action: #selector(ConfirmAction.confirm(_:)))
+let cancelGesture  = NSClickGestureRecognizer(target: cancelAction,  action: #selector(CancelAction.cancel(_:)))
+confirmBtn.addGestureRecognizer(confirmGesture)
+cancelBtn.addGestureRecognizer(cancelGesture)
 objc_setAssociatedObject(confirmBtn, "a", confirmAction, .OBJC_ASSOCIATION_RETAIN)
-objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
+objc_setAssociatedObject(cancelBtn,  "a", cancelAction,  .OBJC_ASSOCIATION_RETAIN)
 
 NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
     if event.keyCode == 53 { dismiss(confirmed: false); return nil }
-    if event.keyCode == 36 { dismiss(confirmed: true); return nil }
+    if event.keyCode == 36 { dismiss(confirmed: true);  return nil }
     return event
 }
 

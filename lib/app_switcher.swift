@@ -52,23 +52,14 @@ func iconImage(for entry: AppEntry) -> NSImage {
     return generic
 }
 
-// ── Colors ────────────────────────────────────────────────────────────────────
+// ── Colors (all from Theme in theme.swift) ────────────────────────────────────
 
-extension NSColor {
-    convenience init(hex: UInt32, alpha: CGFloat = 1) {
-        self.init(srgbRed: CGFloat((hex >> 16) & 0xff) / 255,
-                  green:   CGFloat((hex >>  8) & 0xff) / 255,
-                  blue:    CGFloat( hex         & 0xff) / 255,
-                  alpha:   alpha)
-    }
-}
-
-let CARD_BG     = NSColor(hex: 0x14161C, alpha: 0.97)
-let TITLE_COLOR = NSColor(white: 1, alpha: 0.92)
-let TILE_HI_BG  = NSColor(hex: 0x1A4FCC, alpha: 0.90)   // blue fill
-let TILE_HI_GLOW = NSColor(hex: 0x4D88FF, alpha: 1)      // glow color
-let CANCEL_HI   = NSColor(hex: 0x8B2020, alpha: 0.95)
-let CANCEL_GLOW = NSColor(hex: 0xFF5555, alpha: 1)
+let CARD_BG      = NSColor(argb: 0xF814161C)              // #14161C @97%
+let TITLE_COLOR  = Theme.Color.textPrimary
+let TILE_HI_BG   = Theme.Color.accentBlue.withAlphaComponent(0.90)  // blue fill
+let TILE_HI_GLOW = Theme.Color.accentBlue                             // glow
+let CANCEL_HI    = Theme.Color.destructive.withAlphaComponent(0.85)
+let CANCEL_GLOW  = Theme.Color.destructive
 
 // ── Layout ────────────────────────────────────────────────────────────────────
 
@@ -82,8 +73,8 @@ let titleH:      CGFloat = 26    // title label height inside card
 let titleGap:    CGFloat = 6     // gap between title and icon row
 let hintH:       CGFloat = 28    // hint strip height outside card
 let hintGap:     CGFloat = 10    // gap below card before hint
-let monoFont     = NSFont(name: "Hack Nerd Font", size: 13) ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-let monoFontSm   = NSFont(name: "Hack Nerd Font", size: 11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+let monoFont   = Theme.Font.mono(13)
+let monoFontSm = Theme.Font.mono(11)
 
 let count        = apps.count
 let cancelIndex  = count

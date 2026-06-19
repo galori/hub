@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # Unit tests for workspace JSON operations (cmd_list, get_workspace_path,
-# ensure_general_workspace, update_sketchybar_label, remove_sketchybar_label)
+# ensure_general_workspace, update_bar_label, remove_bar_label)
 
 load helpers/stubs
 

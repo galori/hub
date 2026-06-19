@@ -17,7 +17,7 @@ import Cocoa
 
 // ── Argument parsing ─────────────────────────────────────────────────────────
 
-var accentColor = NSColor(red: 0.25, green: 0.55, blue: 0.95, alpha: 0.80)
+var accentColor = Theme.Color.accentBlue.withAlphaComponent(0.80)
 var isModal = false
 var titlePrefix = ""
 var initialTitle = "Setting up workspace…"
@@ -31,9 +31,9 @@ while !args.isEmpty {
         let val = args.first ?? "blue"
         args = args.dropFirst()
         switch val {
-        case "orange": accentColor = NSColor(red: 0.99, green: 0.58, blue: 0.38, alpha: 0.75)
-        case "blue":   accentColor = NSColor(red: 0.25, green: 0.55, blue: 0.95, alpha: 0.80)
-        default:       break  // unrecognised → keep default blue
+        case "orange": accentColor = Theme.Color.activity.withAlphaComponent(0.75)
+        case "blue":   accentColor = Theme.Color.accentBlue.withAlphaComponent(0.80)
+        default:       break
         }
     case "--modal":
         isModal = true
@@ -75,9 +75,9 @@ win.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
 
 let cv = win.contentView!
 cv.wantsLayer = true
-cv.layer?.cornerRadius = 10
+cv.layer?.cornerRadius = Theme.Radius.control
 cv.layer?.masksToBounds = true
-cv.layer?.backgroundColor = NSColor(red: 0.08, green: 0.10, blue: 0.14, alpha: 0.94).cgColor
+cv.layer?.backgroundColor = Theme.Color.modalTop.cgColor
 cv.layer?.borderWidth = 1
 cv.layer?.borderColor = accentColor.cgColor
 
@@ -86,7 +86,7 @@ var backdrop: NSWindow? = nil
 if isModal {
     let bd = NSWindow(contentRect: sf, styleMask: .borderless, backing: .buffered, defer: false)
     bd.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()))
-    bd.backgroundColor = NSColor(white: 0, alpha: 0.80)
+    bd.backgroundColor = NSColor(white: 0, alpha: 0.85)
     bd.isOpaque = false
     bd.hasShadow = false
     bd.collectionBehavior = [.canJoinAllSpaces, .stationary]
@@ -95,7 +95,7 @@ if isModal {
     backdrop = bd
 }
 
-// ── Dismiss button (ClickView pattern with correct hover tracking) ────────────
+// ── Dismiss button ────────────────────────────────────────────────────────────
 
 func dismiss() {
     NSAnimationContext.runAnimationGroup({ ctx in
@@ -107,41 +107,7 @@ func dismiss() {
     })
 }
 
-class ClickView: NSView {
-    var onPress: (() -> Void)?
-    override func mouseDown(with event: NSEvent) { onPress?() }
-    override func mouseEntered(with event: NSEvent) {
-        layer?.backgroundColor = NSColor(white: 1, alpha: 0.20).cgColor
-    }
-    override func mouseExited(with event: NSEvent) {
-        layer?.backgroundColor = NSColor(white: 1, alpha: 0.10).cgColor
-    }
-    override var acceptsFirstResponder: Bool { false }
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways],
-            owner: self, userInfo: nil))
-    }
-}
-
-let dismissView = ClickView(frame: .zero)
-dismissView.translatesAutoresizingMaskIntoConstraints = false
-dismissView.wantsLayer = true
-dismissView.layer?.cornerRadius = 8
-dismissView.layer?.backgroundColor = NSColor(white: 1, alpha: 0.10).cgColor
-dismissView.onPress = { dismiss() }
-
-let xLabel = NSTextField(labelWithString: "✕")
-xLabel.translatesAutoresizingMaskIntoConstraints = false
-xLabel.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
-xLabel.textColor = NSColor(white: 1, alpha: 0.55)
-xLabel.isEditable = false
-xLabel.isBordered = false
-xLabel.backgroundColor = .clear
-dismissView.addSubview(xLabel)
+let dismissView = Theme.makeDismissButton(onPress: { dismiss() })
 cv.addSubview(dismissView)
 
 NSLayoutConstraint.activate([
@@ -149,8 +115,6 @@ NSLayoutConstraint.activate([
     dismissView.topAnchor.constraint(equalTo: cv.topAnchor, constant: 12),
     dismissView.widthAnchor.constraint(equalToConstant: 20),
     dismissView.heightAnchor.constraint(equalToConstant: 20),
-    xLabel.centerXAnchor.constraint(equalTo: dismissView.centerXAnchor),
-    xLabel.centerYAnchor.constraint(equalTo: dismissView.centerYAnchor),
 ])
 
 // ── Parent row ───────────────────────────────────────────────────────────────
@@ -191,8 +155,8 @@ parentRow.addArrangedSubview(parentSpinner)
 
 let parentLabel = NSTextField(labelWithString: initialTitle)
 parentLabel.translatesAutoresizingMaskIntoConstraints = false
-parentLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-parentLabel.textColor = NSColor(white: 1, alpha: 0.95)
+parentLabel.font = Theme.Font.ui(13, weight: .semibold)
+parentLabel.textColor = Theme.Color.textPrimary
 parentLabel.lineBreakMode = .byTruncatingTail
 parentLabel.maximumNumberOfLines = 1
 parentLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -242,8 +206,8 @@ class StepRow: NSStackView {
 
         // Check mark
         stepCheck.translatesAutoresizingMaskIntoConstraints = false
-        stepCheck.font = NSFont.systemFont(ofSize: 12, weight: .medium)
-        stepCheck.textColor = NSColor(red: 0.30, green: 0.85, blue: 0.50, alpha: 1)
+        stepCheck.font = Theme.Font.mono(12, weight: .medium)
+        stepCheck.textColor = Theme.Color.ok
         stepCheck.isEditable = false; stepCheck.isBordered = false
         stepCheck.backgroundColor = .clear
         stepCheck.isHidden = true
@@ -254,8 +218,8 @@ class StepRow: NSStackView {
 
         // Error mark
         stepError.translatesAutoresizingMaskIntoConstraints = false
-        stepError.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        stepError.textColor = NSColor(red: 0.95, green: 0.40, blue: 0.40, alpha: 1)
+        stepError.font = Theme.Font.mono(12, weight: .semibold)
+        stepError.textColor = Theme.Color.destructive
         stepError.isEditable = false; stepError.isBordered = false
         stepError.backgroundColor = .clear
         stepError.isHidden = true
@@ -266,8 +230,8 @@ class StepRow: NSStackView {
 
         // Label
         stepLabel.translatesAutoresizingMaskIntoConstraints = false
-        stepLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
-        stepLabel.textColor = NSColor(white: 1, alpha: 0.75)
+        stepLabel.font = Theme.Font.mono(12, weight: .regular)
+        stepLabel.textColor = Theme.Color.textSecondary
         stepLabel.lineBreakMode = .byTruncatingTail
         stepLabel.maximumNumberOfLines = 1
         stepLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -367,14 +331,14 @@ DispatchQueue.main.async {
 // ── Error state ───────────────────────────────────────────────────────────────
 
 func showError(_ msg: String) {
-    cv.layer?.borderColor = NSColor(red: 0.85, green: 0.25, blue: 0.25, alpha: 0.90).cgColor
+    cv.layer?.borderColor = Theme.Color.destructive.withAlphaComponent(0.90).cgColor
     parentSpinner.stopAnimation(nil)
     parentSpinner.isHidden = true
 
     let errIcon = NSTextField(labelWithString: "✗")
     errIcon.translatesAutoresizingMaskIntoConstraints = false
-    errIcon.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    errIcon.textColor = NSColor(red: 0.95, green: 0.40, blue: 0.40, alpha: 1)
+    errIcon.font = Theme.Font.ui(15, weight: .semibold)
+    errIcon.textColor = Theme.Color.destructive
     errIcon.isEditable = false; errIcon.isBordered = false
     errIcon.backgroundColor = .clear
     NSLayoutConstraint.activate([

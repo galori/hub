@@ -61,25 +61,17 @@ teardown() {
 }
 
 # ---------------------------------------------------------------------------
-@test "hub new with setup script creates a sketchybar workspace pill" {
+@test "hub new with setup script creates a bar_labels entry" {
     run "$(hub_bin)" new --path "$FIXTURE_REPO" --worktree "$WS_NAME" --no-apps
     [[ "$status" -eq 0 ]]
 
     WS_ID="$(ws_id_for_name "$WS_NAME")"
     [[ -n "$WS_ID" ]]
 
-    local expected_label="$WS_ID $WS_NAME"
-
-    wait_for 10 "space.$WS_ID label is '$expected_label'" \
-        "[[ \"\$(sketchybar_label 'space.$WS_ID')\" == \"$expected_label\" ]]"
-
-    local lbl drawing
-    lbl="$(sketchybar_label "space.$WS_ID")"
-    drawing="$(sketchybar_drawing "space.$WS_ID")"
-    echo "# sketchybar label:   '$lbl'" >&3
-    echo "# sketchybar drawing: '$drawing'" >&3
-    [[ "$lbl"     == "$expected_label" ]]
-    [[ "$drawing" == "on" ]]
+    local labels_file="$HOME/.config/hub/bar_labels"
+    [[ -f "$labels_file" ]]
+    grep -q "^$WS_ID:$WS_NAME:" "$labels_file"
+    echo "# bar_labels entry found for $WS_ID:$WS_NAME" >&3
 }
 
 # ---------------------------------------------------------------------------

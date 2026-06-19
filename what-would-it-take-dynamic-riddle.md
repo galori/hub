@@ -2,7 +2,7 @@
 
 ## Context
 
-Hub is a macOS workspace manager (~1800 lines bash) that orchestrates AeroSpace, SketchyBar, and app launching. It already has 8 standalone Swift binaries for UI (dialogs, overlay, browser control). The goal is to move core orchestration logic into a single Swift binary (`hub-core`) while keeping peripheral scripts (sketchybar plugins, install/deploy, up/down lifecycle) in bash. This gives type safety and eliminates fragile `jq` pipelines for the critical path, without rewriting everything.
+Hub is a macOS workspace manager (~1800 lines bash) that orchestrates AeroSpace and app launching, with a native Swift status bar. It already has 8+ standalone Swift binaries for UI (dialogs, overlay, browser control, status bar). The goal is to move core orchestration logic into a single Swift binary (`hub-core`) while keeping peripheral scripts (install/deploy, up/down lifecycle) in bash. This gives type safety and eliminates fragile `jq` pipelines for the critical path, without rewriting everything.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ lib/core/
   main.swift          -- CLI dispatch (CommandLine.arguments)
   State.swift         -- Codable models, JSON persistence, label file generation
   Aerospace.swift     -- Process wrapper for aerospace CLI
-  Sketchybar.swift    -- Process wrapper for sketchybar --set
+  BarRefresh.swift    -- Signal the native status bar to refresh (SIGUSR1)
   Tiling.swift        -- Window arrangement logic (2-5 window layouts)
   AppSlots.swift      -- App open/focus/cycle logic
   Navigation.swift    -- next/prev workspace cycling
@@ -39,9 +39,9 @@ No SPM, no Xcode. Same pattern as existing Swift binaries but multi-file.
 |---------|-----|
 | `list` | Eliminates 5+ jq calls, type-safe workspace rendering |
 | `next`/`prev` | Self-contained navigation with aerospace queries |
-| `rename` | JSON mutation + sketchybar update |
+| `rename` | JSON mutation + bar label update |
 | `status` | Workspace state queries |
-| `label-length` / `repo-prefix` | Simple state + sketchybar refresh |
+| `label-length` / `repo-prefix` | Simple state + bar refresh |
 | `open` (app slots) | Complex polling/focus logic benefits from structured code |
 | `arrange` (window tiling) | Complex split logic, currently fragile string manipulation |
 | State queries for `new`/`remove` | Swift handles JSON, bash handles dialogs + teardown |
@@ -56,7 +56,7 @@ No SPM, no Xcode. Same pattern as existing Swift binaries but multi-file.
 | `remove` (orchestration) | Launches confirm dialog, calls `hub-core delete`, cleans worktrees |
 | `dashboard` / `keys` | Terminal formatting, dialog launching |
 | `tree` | Delegates to existing Python agent script |
-| SketchyBar plugins | Must be separate executables sketchybar can invoke |
+| Native bar | Swift process — refreshed via SIGUSR1 |
 
 ## Key models (`State.swift`)
 
@@ -146,7 +146,7 @@ After each phase:
 3. Run `hub next` / `hub prev` -- workspace cycling works
 4. Run `hub status` -- shows correct info
 5. Run `hub open 1` -- app focusing works
-6. Test sketchybar labels update correctly after mutations
+6. Test bar labels update correctly after mutations
 7. Run existing tests (`test/` directory) if applicable
 
 ## Estimated size

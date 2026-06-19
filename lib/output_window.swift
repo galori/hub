@@ -27,7 +27,7 @@ let win = NSWindow(
     backing: .buffered,
     defer: false)
 win.title = titleArg
-win.backgroundColor = NSColor(white: 0.08, alpha: 1)
+win.backgroundColor = Theme.Color.canvas
 win.isMovableByWindowBackground = true
 win.center()
 win.makeKeyAndOrderFront(nil)
@@ -39,9 +39,9 @@ let statusBar = NSTextField(
 statusBar.isEditable = false
 statusBar.isSelectable = false
 statusBar.isBordered = false
-statusBar.backgroundColor = NSColor(white: 0.05, alpha: 1)
-statusBar.textColor = NSColor(white: 0.4, alpha: 1)
-statusBar.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+statusBar.backgroundColor = Theme.Color.panelBot
+statusBar.textColor = Theme.Color.textMuted
+statusBar.font = Theme.Font.mono(11)
 statusBar.alignment = .center
 statusBar.autoresizingMask = [.width, .maxYMargin]
 win.contentView!.addSubview(statusBar)
@@ -55,9 +55,9 @@ scrollView.drawsBackground = false
 let textView = NSTextView(frame: scrollView.contentView.bounds)
 textView.isEditable = false
 textView.isSelectable = true
-textView.backgroundColor = NSColor(white: 0.08, alpha: 1)
-textView.textColor = .white
-textView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+textView.backgroundColor = Theme.Color.canvas
+textView.textColor = Theme.Color.textPrimary
+textView.font = Theme.Font.mono(13)
 textView.autoresizingMask = [.width]
 textView.isVerticallyResizable = true
 textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
@@ -73,8 +73,8 @@ NotificationCenter.default.addObserver(
     NSApp.terminate(nil)
 }
 
-let baseFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-let baseColor = NSColor.white
+let baseFont  = Theme.Font.mono(13)
+let baseColor = Theme.Color.textPrimary
 
 func parseANSI(_ raw: String) -> NSAttributedString {
     let result = NSMutableAttributedString()
@@ -103,14 +103,8 @@ func parseANSI(_ raw: String) -> NSAttributedString {
                     for c in (codes.isEmpty ? [0] : codes) {
                         switch c {
                         case 0: curColor = baseColor; curFont = baseFont
-                        case 1: curFont = NSFont.monospacedSystemFont(ofSize: baseFont.pointSize, weight: .bold)
-                        case 31: curColor = NSColor(red: 0.99, green: 0.36, blue: 0.49, alpha: 1)
-                        case 32: curColor = NSColor(red: 0.62, green: 0.82, blue: 0.45, alpha: 1)
-                        case 33: curColor = NSColor(red: 0.91, green: 0.78, blue: 0.39, alpha: 1)
-                        case 34: curColor = NSColor(red: 0.46, green: 0.80, blue: 0.88, alpha: 1)
-                        case 35: curColor = NSColor(red: 0.70, green: 0.62, blue: 0.95, alpha: 1)
-                        case 36: curColor = NSColor(red: 0.00, green: 0.82, blue: 1.00, alpha: 1)
-                        default: break
+                        case 1: curFont = Theme.Font.mono(baseFont.pointSize, weight: .bold)
+                        default: curColor = Theme.ansiColor(c)
                         }
                     }
                     i = raw.index(after: j)

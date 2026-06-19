@@ -19,15 +19,13 @@ let win = KeyableWindow(
     contentRect: NSRect(x: sf.midX - overlayW / 2, y: sf.midY - overlayH / 2 + 80, width: overlayW, height: overlayH),
     styleMask: .borderless, backing: .buffered, defer: false)
 win.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
-win.backgroundColor = NSColor(white: 0.08, alpha: 0.93)
+win.backgroundColor = .clear
 win.isOpaque = false
 win.hasShadow = true
 win.collectionBehavior = [.canJoinAllSpaces, .stationary]
 
 let cv = win.contentView!
-cv.wantsLayer = true
-cv.layer?.cornerRadius = 18
-cv.layer?.masksToBounds = true
+Theme.applyCardBackground(to: cv, radius: Theme.Radius.modal, kind: .modal)
 
 // Full-screen backdrop
 let backdrop: NSWindow = {
@@ -56,8 +54,8 @@ func dismiss() {
 let titleStr = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "hub"
 let title = NSTextField(labelWithString: titleStr)
 title.translatesAutoresizingMaskIntoConstraints = false
-title.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-title.textColor = NSColor(white: 1, alpha: 0.45)
+title.font = Theme.Font.ui(15, weight: .semibold)
+title.textColor = Theme.Color.textMuted
 cv.addSubview(title)
 
 // Status text
@@ -66,8 +64,8 @@ label.translatesAutoresizingMaskIntoConstraints = false
 label.isEditable = false
 label.isBordered = false
 label.backgroundColor = .clear
-label.textColor = .white
-label.font = NSFont.monospacedSystemFont(ofSize: 18, weight: .regular)
+label.textColor = Theme.Color.textPrimary
+label.font = Theme.Font.mono(18, weight: .regular)
 label.alignment = .left
 label.maximumNumberOfLines = 0
 label.cell?.truncatesLastVisibleLine = true

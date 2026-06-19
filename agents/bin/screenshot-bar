@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Capture a screenshot of the sketchybar region (top of primary screen only).
+# Capture a screenshot of the bar region (top of primary screen only).
 # Usage: screenshot-bar [output.png]
 # Requires: screencapture (macOS)
 
@@ -27,7 +27,7 @@ if [[ ! "$PRIMARY_WIDTH" =~ ^[0-9]+$ ]] || [ "$PRIMARY_WIDTH" -eq 0 ]; then
                 exit 0
             fi
         done
-        echo "Unable to capture the SketchyBar region" >&2
+        echo "Unable to capture the bar region" >&2
         exit 1
     fi
 fi

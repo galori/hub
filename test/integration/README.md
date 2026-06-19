@@ -1,8 +1,8 @@
 # Hub Live Integration Tests
 
-These tests run against **real, running macOS services** (AeroSpace, SketchyBar,
-JankyBorders). They are entirely separate from the stubbed unit-test suite in
-`test/` and are gated so they never run by accident.
+These tests run against **real, running macOS services** (AeroSpace,
+JankyBorders, the native Swift status bar). They are entirely separate from the
+stubbed unit-test suite in `test/` and are gated so they never run by accident.
 
 ---
 
@@ -14,14 +14,13 @@ Test 1 (`01_install_up.bats`) runs a full `hub install` + `hub up`. Because
 `hub install` is an **idempotent deploy** (all outputs are generated from the
 repo's own templates), this is safe to run on your normal dev machine:
 
-- `rm -rf ~/.config/sketchybar` then redeploys from `config/sketchybar/` — restores to the expected state
 - overwrites `~/.aerospace.toml` from `config/aerospace.toml` — same result
 - shell rc / global gitignore / `~/.claude/commands` — all guarded; no-op if already installed
-- recompiles Swift HUD binaries
-- `hub up` reloads sketchybar (brief flicker) and reloads AeroSpace config
+- recompiles Swift HUD binaries (including the native bar)
+- `hub up` restarts the native bar (brief flicker) and reloads AeroSpace config
 
 Visible side effects on your screen during the suite:
-- A short sketchybar reload flicker (test 1)
+- A brief bar reload flicker (test 1)
 - AeroSpace focus switches to the newly created test workspace (tests 2/3), then back after cleanup
 
 > For a fully hands-off run with zero screen disruption, use a dedicated test
@@ -34,7 +33,6 @@ Visible side effects on your screen during the suite:
 |---|---|
 | `bats-core` | `brew install bats-core` |
 | `aerospace` | `brew install --cask nikitabobko/tap/aerospace` |
-| `sketchybar` | `brew install sketchybar` |
 | `borders` (JankyBorders) | `brew install FelixKratz/formulae/borders` |
 | `jq` | `brew install jq` |
 
@@ -56,8 +54,8 @@ Tests must run in a **real `loginwindow` GUI session** on the display. The guard
 checks for `WindowServer` (present only in a live session). SSH sessions without
 a window server (headless) will self-skip.
 
-AeroSpace and SketchyBar do **not** need to be running before you start — test 1
-launches them via `hub up`.
+AeroSpace and the native bar do **not** need to be running before you start —
+test 1 launches them via `hub up`.
 
 ---
 
@@ -83,8 +81,8 @@ never touch `test/integration/`.
 
 | File | What it tests |
 |---|---|
-| `01_install_up.bats` | `hub install` (non-interactive) + `hub up` — services start, sketchybar loaded with hub config, clock widget live |
-| `02_new_workspace.bats` | `hub new` — worktree created, workspaces.json entry, `hub list`, sketchybar pill |
+| `01_install_up.bats` | `hub install` (non-interactive) + `hub up` — services start, native bar running, bar_labels file created |
+| `02_new_workspace.bats` | `hub new` — worktree created, workspaces.json entry, `hub list`, bar_labels entry |
 | `03_new_workspace_custom_setup.bats` | Same + `.superset/config.json` `"setup"` hook writes a marker file in the worktree |
 
 ---

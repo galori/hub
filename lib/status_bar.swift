@@ -4,23 +4,12 @@ import CoreWLAN
 import CoreAudio
 
 // Single-file native Swift status bar for hub.
-// Replaces sketchybar: reads state files + aerospace queries on SIGUSR1, re-renders all views.
+// Reads state files + aerospace queries on SIGUSR1, re-renders all views.
 // PID written to ~/.config/hub/status_bar.pid; hub bar-refresh sends SIGUSR1.
 
 // ──────────────────────────────────────────────────────────────────────────────
-// MARK: – Theme / Geometry
+// MARK: – Local aliases & geometry  (colors come from Theme in theme.swift)
 // ──────────────────────────────────────────────────────────────────────────────
-
-extension NSColor {
-    // 0xAARRGGBB
-    convenience init(argb: UInt32) {
-        let a = CGFloat((argb >> 24) & 0xff) / 255
-        let r = CGFloat((argb >> 16) & 0xff) / 255
-        let g = CGFloat((argb >>  8) & 0xff) / 255
-        let b = CGFloat( argb        & 0xff) / 255
-        self.init(srgbRed: r, green: g, blue: b, alpha: a)
-    }
-}
 
 func luminance(argb: UInt32) -> Int {
     let r = Int((argb >> 16) & 0xff)
@@ -29,30 +18,30 @@ func luminance(argb: UInt32) -> Int {
     return (r * 299 + g * 587 + b * 114) / 1000
 }
 
-// ── Gradient stops ──
-let GRAD_TOP:     UInt32 = 0xFF1A1C22
-let GRAD_BOT:     UInt32 = 0xFF15171C
-let CLUSTER_BG:   UInt32 = 0xFF181A20   // opaque occluder matching bar average
+// ── Gradient stops (raw UInt32 kept for CAGradientLayer / CGColor use) ──
+let GRAD_TOP:    UInt32 = 0xFF1A1C22
+let GRAD_BOT:    UInt32 = 0xFF15171C
+let CLUSTER_BG:  UInt32 = 0xFF181A20
 
-// ── Accent ──
-let ACCENT:       UInt32 = 0xFF41D1C4   // fixed teal
-let ACCENT_SOFT:  UInt32 = 0x2241D1C4   // teal @13%
-let ACCENT_DOT:   UInt32 = 0xFF41D1C4
+// ── Accent (teal drives the status bar) ──
+let ACCENT:      UInt32 = 0xFF41D1C4
+let ACCENT_SOFT: UInt32 = 0x2241D1C4
+let ACCENT_DOT:  UInt32 = 0xFF41D1C4
 
 // ── Pill colours ──
-let PILL_IDLE_BG:  UInt32 = 0x09FFFFFF   // rgba(255,255,255,0.035)
-let PILL_IDX_IDLE: UInt32 = 0xFF5A5D68
-let PILL_NAME_IDLE:UInt32 = 0xFFAEB3BF
-let PILL_IDX_ACT:  UInt32 = 0x73000000  // rgba(0,0,0,0.45)
-let PILL_NAME_ACT: UInt32 = 0xFF06201E
+let PILL_IDLE_BG:   UInt32 = 0x09FFFFFF
+let PILL_IDX_IDLE:  UInt32 = 0xFF5A5D68
+let PILL_NAME_IDLE: UInt32 = 0xFFAEB3BF
+let PILL_IDX_ACT:   UInt32 = 0x73000000
+let PILL_NAME_ACT:  UInt32 = 0xFF06201E
 
-// ── Status dot (claude alert/active) ──
-let DOT_ORANGE:   UInt32 = 0xFFF0883E
-let DOT_BLUE:     UInt32 = 0xFF76CCE0
+// ── Status dots ──
+let DOT_ORANGE: UInt32 = 0xFFF0883E
+let DOT_BLUE:   UInt32 = 0xFF76CCE0
 
 // ── App-icon group ──
-let APPGRP_BG:    UInt32 = 0x0BFFFFFF   // rgba(255,255,255,0.045)
-let APPGRP_BORDER:UInt32 = 0x0DFFFFFF   // rgba(255,255,255,0.05)
+let APPGRP_BG:     UInt32 = 0x0BFFFFFF
+let APPGRP_BORDER: UInt32 = 0x0DFFFFFF
 let APPGRP_RADIUS: CGFloat = 11
 
 // ── Misc widget colours ──
@@ -70,40 +59,32 @@ let SERVICE_BG: UInt32 = 0xFFC91B00
 // ── Geometry ──
 let barHeightNormal: CGFloat = 40
 let barHeightTall:   CGFloat = 80
-let pillH:           CGFloat = 28
-let pillRadius:      CGFloat = 8
-let pillPadH:        CGFloat = 10   // horizontal inner padding
-let pillGap:         CGFloat = 5
-let appIconSize:     CGFloat = 26
-let appGroupGap:     CGFloat = 14
+let pillH:           CGFloat = Theme.Metric.pillH
+let pillRadius:      CGFloat = Theme.Radius.pill
+let pillPadH:        CGFloat = Theme.Metric.pillPadH
+let pillGap:         CGFloat = Theme.Metric.pillGap
+let appIconSize:     CGFloat = Theme.Metric.appIconSize
+let appGroupGap:     CGFloat = Theme.Metric.appGroupGap
 
-// ── Fonts ──
-let monoFont11   = NSFont(name: "Hack Nerd Font", size: 11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-let monoFont13   = NSFont(name: "Hack Nerd Font", size: 13) ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-let monoFont12   = NSFont(name: "Hack Nerd Font", size: 12) ?? NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-let monoFont16   = NSFont(name: "Hack Nerd Font", size: 16) ?? NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
-let nerdFont     = monoFont13   // backward-compat alias
-let nerdFont16   = monoFont16
-let nerdFont13   = monoFont13
+// ── Fonts (via Theme for consistent fallback chain) ──
+let monoFont11 = Theme.Font.mono(11)
+let monoFont12 = Theme.Font.mono(12)
+let monoFont13 = Theme.Font.mono(13)
+let monoFont16 = Theme.Font.mono(16)
+let nerdFont   = monoFont13
+let nerdFont16 = monoFont16
+let nerdFont13 = monoFont13
 
 // ── Legacy (kept for volume popup) ──
-let ITEM_BG:   UInt32 = 0xFF363944
-let ITEM_BG2:  UInt32 = 0xFF414550
-let HOVER_BG:  UInt32 = 0x33FFFFFF
-let CLICK_BG:  UInt32 = 0xFF76CCE0
+let ITEM_BG:    UInt32 = 0xFF363944
+let ITEM_BG2:   UInt32 = 0xFF414550
+let HOVER_BG:   UInt32 = 0x33FFFFFF
+let CLICK_BG:   UInt32 = 0xFF76CCE0
 let cornerRadius: CGFloat = 9
 let borderWidth:  CGFloat = 2
 
-// ── Workspace slot colours (for per-ws identity, still used by wsColor()) ──
-let SLOT_COLORS: [UInt32] = [
-    0xff1A73E8, 0xffFF7043, 0xff8E76D1, 0xff00C853, 0xffEC407A,
-    0xff00D1FF, 0xffF9A825, 0xff5C6BC0, 0xffEF5350, 0xff26C6DA,
-    0xffAEEA00, 0xff7E57C2, 0xfff39660, 0xff00A396, 0xffFFCA28,
-    0xffAB47BC, 0xff66BB6A, 0xffE05297, 0xff42A5F5, 0xff8D6E63,
-    0xff9CCC65, 0xffC62828, 0xff78909C, 0xffD4E157, 0xff4527A0,
-    0xffFFA726, 0xff00897B, 0xff6A1B9A, 0xff29B6F6, 0xff2E7D32,
-    0xff5C8AE6, 0xff1565C0, 0xff7889B3, 0xffFF6EC7, 0xff00838F,
-]
+// ── Workspace slot colours ──
+let SLOT_COLORS: [UInt32] = Theme.Color.slotColors
 
 let ALL_WS = ["1","2","3","4","5","6","7","8","9",
               "A","B","C","D","E","F","G","H","I","J","K","L","M",
@@ -176,7 +157,7 @@ struct BarState {
         }
 
         // Labels file
-        let labelsFile = hub + "/sketchybar_labels"
+        let labelsFile = hub + "/bar_labels"
         if let lines = try? String(contentsOfFile: labelsFile, encoding: .utf8) {
             for line in lines.split(separator: "\n") {
                 let parts = line.split(separator: ":", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
@@ -299,10 +280,10 @@ class BarBackgroundView: NSView {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// MARK: – ClickView
+// MARK: – BarClickView
 // ──────────────────────────────────────────────────────────────────────────────
 
-class ClickView: NSView {
+class BarClickView: NSView {
     var onPress: (() -> Void)?
     var hoverBG: NSColor = NSColor(argb: HOVER_BG)
     var normalBG: NSColor = .clear
@@ -464,7 +445,7 @@ class WorkspacePill: NSView {
 // MARK: – AppSlotView (launcher icon)
 // ──────────────────────────────────────────────────────────────────────────────
 
-class AppSlotView: ClickView {
+class AppSlotView: BarClickView {
     let imageView = NSImageView()
     let dotView   = NSView()
     let tipLabel  = NSTextField(labelWithString: "")
@@ -513,7 +494,7 @@ class AppSlotView: ClickView {
 // MARK: – WsWinSlotView
 // ──────────────────────────────────────────────────────────────────────────────
 
-class WsWinSlotView: ClickView {
+class WsWinSlotView: BarClickView {
     let imageView = NSImageView()
     var windowIDs: [Int] = []; var rotateIdx = 0
 
@@ -947,7 +928,7 @@ class BarWindow: NSWindow {
     func buildWifi(into stack: NSStackView) {
         let (ws, ic, _) = makeBareIconLabel(icon: "󰤨", iconColor: C_GREEN)
         wifiIcon = ic
-        let click = ClickView(frame: .zero)
+        let click = BarClickView(frame: .zero)
         click.translatesAutoresizingMaskIntoConstraints = false
         click.onPress = { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.network")!) }
         let wrap = NSView()
@@ -971,7 +952,7 @@ class BarWindow: NSWindow {
     func buildVolume(into stack: NSStackView) {
         let (ws, ic, lbl) = makeBareIconLabel(icon: "󰕾", iconColor: C_BLUE)
         volIcon = ic; volLabel = lbl
-        let click = ClickView(frame: .zero)
+        let click = BarClickView(frame: .zero)
         click.translatesAutoresizingMaskIntoConstraints = false
         click.onPress = { [weak self] in self?.toggleVolumePopup() }
         let wrap = NSView()
@@ -1001,7 +982,7 @@ class BarWindow: NSWindow {
     func buildBattery(into stack: NSStackView) {
         let (ws, ic, lbl) = makeBareIconLabel(icon: "󰁹", iconColor: C_GREEN)
         battIcon = ic; battLabel = lbl
-        let click = ClickView(frame: .zero)
+        let click = BarClickView(frame: .zero)
         click.translatesAutoresizingMaskIntoConstraints = false
         click.onPress = { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.battery")!) }
         let wrap = NSView()
@@ -1224,7 +1205,7 @@ class BarWindow: NSWindow {
         slider.target = target; slider.action = #selector(VolumeSliderTarget.sliderChanged(_:))
         objc_setAssociatedObject(popup, "sliderTarget", target, .OBJC_ASSOCIATION_RETAIN)
 
-        let muteBtn = ClickView(frame: .zero)
+        let muteBtn = BarClickView(frame: .zero)
         muteBtn.translatesAutoresizingMaskIntoConstraints = false
         muteBtn.onPress = { [weak self] in
             var mut: UInt32 = 0; var mutSz = UInt32(MemoryLayout<UInt32>.size)
