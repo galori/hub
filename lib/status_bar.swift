@@ -327,6 +327,7 @@ class WorkspacePill: NSView {
     let wsID: String
     var isFocused = false
     var pulseBright = true
+    private var baseBG: CGColor = NSColor.clear.cgColor
 
     // Inner rounded-rect view (masked) — holds the visible content
     private let innerView = NSView()
@@ -422,17 +423,18 @@ class WorkspacePill: NSView {
     }
     override func mouseEntered(with event: NSEvent) {
         guard !isFocused else { return }
-        layer?.backgroundColor = NSColor(argb: HOVER_BG).cgColor
+        innerView.layer?.backgroundColor = NSColor(argb: HOVER_BG).cgColor
     }
     override func mouseExited(with event: NSEvent) {
-        layer?.backgroundColor = .none
+        innerView.layer?.backgroundColor = baseBG
     }
 
     func apply(bg: UInt32, idxColor: UInt32, nameColor: UInt32,
                idx: String, name: String,
                showDot: Bool, dotColor: UInt32,
                glowColor: UInt32?, glowRadius: CGFloat) {
-        innerView.layer?.backgroundColor = NSColor(argb: bg).cgColor
+        baseBG = NSColor(argb: bg).cgColor
+        innerView.layer?.backgroundColor = baseBG
         idxField.stringValue = idx
         idxField.textColor = NSColor(argb: idxColor)
         nameField.stringValue = name
