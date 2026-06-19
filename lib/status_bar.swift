@@ -1,6 +1,5 @@
 import Cocoa
 import IOKit.ps
-import CoreWLAN
 import CoreAudio
 
 // Single-file native Swift status bar for hub.
@@ -570,7 +569,6 @@ class BarWindow: NSWindow {
     var clockLabel: NSTextField?
     var battLabel:  NSTextField?
     var battIcon:   NSTextField?
-    var wifiIcon:   NSTextField?
     var volLabel:   NSTextField?
     var volIcon:    NSTextField?
     var serviceModeLabel: NSView?
@@ -594,7 +592,7 @@ class BarWindow: NSWindow {
         trailingStack.arrangedSubviews.forEach { trailingStack.removeArrangedSubview($0); $0.removeFromSuperview() }
         cv.subviews.forEach { $0.removeFromSuperview() }
         wsPills.removeAll(); appSlots.removeAll(); wsWinSlots.removeAll(); volPopup = nil
-        clockLabel = nil; battLabel = nil; battIcon = nil; wifiIcon = nil; volLabel = nil; volIcon = nil
+        clockLabel = nil; battLabel = nil; battIcon = nil; volLabel = nil; volIcon = nil
         serviceModeLabel = nil
 
         let barH = state.barTall ? barHeightTall : barHeightNormal
@@ -802,9 +800,6 @@ class BarWindow: NSWindow {
         // Spacer
         stack.addArrangedSubview(makeHSpacer(4))
 
-        // Wifi (bare icon)
-        buildWifi(into: stack)
-
         // Volume (bare icon+pct)
         buildVolume(into: stack)
 
@@ -923,30 +918,6 @@ class BarWindow: NSWindow {
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         stack.addArrangedSubview(ic); stack.addArrangedSubview(lbl)
         return (stack, ic, lbl)
-    }
-
-    func buildWifi(into stack: NSStackView) {
-        let (ws, ic, _) = makeBareIconLabel(icon: "󰤨", iconColor: C_GREEN)
-        wifiIcon = ic
-        let click = BarClickView(frame: .zero)
-        click.translatesAutoresizingMaskIntoConstraints = false
-        click.onPress = { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.network")!) }
-        let wrap = NSView()
-        wrap.translatesAutoresizingMaskIntoConstraints = false
-        ws.translatesAutoresizingMaskIntoConstraints = false
-        wrap.addSubview(ws); wrap.addSubview(click)
-        NSLayoutConstraint.activate([
-            ws.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
-            ws.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
-            ws.topAnchor.constraint(equalTo: wrap.topAnchor),
-            ws.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
-            click.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
-            click.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
-            click.topAnchor.constraint(equalTo: wrap.topAnchor),
-            click.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
-        ])
-        stack.addArrangedSubview(wrap)
-        updateWifi()
     }
 
     func buildVolume(into stack: NSStackView) {
@@ -1101,15 +1072,6 @@ class BarWindow: NSWindow {
         battLabel?.stringValue = "\(pct)%"
     }
 
-    func updateWifi() {
-        let ssid = CWWiFiClient.shared().interface()?.ssid()
-        if ssid != nil {
-            wifiIcon?.stringValue = "󰤨"; wifiIcon?.textColor = NSColor(argb: C_GREEN)
-        } else {
-            wifiIcon?.stringValue = "󰤭"; wifiIcon?.textColor = NSColor(argb: C_RED)
-        }
-    }
-
     func updateVolume() {
         var deviceID = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
@@ -1142,7 +1104,7 @@ class BarWindow: NSWindow {
 
     func applyRefresh(state: BarState) {
         applyWorkspaceState(state: state, tall: state.barTall)
-        updateClock(); updateBattery(); updateWifi(); updateVolume()
+        updateClock(); updateBattery(); updateVolume()
         serviceModeLabel?.isHidden = !state.serviceMode
     }
 
@@ -1250,7 +1212,7 @@ class VolumeSliderTarget: NSObject {
 
 class BarController: NSObject {
     var windows: [BarWindow] = []
-    var clockTimer: Timer?; var batteryTimer: Timer?; var wifiTimer: Timer?; var pulseTimer: Timer?
+    var clockTimer: Timer?; var batteryTimer: Timer?; var pulseTimer: Timer?
     var pulseBright = true; var lastState = BarState()
 
     func start() { writePIDFile(); buildWindows(); installSignalSource(); startTimers() }
@@ -1314,7 +1276,6 @@ class BarController: NSObject {
     func startTimers() {
         clockTimer   = Timer.scheduledTimer(withTimeInterval: 10,  repeats: true) { [weak self] _ in self?.windows.forEach { $0.updateClock() } }
         batteryTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in self?.windows.forEach { $0.updateBattery() } }
-        wifiTimer    = Timer.scheduledTimer(withTimeInterval: 30,  repeats: true) { [weak self] _ in self?.windows.forEach { $0.updateWifi() } }
         pulseTimer   = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.pulseBright = !self.pulseBright
@@ -1324,7 +1285,7 @@ class BarController: NSObject {
             }
         }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
-            object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.updateBattery(); $0.updateWifi() } }
+            object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.updateBattery() } }
         // Re-assert windows when a full-screen transition creates/destroys a space
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.orderFrontRegardless() } }

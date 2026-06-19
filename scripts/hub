@@ -79,10 +79,10 @@ print_usage() {
     echo -e "${bold}Usage:${reset} hub <command>"
     echo
     echo -e "${bold}Commands:${reset}"
-    echo "  install       Install hub alias, check dependencies, compile binaries, and deploy configs"
+    echo "  install       Install Hub alias, check dependencies, compile binaries, and deploy configs"
     echo "  up            Start AeroSpace, status bar, JankyBorders (restores fullscreen state if active)"
     echo "  down          Stop everything, restore the Dock and menu bar (preserves fullscreen state)"
-    echo "  reboot        Stop, reinstall, and restart the hub environment"
+    echo "  reboot        Stop, reinstall, and restart the Hub environment"
     echo "  new           Create a new workspace (opens dialog; pass flags to run silently)"
     echo "  list          List all defined workspaces
   tree          Show the tiling tree for a workspace"
@@ -99,9 +99,9 @@ print_usage() {
     echo "  bar-reload    Restart the status bar (fix rendering inconsistencies)"
     echo "  fullscreen    Hide/show the Dock and menu bar (on/off/toggle)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
-    echo "  config        Get/set hub options (e.g. claude_binary)"
-    echo "  log           Show the hub action log (path + open in less; --window opens GUI viewer)"
-    echo "  testing-banner Show a 'stand by' HUD while an automated session tests hub (start/stop/run)"
+    echo "  config        Get/set Hub options (e.g. claude_binary)"
+    echo "  log           Show the Hub action log (path + open in less; --window opens GUI viewer)"
+    echo "  testing-banner Show a 'stand by' HUD while an automated session tests Hub (start/stop/run)"
     echo "  claude-hooks  Manage Claude Code notification hooks (install/uninstall/status)"
     echo "  help          Show this help"
     echo
@@ -178,7 +178,7 @@ _hub_lock_acquire() {
     local lockdir="${1:-$HUB_LOCK_DIR}"
     local deadline=$(( SECONDS + 5 ))
     while ! mkdir "$lockdir" 2>/dev/null; do
-        (( SECONDS >= deadline )) && { fail "Timed out waiting for hub lock"; return 1; }
+        (( SECONDS >= deadline )) && { fail "Timed out waiting for Hub lock"; return 1; }
         sleep 0.05
     done
 }

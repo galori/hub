@@ -51,7 +51,7 @@ func dismiss() {
 }
 
 // Title
-let titleStr = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "hub"
+let titleStr = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "Hub"
 let title = NSTextField(labelWithString: titleStr)
 title.translatesAutoresizingMaskIntoConstraints = false
 title.font = Theme.Font.ui(15, weight: .semibold)

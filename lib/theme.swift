@@ -206,6 +206,7 @@ enum Theme {
 
         // Insert gradient as the bottom-most sublayer of the content layer.
         let grad = CAGradientLayer()
+        grad.frame = view.bounds
         grad.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
         grad.colors = [topColor.cgColor, botColor.cgColor]
         // CALayer y=1 = top (no flip for NSWindow contentView by default)

@@ -28,7 +28,7 @@ win.collectionBehavior = [.canJoinAllSpaces, .stationary]
 let cv = win.contentView!
 Theme.applyCardBackground(to: cv, radius: Theme.Radius.modal, kind: .modal)
 
-let titleLabel = NSTextField(labelWithString: "[hub]")
+let titleLabel = NSTextField(labelWithString: "[Hub]")
 titleLabel.translatesAutoresizingMaskIntoConstraints = false
 titleLabel.font = Theme.Font.mono(11, weight: .semibold)
 titleLabel.textColor = Theme.Color.textMuted
