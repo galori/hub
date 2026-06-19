@@ -1344,6 +1344,9 @@ class BarController: NSObject {
         }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.updateBattery(); $0.updateWifi() } }
+        // Re-assert windows when a full-screen transition creates/destroys a space
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.orderFrontRegardless() } }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main) { [weak self] _ in self?.buildWindows() }
     }
