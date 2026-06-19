@@ -15,7 +15,8 @@ let resultPath = "/tmp/hub-app-switcher-result"
 let appsPath = ("~/.config/hub/apps.json" as NSString).expandingTildeInPath
 let iconsDir = ("~/.config/hub/icons" as NSString).expandingTildeInPath
 
-// --- Load apps from apps.json ---
+// ── App loading ──────────────────────────────────────────────────────────────
+
 struct AppEntry {
     let name: String
     let icon: String
@@ -24,81 +25,178 @@ struct AppEntry {
 func loadApps() -> [AppEntry] {
     guard let data = FileManager.default.contents(atPath: appsPath),
           let json = try? JSONSerialization.jsonObject(with: data),
-          let arr = json as? [[String: Any]] else {
-        return []
-    }
-    return arr.prefix(5).map { entry in
-        let name = (entry["name"] as? String) ?? "?"
-        let icon = (entry["icon"] as? String) ?? name
-        return AppEntry(name: name, icon: icon)
+          let arr = json as? [[String: Any]] else { return [] }
+    return arr.prefix(5).map { e in
+        AppEntry(name: (e["name"] as? String) ?? "?", icon: (e["icon"] as? String) ?? "?")
     }
 }
 
 let apps = loadApps()
 if apps.isEmpty {
-    // Nothing to show — leave no result and exit as a cancel.
     try? FileManager.default.removeItem(atPath: resultPath)
     exit(1)
 }
 
-// --- Icon resolution: high-res app icon, then cached 36px PNG, then generic ---
+// ── Icon resolution ───────────────────────────────────────────────────────────
+
 func iconImage(for entry: AppEntry) -> NSImage {
-    // Prefer the live app icon (crisp at any size) by resolving the app path.
     if let appPath = NSWorkspace.shared.fullPath(forApplication: entry.name) {
         let img = NSWorkspace.shared.icon(forFile: appPath)
         img.size = NSSize(width: 64, height: 64)
         return img
     }
-    // Fall back to the cached PNG that `hub install` extracts.
     let png = "\(iconsDir)/\(entry.icon).png"
-    if let img = NSImage(contentsOfFile: png) {
-        return img
-    }
-    // Last resort: a generic application icon.
+    if let img = NSImage(contentsOfFile: png) { return img }
     let generic = NSWorkspace.shared.icon(forFileType: "app")
     generic.size = NSSize(width: 64, height: 64)
     return generic
 }
 
+// ── Colors ────────────────────────────────────────────────────────────────────
+
+extension NSColor {
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
+        self.init(srgbRed: CGFloat((hex >> 16) & 0xff) / 255,
+                  green:   CGFloat((hex >>  8) & 0xff) / 255,
+                  blue:    CGFloat( hex         & 0xff) / 255,
+                  alpha:   alpha)
+    }
+}
+
+let CARD_BG     = NSColor(hex: 0x14161C, alpha: 0.97)
+let TITLE_COLOR = NSColor(white: 1, alpha: 0.92)
+let TILE_HI_BG  = NSColor(hex: 0x1A4FCC, alpha: 0.90)   // blue fill
+let TILE_HI_GLOW = NSColor(hex: 0x4D88FF, alpha: 1)      // glow color
+let CANCEL_HI   = NSColor(hex: 0x8B2020, alpha: 0.95)
+let CANCEL_GLOW = NSColor(hex: 0xFF5555, alpha: 1)
+
+// ── Layout ────────────────────────────────────────────────────────────────────
+
+let tileSize:    CGFloat = 80
+let iconSize:    CGFloat = 56
+let tileGap:     CGFloat = 8
+let cardPadH:    CGFloat = 18    // horizontal inner padding
+let cardPadV:    CGFloat = 14    // vertical inner padding
+let cardRadius:  CGFloat = 20
+let titleH:      CGFloat = 26    // title label height inside card
+let titleGap:    CGFloat = 6     // gap between title and icon row
+let hintH:       CGFloat = 28    // hint strip height outside card
+let hintGap:     CGFloat = 10    // gap below card before hint
+let monoFont     = NSFont(name: "Hack Nerd Font", size: 13) ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+let monoFontSm   = NSFont(name: "Hack Nerd Font", size: 11) ?? NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+
+let count        = apps.count
+let cancelIndex  = count
+let tileCount    = count + 1
+let innerW       = CGFloat(tileCount) * tileSize + CGFloat(tileCount - 1) * tileGap
+let cardW        = cardPadH * 2 + innerW
+let cardH        = cardPadV + titleH + titleGap + tileSize + cardPadV
+let winH         = cardH + hintGap + hintH
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
-let screen = NSScreen.main ?? NSScreen.screens[0]
-let sf = screen.frame
-
-// --- Colors (matching hub palette) ---
-let cardBg = NSColor(red: 0.08, green: 0.10, blue: 0.14, alpha: 0.96)
-let tileIdle = NSColor(white: 1, alpha: 0.0)
-let tileHi = NSColor(red: 0.20, green: 0.45, blue: 0.85, alpha: 0.95)
-let labelColor = NSColor(white: 1, alpha: 0.92)
-
-// --- Layout metrics ---
-let tileSize: CGFloat = 80
-let iconSize: CGFloat = 56
-let tileGap: CGFloat = 8
-let padding: CGFloat = 14
-let labelH: CGFloat = 22
-let labelGap: CGFloat = 8
-
-// One tile per app, plus a trailing ✕ "cancel" tile. Releasing Alt while the
-// cancel tile is highlighted dismisses the switcher without launching anything.
-let count = apps.count
-let cancelIndex = count          // index of the cancel tile in the cycle
-let tileCount = count + 1        // apps + cancel tile
-let cardW = padding * 2 + CGFloat(tileCount) * tileSize + CGFloat(tileCount - 1) * tileGap
-// The dark card wraps only the icon row; the label hangs below outside the card.
-let cardH: CGFloat = padding * 2 + tileSize
-let winH: CGFloat = cardH + labelGap + labelH
-
-// Position so the card (icon area) is screen-centered; label hangs below.
+let screen  = NSScreen.main ?? NSScreen.screens[0]
+let sf      = screen.frame
 let originX = sf.midX - cardW / 2
-let originY = sf.midY - cardH / 2 - labelGap - labelH
+// Center over the bar (card is in upper portion of window)
+let originY = sf.midY - cardH / 2 - hintGap - hintH
+
+// ── Keycap view ───────────────────────────────────────────────────────────────
+
+class KeycapView: NSView {
+    init(text: String) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 4
+        layer?.masksToBounds = true
+        layer?.backgroundColor = NSColor(white: 1, alpha: 0.08).cgColor
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor(white: 1, alpha: 0.18).cgColor
+
+        let lbl = NSTextField(labelWithString: text)
+        lbl.translatesAutoresizingMaskIntoConstraints = false
+        lbl.font = monoFontSm
+        lbl.textColor = NSColor(white: 1, alpha: 0.65)
+        lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
+        lbl.alignment = .center
+        addSubview(lbl)
+        NSLayoutConstraint.activate([
+            lbl.centerXAnchor.constraint(equalTo: centerXAnchor),
+            lbl.centerYAnchor.constraint(equalTo: centerYAnchor),
+            lbl.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            lbl.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+        ])
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+// ── Tile (outer shadow + inner rounded clip) ──────────────────────────────────
+
+class Tile: NSView {
+    let isCancel: Bool
+    private let innerView  = NSView()
+    private let imageView  = NSImageView()
+
+    init(image: NSImage, isCancel: Bool = false) {
+        self.isCancel = isCancel
+        super.init(frame: .zero)
+
+        // Outer: unmasked, receives layer shadow
+        wantsLayer = true
+        layer?.masksToBounds = false
+        layer?.shadowOpacity = 0
+
+        // Inner: rounded, masked — no shadow bleeding through
+        innerView.wantsLayer = true
+        innerView.layer?.cornerRadius = 14
+        innerView.layer?.masksToBounds = true
+        innerView.layer?.backgroundColor = NSColor.clear.cgColor
+        innerView.translatesAutoresizingMaskIntoConstraints = false
+
+        imageView.image = image
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        innerView.addSubview(imageView)
+        addSubview(innerView)
+        NSLayoutConstraint.activate([
+            innerView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            innerView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            innerView.topAnchor.constraint(equalTo: topAnchor),
+            innerView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            imageView.centerXAnchor.constraint(equalTo: innerView.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: innerView.centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: iconSize),
+            imageView.heightAnchor.constraint(equalToConstant: iconSize),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func setHighlighted(_ on: Bool) {
+        if on {
+            let bg   = isCancel ? CANCEL_HI   : TILE_HI_BG
+            let glow = isCancel ? CANCEL_GLOW : TILE_HI_GLOW
+            innerView.layer?.backgroundColor = bg.cgColor
+            layer?.shadowColor   = glow.cgColor
+            layer?.shadowOpacity = 0.7
+            layer?.shadowRadius  = 18
+            layer?.shadowOffset  = .zero
+        } else {
+            innerView.layer?.backgroundColor = NSColor.clear.cgColor
+            layer?.shadowOpacity = 0
+        }
+    }
+}
+
+// ── Window ────────────────────────────────────────────────────────────────────
 
 class KeyableWindow: NSWindow {
     override var canBecomeKey: Bool { true }
 }
 
-// Window is taller than the card so the label can hang below outside the card.
 let win = KeyableWindow(
     contentRect: NSRect(x: originX, y: originY, width: cardW, height: winH),
     styleMask: .borderless, backing: .buffered, defer: false)
@@ -111,125 +209,137 @@ win.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
 let wv = win.contentView!
 wv.wantsLayer = true
 
-// Dark card sits at the top of the window (above the label area).
-let cardView = NSView(frame: NSRect(x: 0, y: winH - cardH, width: cardW, height: cardH))
+// ── Card (lives at top of window) ─────────────────────────────────────────────
+
+let cardFrame = NSRect(x: 0, y: winH - cardH, width: cardW, height: cardH)
+let cardView  = NSView(frame: cardFrame)
 cardView.wantsLayer = true
-cardView.layer?.backgroundColor = cardBg.cgColor
-cardView.layer?.cornerRadius = 16
-cardView.layer?.masksToBounds = true
-cardView.layer?.borderWidth = 1
-cardView.layer?.borderColor = NSColor(white: 1, alpha: 0.08).cgColor
+cardView.layer?.backgroundColor  = CARD_BG.cgColor
+cardView.layer?.cornerRadius     = cardRadius
+cardView.layer?.masksToBounds    = true
+cardView.layer?.borderWidth      = 1
+cardView.layer?.borderColor      = NSColor(white: 1, alpha: 0.08).cgColor
 wv.addSubview(cardView)
-let cv = cardView
 
-// --- Tiles ---
-let cancelHi = NSColor(red: 0.80, green: 0.30, blue: 0.30, alpha: 0.95)
+// ── Title label (inside card, top-centered) ───────────────────────────────────
 
-class Tile: NSView {
-    let imageView = NSImageView()
-    let isCancel: Bool
-    init(image: NSImage, isCancel: Bool = false) {
-        self.isCancel = isCancel
-        super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 14
-        layer?.backgroundColor = tileIdle.cgColor
-        imageView.image = image
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(imageView)
-        NSLayoutConstraint.activate([
-            imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: iconSize),
-            imageView.heightAnchor.constraint(equalToConstant: iconSize),
-        ])
-    }
-    required init?(coder: NSCoder) { fatalError() }
-    func setHighlighted(_ on: Bool) {
-        let hi = isCancel ? cancelHi : tileHi
-        layer?.backgroundColor = (on ? hi : tileIdle).cgColor
-    }
-}
+let nameLabel = NSTextField(labelWithString: apps[0].name)
+nameLabel.translatesAutoresizingMaskIntoConstraints = false
+nameLabel.font      = monoFont
+nameLabel.textColor = TITLE_COLOR
+nameLabel.alignment = .center
+nameLabel.isEditable = false; nameLabel.isBordered = false; nameLabel.backgroundColor = .clear
+cardView.addSubview(nameLabel)
 
-// Build a ✕ image for the cancel tile, drawn to match the icon footprint.
-func cancelImage() -> NSImage {
-    let img = NSImage(size: NSSize(width: iconSize, height: iconSize))
-    img.lockFocus()
-    let symbolColor = NSColor(white: 1, alpha: 0.85)
-    let str = "✕" as NSString
-    let attrs: [NSAttributedString.Key: Any] = [
-        .font: NSFont.systemFont(ofSize: 34, weight: .regular),
-        .foregroundColor: symbolColor,
-    ]
-    let size = str.size(withAttributes: attrs)
-    let pt = NSPoint(x: (iconSize - size.width) / 2, y: (iconSize - size.height) / 2)
-    str.draw(at: pt, withAttributes: attrs)
-    img.unlockFocus()
-    return img
-}
+// ── Tile row ──────────────────────────────────────────────────────────────────
 
 let row = NSStackView()
-row.orientation = .horizontal
+row.orientation  = .horizontal
 row.distribution = .fillEqually
-row.spacing = tileGap
+row.spacing      = tileGap
 row.translatesAutoresizingMaskIntoConstraints = false
 
 var tiles: [Tile] = []
 for entry in apps {
     let t = Tile(image: iconImage(for: entry))
     t.translatesAutoresizingMaskIntoConstraints = false
-    t.widthAnchor.constraint(equalToConstant: tileSize).isActive = true
+    t.widthAnchor.constraint(equalToConstant: tileSize).isActive  = true
     t.heightAnchor.constraint(equalToConstant: tileSize).isActive = true
     tiles.append(t)
     row.addArrangedSubview(t)
 }
-// Trailing cancel tile.
+
+// Trailing ✕ cancel tile
+func cancelImage() -> NSImage {
+    let img = NSImage(size: NSSize(width: iconSize, height: iconSize))
+    img.lockFocus()
+    let str = "✕" as NSString
+    let attrs: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 34, weight: .regular),
+        .foregroundColor: NSColor(white: 1, alpha: 0.85),
+    ]
+    let sz = str.size(withAttributes: attrs)
+    str.draw(at: NSPoint(x: (iconSize - sz.width) / 2, y: (iconSize - sz.height) / 2), withAttributes: attrs)
+    img.unlockFocus()
+    return img
+}
+
 let cancelTile = Tile(image: cancelImage(), isCancel: true)
 cancelTile.translatesAutoresizingMaskIntoConstraints = false
-cancelTile.widthAnchor.constraint(equalToConstant: tileSize).isActive = true
+cancelTile.widthAnchor.constraint(equalToConstant: tileSize).isActive  = true
 cancelTile.heightAnchor.constraint(equalToConstant: tileSize).isActive = true
 tiles.append(cancelTile)
 row.addArrangedSubview(cancelTile)
 cardView.addSubview(row)
 
-// Label hangs below the card, inside the transparent window extension.
-let nameLabel = NSTextField(labelWithString: apps[0].name)
-nameLabel.translatesAutoresizingMaskIntoConstraints = false
-nameLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-nameLabel.textColor = labelColor
-nameLabel.alignment = .center
-wv.addSubview(nameLabel)
-
 NSLayoutConstraint.activate([
-    // Icon row is centered inside the card.
-    row.centerXAnchor.constraint(equalTo: cardView.centerXAnchor),
-    row.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
-    row.heightAnchor.constraint(equalToConstant: tileSize),
+    // Title: top of card + padding, full width
+    nameLabel.topAnchor.constraint(equalTo: cardView.topAnchor, constant: cardPadV),
+    nameLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: cardPadH),
+    nameLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -cardPadH),
+    nameLabel.heightAnchor.constraint(equalToConstant: titleH),
 
-    // Label sits below the card in the transparent window area.
-    nameLabel.topAnchor.constraint(equalTo: wv.topAnchor, constant: labelGap),
-    nameLabel.leadingAnchor.constraint(equalTo: wv.leadingAnchor, constant: padding),
-    nameLabel.trailingAnchor.constraint(equalTo: wv.trailingAnchor, constant: -padding),
+    // Icon row: below the title
+    row.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: titleGap),
+    row.centerXAnchor.constraint(equalTo: cardView.centerXAnchor),
+    row.heightAnchor.constraint(equalToConstant: tileSize),
 ])
 
-// --- Selection state ---
+// ── Keycap hint strip (below card, inside transparent window) ─────────────────
+
+// "Hold  [⌥]  +  [N]  to cycle, release to launch"
+let hintStack = NSStackView()
+hintStack.orientation = .horizontal
+hintStack.spacing     = 5
+hintStack.alignment   = .centerY
+hintStack.translatesAutoresizingMaskIntoConstraints = false
+
+func dimLabel(_ text: String) -> NSTextField {
+    let lbl = NSTextField(labelWithString: text)
+    lbl.font = monoFontSm
+    lbl.textColor = NSColor(white: 1, alpha: 0.38)
+    lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
+    return lbl
+}
+
+hintStack.addArrangedSubview(dimLabel("Hold"))
+hintStack.addArrangedSubview(KeycapView(text: "⌥ Alt"))
+hintStack.addArrangedSubview(dimLabel("+"))
+hintStack.addArrangedSubview(KeycapView(text: "N"))
+hintStack.addArrangedSubview(dimLabel("to cycle, release to launch"))
+
+wv.addSubview(hintStack)
+NSLayoutConstraint.activate([
+    hintStack.centerXAnchor.constraint(equalTo: wv.centerXAnchor),
+    // cardH pixels below the top of the content view (which is flipped in AutoLayout)
+    hintStack.topAnchor.constraint(equalTo: wv.topAnchor, constant: cardH + hintGap),
+    hintStack.heightAnchor.constraint(equalToConstant: hintH),
+])
+
+// ── Selection state ───────────────────────────────────────────────────────────
+
 var selected = 0
 func setHighlight(_ index: Int) {
     for (i, t) in tiles.enumerated() { t.setHighlighted(i == index) }
     selected = index
-    nameLabel.stringValue = (index == cancelIndex) ? "Cancel" : apps[index].name
+    if index == cancelIndex {
+        nameLabel.stringValue = "Cancel"
+        nameLabel.textColor   = NSColor(white: 1, alpha: 0.45)
+    } else {
+        nameLabel.stringValue = apps[index].name
+        nameLabel.textColor   = TITLE_COLOR
+    }
 }
 setHighlight(0)
 
-// --- Commit / cancel ---
+// ── Commit / cancel ───────────────────────────────────────────────────────────
+
 var finished = false
 func commit() {
     if finished { return }
     finished = true
-    // Landing on the cancel tile launches nothing.
     if selected != cancelIndex {
-        let slot = selected + 1  // apps.json is 0-based; hub slots are 1-based
+        let slot = selected + 1
         try? "\(slot)".write(toFile: resultPath, atomically: true, encoding: .utf8)
     } else {
         try? FileManager.default.removeItem(atPath: resultPath)
@@ -243,46 +353,39 @@ func cancel() {
     NSApp.terminate(nil)
 }
 
-// --- Advance on SIGUSR1 (sent by re-invoked `hub app-switcher`) ---
+// ── SIGUSR1 to advance ────────────────────────────────────────────────────────
+
 signal(SIGUSR1, SIG_IGN)
 let sigSrc = DispatchSource.makeSignalSource(signal: SIGUSR1, queue: .main)
-sigSrc.setEventHandler {
-    setHighlight((selected + 1) % tileCount)  // cycles apps then the cancel tile
-}
+sigSrc.setEventHandler { setHighlight((selected + 1) % tileCount) }
 sigSrc.resume()
 
-// --- Esc to cancel ---
-// NOTE: while Option is held, macOS claims Option+Esc ("Speak selection"), so
-// Esc can't be the in-flight cancel — the trailing ✕ cancel tile handles that.
-// Esc still works once Option is released, and Return commits.
+// ── Key events ────────────────────────────────────────────────────────────────
+
 NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-    if event.keyCode == 53 { cancel(); return nil }  // Esc
-    if event.keyCode == 36 { commit(); return nil }  // Return also commits
+    if event.keyCode == 53 { cancel(); return nil }   // Esc
+    if event.keyCode == 36 { commit(); return nil }   // Return
     return event
 }
 
-// --- Commit when Option is released ---
-// AeroSpace fires alt-n with Option held, so we watch the global modifier
-// state. Once we've seen Option down, its release means "launch the selection".
-var sawOption = false
+// ── Option-release commit ─────────────────────────────────────────────────────
+
+var sawOption         = false
 var elapsed: TimeInterval = 0
-let pollInterval: TimeInterval = 0.025
-let fastTapWindow: TimeInterval = 0.45   // commit if Option never observed (tap+release before arm)
-let safetyTimeout: TimeInterval = 15.0   // never linger forever
+let pollInterval: TimeInterval  = 0.025
+let fastTapWindow: TimeInterval = 0.45
+let safetyTimeout: TimeInterval = 15.0
 
 Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { _ in
     elapsed += pollInterval
     let optionDown = NSEvent.modifierFlags.contains(.option)
-    if optionDown {
-        sawOption = true
-    } else if sawOption {
-        commit()
-    } else if elapsed >= fastTapWindow {
-        // Option was never seen — user tapped and released before we armed.
-        commit()
-    }
+    if optionDown          { sawOption = true }
+    else if sawOption      { commit() }
+    else if elapsed >= fastTapWindow { commit() }
     if elapsed >= safetyTimeout { cancel() }
 }
+
+// ── Show with fade ────────────────────────────────────────────────────────────
 
 win.alphaValue = 0
 win.makeKeyAndOrderFront(nil)
