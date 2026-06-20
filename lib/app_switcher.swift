@@ -40,13 +40,14 @@ if apps.isEmpty {
 // ── Icon resolution ───────────────────────────────────────────────────────────
 
 func iconImage(for entry: AppEntry) -> NSImage {
+    // Check cached PNG first — avoids slow Spotlight lookup on every cold start.
+    let png = "\(iconsDir)/\(entry.icon).png"
+    if let img = NSImage(contentsOfFile: png) { return img }
     if let appPath = NSWorkspace.shared.fullPath(forApplication: entry.name) {
         let img = NSWorkspace.shared.icon(forFile: appPath)
         img.size = NSSize(width: 64, height: 64)
         return img
     }
-    let png = "\(iconsDir)/\(entry.icon).png"
-    if let img = NSImage(contentsOfFile: png) { return img }
     let generic = NSWorkspace.shared.icon(forFileType: "app")
     generic.size = NSSize(width: 64, height: 64)
     return generic
