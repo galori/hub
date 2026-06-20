@@ -1250,6 +1250,46 @@ class BarController: NSObject {
         try? "\(ProcessInfo.processInfo.processIdentifier)\n".write(toFile: path, atomically: true, encoding: .utf8)
     }
 
+    // Returns display IDs of screens where a native macOS full-screen app covers the entire frame.
+    // Layer-0 windows that span screen.frame exactly are full-screen app windows; normal app windows
+    // can't extend into the menu-bar area, so only true full-screen apps satisfy this check.
+    private func fullScreenDisplayIDs() -> Set<CGDirectDisplayID> {
+        var result = Set<CGDirectDisplayID>()
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]] else { return result }
+        let mainH = NSScreen.screens.first?.frame.height ?? 0
+        for screen in NSScreen.screens {
+            let sf = screen.frame
+            for info in list {
+                guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                      let b = info[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
+                // CGWindowList uses flipped coords (Y=0 at top of main screen); convert to NSScreen space.
+                let cgY = b["Y"] ?? 0, cgH = b["Height"] ?? 0
+                let win = CGRect(x: b["X"] ?? 0, y: mainH - cgY - cgH,
+                                 width: b["Width"] ?? 0, height: cgH)
+                if win.contains(sf) {
+                    if let did = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
+                        result.insert(did)
+                    }
+                    break
+                }
+            }
+        }
+        return result
+    }
+
+    func updateVisibility() {
+        let fullScreenIDs = fullScreenDisplayIDs()
+        for w in windows {
+            let did = w.barScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+            if let did = did, fullScreenIDs.contains(did) {
+                w.orderOut(nil)
+            } else {
+                w.orderFrontRegardless()
+            }
+        }
+    }
+
     func buildWindows() {
         windows.forEach { $0.close() }; windows.removeAll()
         DispatchQueue.global(qos: .userInitiated).async {
@@ -1263,9 +1303,9 @@ class BarController: NSObject {
                     let w = BarWindow(screen: screen)
                     w.monitorIndex = monitorIDs.indices.contains(i) ? monitorIDs[i] : (i + 1)
                     w.buildContents(state: state)
-                    w.orderFrontRegardless()
                     self.windows.append(w)
                 }
+                self.updateVisibility()
             }
         }
     }
@@ -1314,9 +1354,12 @@ class BarController: NSObject {
         }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.updateBattery() } }
-        // Re-assert windows when a full-screen transition creates/destroys a space
+        // Show/hide bars when a full-screen transition creates/destroys a space.
+        // Delay slightly to let the new Space fully settle before querying window list.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.orderFrontRegardless() } }
+            object: nil, queue: .main) { [weak self] _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.updateVisibility() }
+        }
         // Debounce screen parameter changes — Dock restart fires this notification multiple times
         // while geometry is still settling (e.g. during hub fullscreen toggle). Two rebuilds:
         // a quick one at 0.5s to pick up most changes, and a backstop at 3.0s to catch cases
