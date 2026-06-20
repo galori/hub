@@ -579,7 +579,9 @@ class BarWindow: NSWindow {
         let vf = screen.visibleFrame
         let r = NSRect(x: sf.minX, y: vf.maxY - barHeightNormal, width: sf.width, height: barHeightNormal)
         super.init(contentRect: r, styleMask: .borderless, backing: .buffered, defer: false)
-        level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
+        // .statusBar (25) floats above all app windows but below macOS pull-down menus.
+        // CGShieldingWindowLevel would cover menus, which we never want.
+        level = .statusBar
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
