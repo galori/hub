@@ -573,11 +573,20 @@ class BarWindow: NSWindow {
     var volIcon:    NSTextField?
     var serviceModeLabel: NSView?
 
+    // In hub fullscreen mode the macOS menu bar is hidden (auto-hide), but visibleFrame still
+    // reserves a ~32px inset for the auto-hide trigger zone. Use the absolute screen top instead.
+    static func barTopY(sf: NSRect, vf: NSRect) -> CGFloat {
+        let home = NSHomeDirectory()
+        let isFullscreen = FileManager.default.fileExists(atPath: home + "/.config/hub/fullscreen")
+        return isFullscreen ? sf.maxY : vf.maxY
+    }
+
     init(screen: NSScreen) {
         self.barScreen = screen
         let sf = screen.frame
         let vf = screen.visibleFrame
-        let r = NSRect(x: sf.minX, y: vf.maxY - barHeightNormal, width: sf.width, height: barHeightNormal)
+        let topY = BarWindow.barTopY(sf: sf, vf: vf)
+        let r = NSRect(x: sf.minX, y: topY - barHeightNormal, width: sf.width, height: barHeightNormal)
         super.init(contentRect: r, styleMask: .borderless, backing: .buffered, defer: false)
         // .statusBar (25) floats above all app windows but below macOS pull-down menus.
         // CGShieldingWindowLevel would cover menus, which we never want.
@@ -602,13 +611,14 @@ class BarWindow: NSWindow {
         let barH = state.barTall ? barHeightTall : barHeightNormal
         let sf = barScreen.frame
         let vf = barScreen.visibleFrame
-        setFrame(NSRect(x: sf.minX, y: vf.maxY - barH, width: sf.width, height: barH), display: true)
+        let topY = BarWindow.barTopY(sf: sf, vf: vf)
+        setFrame(NSRect(x: sf.minX, y: topY - barH, width: sf.width, height: barH), display: true)
         // Write bar height and the required aerospace outer.top for the primary screen.
         // outer.top is measured by AeroSpace from frame.maxY (absolute top), so it must
         // include both the bar height and the menu-bar inset (frame.maxY - visibleFrame.maxY).
-        // Using the primary screen's inset is correct: AeroSpace applies one global outer.top
-        // and each monitor's own work-area already subtracts its own menu-bar height.
-        let menuInset = Int(sf.maxY - vf.maxY)
+        // In fullscreen mode the menu bar is hidden; macOS still reports a non-zero visibleFrame
+        // inset for the auto-hide zone, but the bar is flush with the screen top so menuInset=0.
+        let menuInset = topY >= sf.maxY ? 0 : Int(sf.maxY - vf.maxY)
         let home = NSHomeDirectory()
         try? "\(Int(barH))".write(toFile: home + "/.config/hub/bar_height", atomically: true, encoding: .utf8)
         try? "\(Int(barH) + menuInset)".write(toFile: home + "/.config/hub/bar_outer_top", atomically: true, encoding: .utf8)
