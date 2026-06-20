@@ -601,10 +601,15 @@ class BarWindow: NSWindow {
         let sf = barScreen.frame
         let vf = barScreen.visibleFrame
         setFrame(NSRect(x: sf.minX, y: vf.maxY - barH, width: sf.width, height: barH), display: true)
-        // Emit current height and sync aerospace outer.top = height + GAP.
-        // Using visibleFrame keeps us below the macOS menu bar on every monitor.
-        let heightPath = NSHomeDirectory() + "/.config/hub/bar_height"
-        try? "\(Int(barH))".write(toFile: heightPath, atomically: true, encoding: .utf8)
+        // Write bar height and the required aerospace outer.top for the primary screen.
+        // outer.top is measured by AeroSpace from frame.maxY (absolute top), so it must
+        // include both the bar height and the menu-bar inset (frame.maxY - visibleFrame.maxY).
+        // Using the primary screen's inset is correct: AeroSpace applies one global outer.top
+        // and each monitor's own work-area already subtracts its own menu-bar height.
+        let menuInset = Int(sf.maxY - vf.maxY)
+        let home = NSHomeDirectory()
+        try? "\(Int(barH))".write(toFile: home + "/.config/hub/bar_height", atomically: true, encoding: .utf8)
+        try? "\(Int(barH) + menuInset)".write(toFile: home + "/.config/hub/bar_outer_top", atomically: true, encoding: .utf8)
         if let hub = hubScriptPath() {
             Process.launchedProcess(launchPath: "/bin/sh",
                 arguments: ["-c", "'\(hub)' bar-sync >/dev/null 2>&1 &"])

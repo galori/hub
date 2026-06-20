@@ -2720,11 +2720,16 @@ cmd_bar_height() {
 }
 
 cmd_bar_sync() {
-    # Read the bar's current height (written by status_bar.swift on every build).
-    local height
-    height=$(cat "$HOME/.config/hub/bar_height" 2>/dev/null)
-    [[ "$height" =~ ^[0-9]+$ ]] || height=$BAR_HEIGHT_NORMAL
-    local want=$((height + BAR_GAP))
+    # Read bar_outer_top written by status_bar.swift: barH + menuBarInset (from frame.maxY).
+    # AeroSpace measures outer.top from frame.maxY (absolute top), so the inset must be
+    # included. Add BAR_GAP for the spacing between bar bottom and the first tiled window.
+    local outer_top
+    outer_top=$(cat "$HOME/.config/hub/bar_outer_top" 2>/dev/null)
+    if [[ ! "$outer_top" =~ ^[0-9]+$ ]]; then
+        # Fallback: no file yet, use shell-known height (no menu-bar inset — fullscreen assumed)
+        outer_top=$BAR_HEIGHT_NORMAL
+    fi
+    local want=$((outer_top + BAR_GAP))
     # Serialize against concurrent invocations (e.g. multiple monitors all calling in).
     _hub_lock_acquire "$HUB_CONFIG_LOCK_DIR" || return 0
     local cur
