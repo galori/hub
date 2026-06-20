@@ -810,13 +810,12 @@ class HubBarWindow: NSWindow {
             cluster.heightAnchor.constraint(equalToConstant: pillH + 4),
         ])
 
-        // Service mode indicator
-        if state.serviceMode {
-            let pill = makeServicePill()
-            pill.translatesAutoresizingMaskIntoConstraints = false
-            serviceModeLabel = pill
-            stack.addArrangedSubview(pill)
-        }
+        // Service mode indicator — always built so applyRefresh can show/hide it
+        let pill = makeServicePill()
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        pill.isHidden = !state.serviceMode
+        serviceModeLabel = pill
+        stack.addArrangedSubview(pill)
 
         // App icon group
         if !state.apps.isEmpty {
