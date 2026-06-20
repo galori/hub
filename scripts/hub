@@ -53,10 +53,10 @@ LOG_VIEWER_BIN="$HOME/.config/hub/log_viewer"
 HUB_LOG_FILE="$HOME/.config/hub/hub.log"
 FULLSCREEN_STATE_FILE="$HOME/.config/hub/fullscreen"
 
-# AeroSpace outer.top padding (px) — see config/aerospace.toml.
-# tall = notch-avoidance mode; normal = compact.
-BAR_PADDING_NORMAL=55
-BAR_PADDING_TALL=65
+# Bar heights (px) — MUST match barHeightNormal/barHeightTall in lib/status_bar.swift.
+BAR_HEIGHT_NORMAL=40
+BAR_HEIGHT_TALL=80
+BAR_GAP=8   # px between bar bottom and first tiled window
 
 # Ensure standard binary paths are available — AeroSpace's exec-and-forget
 # inherits a minimal environment that omits /usr/local/bin and /opt/homebrew/bin.
@@ -748,8 +748,9 @@ cmd_install() {
             cp "$AEROSPACE_CONFIG" "${AEROSPACE_CONFIG}.bak"
         fi
     fi
-    local outer_top=$BAR_PADDING_NORMAL
-    [[ -f "$HOME/.config/hub/bar_tall" ]] && outer_top=$BAR_PADDING_TALL
+    local bar_h=$BAR_HEIGHT_NORMAL
+    [[ -f "$HOME/.config/hub/bar_tall" ]] && bar_h=$BAR_HEIGHT_TALL
+    local outer_top=$((bar_h + BAR_GAP))
     sed -e "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" \
         -e "s|__HUB_OUTER_TOP__|$outer_top|g" \
         "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
@@ -2685,13 +2686,13 @@ cmd_bar_height() {
     case "$action" in
         tall)
             touch "$state_file"
-            sed -i '' "s/outer\.top =.*/outer.top =        $BAR_PADDING_TALL/" "$AEROSPACE_CONFIG"
+            sed -i '' "s/outer\.top =.*/outer.top =        $((BAR_HEIGHT_TALL + BAR_GAP))/" "$AEROSPACE_CONFIG"
             aerospace reload-config
             bar_refresh
             ;;
         normal)
             rm -f "$state_file"
-            sed -i '' "s/outer\.top =.*/outer.top =        $BAR_PADDING_NORMAL/" "$AEROSPACE_CONFIG"
+            sed -i '' "s/outer\.top =.*/outer.top =        $((BAR_HEIGHT_NORMAL + BAR_GAP))/" "$AEROSPACE_CONFIG"
             aerospace reload-config
             bar_refresh
             ;;
@@ -2718,6 +2719,26 @@ cmd_bar_height() {
     esac
 }
 
+cmd_bar_sync() {
+    # Read the bar's current height (written by status_bar.swift on every build).
+    local height
+    height=$(cat "$HOME/.config/hub/bar_height" 2>/dev/null)
+    [[ "$height" =~ ^[0-9]+$ ]] || height=$BAR_HEIGHT_NORMAL
+    local want=$((height + BAR_GAP))
+    # Serialize against concurrent invocations (e.g. multiple monitors all calling in).
+    _hub_lock_acquire "$HUB_CONFIG_LOCK_DIR" || return 0
+    local cur
+    cur=$(grep -E '^\s*outer\.top' "$AEROSPACE_CONFIG" 2>/dev/null | grep -oE '[0-9]+' | head -1)
+    if [[ "$cur" == "$want" ]]; then
+        _hub_lock_release "$HUB_CONFIG_LOCK_DIR"
+        return 0  # idempotent: skip reload if nothing changed
+    fi
+    sed -i '' "s/outer\.top =.*/outer.top =        $want/" "$AEROSPACE_CONFIG"
+    _hub_lock_release "$HUB_CONFIG_LOCK_DIR"
+    aerospace reload-config
+    # Note: do NOT call bar_refresh here — the bar triggered this, calling back would loop.
+}
+
 cmd_fullscreen() {
     local action="${1:-}"
     local is_on=false
@@ -2728,13 +2749,15 @@ cmd_fullscreen() {
             touch "$FULLSCREEN_STATE_FILE"
             hub_log INPUT "fullscreen on"
             _fullscreen_apply
-            sleep 0.8 && bar_refresh &
+            # Restart the bar after the menu bar hides so it reads the new visibleFrame.
+            sleep 0.8 && bar_restart &
             ;;
         off)
             rm -f "$FULLSCREEN_STATE_FILE"
             hub_log INPUT "fullscreen off"
             _fullscreen_restore
-            sleep 0.8 && bar_refresh &
+            # Restart the bar after the menu bar reappears so it reads the new visibleFrame.
+            sleep 0.8 && bar_restart &
             ;;
         toggle)
             if $is_on; then cmd_fullscreen off; else cmd_fullscreen on; fi
@@ -3247,6 +3270,7 @@ case "$command" in
     dashboard)    cmd_dashboard ;;
     label-length) cmd_label_length "$@" ;;
     bar-height)   cmd_bar_height "$@" ;;
+    bar-sync)     cmd_bar_sync ;;
     bar-reload|bar-restart) bar_restart ;;
     bar-refresh)  bar_refresh ;;
     bar-up)       bar_restart ;;

@@ -576,7 +576,8 @@ class BarWindow: NSWindow {
     init(screen: NSScreen) {
         self.barScreen = screen
         let sf = screen.frame
-        let r = NSRect(x: sf.minX, y: sf.maxY - barHeightNormal, width: sf.width, height: barHeightNormal)
+        let vf = screen.visibleFrame
+        let r = NSRect(x: sf.minX, y: vf.maxY - barHeightNormal, width: sf.width, height: barHeightNormal)
         super.init(contentRect: r, styleMask: .borderless, backing: .buffered, defer: false)
         level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
         backgroundColor = .clear
@@ -598,7 +599,16 @@ class BarWindow: NSWindow {
 
         let barH = state.barTall ? barHeightTall : barHeightNormal
         let sf = barScreen.frame
-        setFrame(NSRect(x: sf.minX, y: sf.maxY - barH, width: sf.width, height: barH), display: true)
+        let vf = barScreen.visibleFrame
+        setFrame(NSRect(x: sf.minX, y: vf.maxY - barH, width: sf.width, height: barH), display: true)
+        // Emit current height and sync aerospace outer.top = height + GAP.
+        // Using visibleFrame keeps us below the macOS menu bar on every monitor.
+        let heightPath = NSHomeDirectory() + "/.config/hub/bar_height"
+        try? "\(Int(barH))".write(toFile: heightPath, atomically: true, encoding: .utf8)
+        if let hub = hubScriptPath() {
+            Process.launchedProcess(launchPath: "/bin/sh",
+                arguments: ["-c", "'\(hub)' bar-sync >/dev/null 2>&1 &"])
+        }
 
         // Background
         let bg = BarBackgroundView(frame: cv.bounds)
@@ -1291,14 +1301,21 @@ class BarController: NSObject {
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.orderFrontRegardless() } }
         // Debounce screen parameter changes — Dock restart fires this notification multiple times
-        // while geometry is still settling (e.g. during hub fullscreen toggle).
+        // while geometry is still settling (e.g. during hub fullscreen toggle). Two rebuilds:
+        // a quick one at 0.5s to pick up most changes, and a backstop at 3.0s to catch cases
+        // where visibleFrame hasn't settled yet (e.g. menu-bar pref propagating after Dock restart).
         var screenDebounce: DispatchWorkItem?
+        var screenBackstop: DispatchWorkItem?
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main) { [weak self] _ in
                 screenDebounce?.cancel()
+                screenBackstop?.cancel()
                 let item = DispatchWorkItem { self?.buildWindows() }
                 screenDebounce = item
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
+                let backstop = DispatchWorkItem { self?.buildWindows() }
+                screenBackstop = backstop
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: backstop)
         }
     }
 }
