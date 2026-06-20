@@ -45,4 +45,28 @@ Rules:
   obtrusive by design — leaving it up is worse than never raising it.
 - Keep the message short (under ~40 chars). It's a signal, not a log.
 
+## Progress overlays for slow operations
+
+Any hub command that takes more than a moment (multi-step system changes,
+compiling, network operations, etc.) should show a progress overlay so the
+user knows what's happening.
+
+**Use `progress_start` / `progress_step` / `progress_stop`** (not `start_overlay`
+which is reserved for the full-screen install/uninstall modal):
+
+```bash
+progress_start "Doing the thing"
+progress_step "Step one…"
+# ... do step one ...
+progress_step "Step two…"
+# ... do step two ...
+progress_step "✓  Done"
+progress_stop
+```
+
+- Each `progress_step` call marks the previous step complete (✔) and starts the new one with a spinner.
+- The final `progress_step "✓  Done"` + `progress_stop` closes cleanly.
+- On error paths, call `progress_error "Short message"` instead of `progress_stop` — it shows a red state and auto-dismisses.
+- Keep step labels short and action-oriented (e.g. "Hiding menu bar…", "Restarting Dock…").
+
 @AGENTS.md

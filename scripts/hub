@@ -432,22 +432,34 @@ wait_for_menu_bar() {
 
 # Hide the Dock and menu bar. Blocks until the menu-bar AppleScript finishes.
 _fullscreen_apply() {
+    progress_start "Entering fullscreen"
+    progress_step "Hiding menu bar…"
     toggle_menu_bar true
+    progress_step "Configuring Dock…"
     defaults write com.apple.dock autohide -bool true
     defaults write com.apple.dock autohide-delay -float 1000
     defaults write com.apple.dock autohide-time-modifier -float 0
+    progress_step "Restarting Dock…"
     killall Dock
     wait_for_menu_bar
+    progress_step "✓  Done"
+    progress_stop
 }
 
 # Restore the Dock and menu bar.
 _fullscreen_restore() {
+    progress_start "Exiting fullscreen"
+    progress_step "Restoring menu bar…"
     toggle_menu_bar false
+    progress_step "Restoring Dock…"
     defaults write com.apple.dock autohide -bool false
     defaults delete com.apple.dock autohide-delay 2>/dev/null || true
     defaults delete com.apple.dock autohide-time-modifier 2>/dev/null || true
+    progress_step "Restarting Dock…"
     killall Dock
     wait_for_menu_bar
+    progress_step "✓  Done"
+    progress_stop
 }
 
 # --- Brew helpers ---
@@ -2717,14 +2729,12 @@ cmd_fullscreen() {
             hub_log INPUT "fullscreen on"
             _fullscreen_apply
             sleep 0.8 && bar_refresh &
-            success "Fullscreen on (dock and menu bar hidden)"
             ;;
         off)
             rm -f "$FULLSCREEN_STATE_FILE"
             hub_log INPUT "fullscreen off"
             _fullscreen_restore
             sleep 0.8 && bar_refresh &
-            success "Fullscreen off (dock and menu bar restored)"
             ;;
         toggle)
             if $is_on; then cmd_fullscreen off; else cmd_fullscreen on; fi
