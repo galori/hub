@@ -37,7 +37,7 @@ enum Theme {
         static let modalTop    = NSColor(argb: 0xFF1C1E25)
         static let modalBot    = NSColor(argb: 0xFF16181D)
         static let inputField  = NSColor(argb: 0xFF2C2F3B)
-        static let clusterBg   = NSColor(argb: 0xFF181A20)  // bar cluster occluder
+        static let clusterBg   = NSColor(argb: 0xFF181A20)  // Hub Bar cluster occluder
 
         // Borders / highlights
         static let border          = NSColor(white: 1, alpha: 0.06)
@@ -54,7 +54,7 @@ enum Theme {
         static let textFaint     = NSColor(argb: 0xFF5A5D68)
 
         // Accents
-        static let accentTeal   = NSColor(argb: 0xFF41D1C4)  // bar & teal highlights
+        static let accentTeal   = NSColor(argb: 0xFF41D1C4)  // Hub Bar // bar & teal highlights teal highlights
         static let accentBlue   = NSColor(argb: 0xFF3B82F6)  // launcher + modals
         static let ok           = NSColor(argb: 0xFF37D07A)  // active / ok / green
         static let activity     = NSColor(argb: 0xFFF0883E)  // activity dot / orange
@@ -67,7 +67,7 @@ enum Theme {
         static let okSoft         = NSColor(argb: 0x2437D07A)  // ok @14%
         static let activitySoft   = NSColor(argb: 0x24F0883E)  // activity @14%
 
-        // Pill states (status bar window pills)
+        // Pill states (Hub Bar window pills)
         static let pillIdleBg    = NSColor(argb: 0x09FFFFFF)   // white 3.5%
         static let pillHoverBg   = NSColor(argb: 0x17FFFFFF)   // white 9%
         static let pillIdxIdle   = NSColor(argb: 0xFF5A5D68)
@@ -75,11 +75,11 @@ enum Theme {
         static let pillIdxActive = NSColor(argb: 0x73000000)   // rgba(0,0,0,0.45)
         static let pillNameActive = NSColor(argb: 0xFF06201E)
 
-        // App group cluster (status bar)
+        // App group cluster (Hub Bar)
         static let appGroupBg     = NSColor(argb: 0x0BFFFFFF)  // white 4.5%
         static let appGroupBorder = NSColor(argb: 0x0DFFFFFF)  // white 5%
 
-        // Status dots (claude alert indicators on bar)
+        // Status dots (claude alert indicators on Hub Bar)
         static let dotOrange = NSColor(argb: 0xFFF0883E)
         static let dotBlue   = NSColor(argb: 0xFF76CCE0)
 
@@ -158,7 +158,7 @@ enum Theme {
         // Banner
         static let bannerW:        CGFloat = 360
         static let bannerMargin:   CGFloat = 16
-        static let barClearance:   CGFloat = 100  // vertical gap below status bar
+        static let barClearance:   CGFloat = 100  // vertical gap below Hub Bar
     }
 
     // ── ANSI palette ─────────────────────────────────────────────────────────

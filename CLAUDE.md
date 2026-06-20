@@ -14,7 +14,7 @@ screen or could disrupt their work. The banner itself is disruptive — use it
 only when necessary.
 
 **Raise the banner for:**
-- Restarting AeroSpace, the bar, or hub (causes visible bar flicker/reload)
+- Restarting AeroSpace, the Hub Bar, or hub (causes visible Hub Bar flicker/reload)
 - Opening a transient UI (dialog, HUD, popup) that appears on screen
 - Triggering keyboard-shortcut-driven flows where focus matters
 - Multi-step verifications where intermediate visible state must persist

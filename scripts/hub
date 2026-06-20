@@ -10,9 +10,9 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 LIB_DIR="$REPO_DIR/lib"
 CONFIG_DIR="$REPO_DIR/config"
 AEROSPACE_CONFIG="$HOME/.aerospace.toml"
-STATUS_BAR_SRC="$LIB_DIR/status_bar.swift"
-STATUS_BAR_BIN="$HOME/.config/hub/status_bar"
-STATUS_BAR_PIDFILE="$HOME/.config/hub/status_bar.pid"
+HUB_BAR_SRC="$LIB_DIR/hub_bar.swift"
+HUB_BAR_BIN="$HOME/.config/hub/hub_bar"
+HUB_BAR_PIDFILE="$HOME/.config/hub/hub_bar.pid"
 DIALOG_SRC="$LIB_DIR/new_workspace_dialog.swift"
 DIALOG_BIN="$HOME/.config/hub/new_workspace_dialog"
 CONFIRM_SRC="$LIB_DIR/confirm_dialog.swift"
@@ -53,10 +53,10 @@ LOG_VIEWER_BIN="$HOME/.config/hub/log_viewer"
 HUB_LOG_FILE="$HOME/.config/hub/hub.log"
 FULLSCREEN_STATE_FILE="$HOME/.config/hub/fullscreen"
 
-# Bar heights (px) — MUST match barHeightNormal/barHeightTall in lib/status_bar.swift.
-BAR_HEIGHT_NORMAL=40
-BAR_HEIGHT_TALL=80
-BAR_GAP=8   # px between bar bottom and first tiled window
+# Hub Bar heights (px) — MUST match barHeightNormal/barHeightTall in lib/hub_bar.swift.
+HUB_BAR_HEIGHT_NORMAL=40
+HUB_BAR_HEIGHT_TALL=80
+HUB_BAR_GAP=8   # px between bar bottom and first tiled window
 
 # Ensure standard binary paths are available — AeroSpace's exec-and-forget
 # inherits a minimal environment that omits /usr/local/bin and /opt/homebrew/bin.
@@ -80,7 +80,7 @@ print_usage() {
     echo
     echo -e "${bold}Commands:${reset}"
     echo "  install       Install Hub alias, check dependencies, compile binaries, and deploy configs"
-    echo "  up            Start AeroSpace, status bar, JankyBorders (restores fullscreen state if active)"
+    echo "  up            Start AeroSpace, Hub Bar, JankyBorders (restores fullscreen state if active)"
     echo "  down          Stop everything, restore the Dock and menu bar (preserves fullscreen state)"
     echo "  reboot        Stop, reinstall, and restart the Hub environment"
     echo "  new           Create a new workspace (opens dialog; pass flags to run silently)"
@@ -96,7 +96,7 @@ print_usage() {
     echo "  dashboard     Show status and key bindings in a full-screen modal"
     echo "  label-length  Shrink or grow workspace label max length (+/-/grow/shrink/min/max/number)"
     echo "  bar-height    Toggle bar height for notch avoidance (tall/normal/toggle)"
-    echo "  bar-reload    Restart the status bar (fix rendering inconsistencies)"
+    echo "  bar-reload    Restart the Hub Bar (fix rendering inconsistencies)"
     echo "  fullscreen    Hide/show the Dock and menu bar (on/off/toggle)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
     echo "  config        Get/set Hub options (e.g. claude_binary)"
@@ -545,7 +545,7 @@ compile_all() {
     compile_swift "progress_banner"      "$PROGRESS_BANNER_SRC" "$PROGRESS_BANNER_BIN" "$THEME_SRC"
     compile_swift "app_switcher"         "$APP_SWITCHER_SRC"  "$APP_SWITCHER_BIN"  "$THEME_SRC"
     compile_swift "log_viewer"           "$LOG_VIEWER_SRC"    "$LOG_VIEWER_BIN"    "$THEME_SRC"
-    compile_swift "status_bar"           "$STATUS_BAR_SRC"    "$STATUS_BAR_BIN"    "$THEME_SRC"
+    compile_swift "hub_bar"           "$HUB_BAR_SRC"    "$HUB_BAR_BIN"    "$THEME_SRC"
     # CLI-only helpers — no UI, no theme
     compile_swift "browser_ctl"          "$BROWSER_CTL_SRC"   "$BROWSER_CTL_BIN"
     compile_swift "spatial_order"        "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
@@ -748,9 +748,9 @@ cmd_install() {
             cp "$AEROSPACE_CONFIG" "${AEROSPACE_CONFIG}.bak"
         fi
     fi
-    local bar_h=$BAR_HEIGHT_NORMAL
-    [[ -f "$HOME/.config/hub/bar_tall" ]] && bar_h=$BAR_HEIGHT_TALL
-    local outer_top=$((bar_h + BAR_GAP))
+    local bar_h=$HUB_BAR_HEIGHT_NORMAL
+    [[ -f "$HOME/.config/hub/hub_bar_tall" ]] && bar_h=$HUB_BAR_HEIGHT_TALL
+    local outer_top=$((bar_h + HUB_BAR_GAP))
     sed -e "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" \
         -e "s|__HUB_OUTER_TOP__|$outer_top|g" \
         "$CONFIG_DIR/aerospace.toml" > "$AEROSPACE_CONFIG"
@@ -767,7 +767,7 @@ cmd_install() {
     fi
     local legacy_labels="$HOME/.config/hub/sketchybar_labels"
     if [[ -f "$legacy_labels" ]]; then
-        mv "$legacy_labels" "$HOME/.config/hub/bar_labels"
+        mv "$legacy_labels" "$HOME/.config/hub/hub_bar_labels"
     fi
 
     # --- Deploy app presets database ---
@@ -908,9 +908,9 @@ cmd_install() {
     # --- Reload running services ---
     echo
     echo -e "${bold}Reloading services...${reset}"
-    if [[ -f "$STATUS_BAR_PIDFILE" ]]; then
-        bar_restart
-        success "status bar restarted"
+    if [[ -f "$HUB_BAR_PIDFILE" ]]; then
+        hub_bar_restart
+        success "Hub Bar restarted"
     fi
     if pgrep -q AeroSpace; then
         aerospace reload-config 2>/dev/null || true
@@ -1121,7 +1121,7 @@ _create_workspace() {
     fi
 
     # Update bar label
-    update_bar_label "$ws_id" "$ws_name"
+    update_hub_bar_label "$ws_id" "$ws_name"
 
     # Switch to the workspace
     aerospace workspace "$ws_id"
@@ -1493,7 +1493,7 @@ WRAPPER
 }
 
 rebuild_labels_file() {
-    local labels_file="$HOME/.config/hub/bar_labels"
+    local labels_file="$HOME/.config/hub/hub_bar_labels"
     if [[ -f "$WORKSPACES_FILE" ]]; then
         # Format: workspace_id:name:color:repo_basename
         jq -r '.[] | [.workspace_id, .name, (.color // ""), ((.root_repo // "") | if . == "" then "" else (. | gsub(".*/"; "")) end)] | join(":")' \
@@ -1501,17 +1501,17 @@ rebuild_labels_file() {
     fi
 }
 
-update_bar_label() {
+update_hub_bar_label() {
     local ws_id="$1"
     local ws_name="$2"
     rebuild_labels_file
-    bar_refresh
+    hub_bar_refresh
 }
 
-remove_bar_label() {
+remove_hub_bar_label() {
     local ws_id="$1"
     rebuild_labels_file
-    bar_refresh
+    hub_bar_refresh
 }
 
 cmd_rename() {
@@ -1572,7 +1572,7 @@ cmd_rename() {
     echo "$updated" > "$WORKSPACES_FILE"
     _hub_lock_release
 
-    update_bar_label "$ws_id" "$new_name"
+    update_hub_bar_label "$ws_id" "$new_name"
 
     hub_log "INPUT" "rename workspace $ws_id: '$ws_name' → '$new_name'"
     success "Renamed workspace $ws_id: '$ws_name' → '$new_name'"
@@ -1706,10 +1706,10 @@ cmd_status() {
     else
         echo -e "  ${red}✗${reset} AeroSpace"
     fi
-    if [[ -f "$STATUS_BAR_PIDFILE" ]] && kill -0 "$(cat "$STATUS_BAR_PIDFILE" 2>/dev/null)" 2>/dev/null; then
-        echo -e "  ${green}✓${reset} status bar"
+    if [[ -f "$HUB_BAR_PIDFILE" ]] && kill -0 "$(cat "$HUB_BAR_PIDFILE" 2>/dev/null)" 2>/dev/null; then
+        echo -e "  ${green}✓${reset} Hub Bar"
     else
-        echo -e "  ${red}✗${reset} status bar"
+        echo -e "  ${red}✗${reset} Hub Bar"
     fi
     if pgrep -q borders; then
         echo -e "  ${green}✓${reset} JankyBorders"
@@ -1866,7 +1866,7 @@ cmd_remove() {
         _hub_lock_release
     fi
 
-    remove_bar_label "$ws_id"
+    remove_hub_bar_label "$ws_id"
 
     if [[ -n "$windows" ]]; then
         progress_step "Closing windows…"
@@ -2512,7 +2512,7 @@ cmd_open() {
 }
 
 refresh_app_indicators() {
-    bar_refresh
+    hub_bar_refresh
 }
 
 KEYS_CACHE="$HOME/.config/hub/keys_cache"
@@ -2599,7 +2599,7 @@ cmd_repo_prefix() {
 
     echo "$current" > "$prefix_file"
     rebuild_labels_file
-    bar_refresh
+    hub_bar_refresh
 }
 
 cmd_label_length() {
@@ -2611,7 +2611,7 @@ cmd_label_length() {
 
     # Find longest label to cap the max
     local longest=0
-    local labels_file="$HOME/.config/hub/bar_labels"
+    local labels_file="$HOME/.config/hub/hub_bar_labels"
     if [[ -f "$labels_file" ]]; then
         while IFS=: read -r _ name _; do
             (( ${#name} > longest )) && longest=${#name}
@@ -2674,33 +2674,33 @@ cmd_label_length() {
         fi
     fi
     echo "$current" > "$maxlen_file"
-    bar_refresh
+    hub_bar_refresh
 }
 
-cmd_bar_height() {
+cmd_hub_bar_height() {
     local action="${1:-}"
-    local state_file="$HOME/.config/hub/bar_tall"
+    local state_file="$HOME/.config/hub/hub_bar_tall"
     local is_tall=false
     [[ -f "$state_file" ]] && is_tall=true
 
     case "$action" in
         tall)
             touch "$state_file"
-            sed -i '' "s/outer\.top =.*/outer.top =        $((BAR_HEIGHT_TALL + BAR_GAP))/" "$AEROSPACE_CONFIG"
+            sed -i '' "s/outer\.top =.*/outer.top =        $((HUB_BAR_HEIGHT_TALL + HUB_BAR_GAP))/" "$AEROSPACE_CONFIG"
             aerospace reload-config
-            bar_refresh
+            hub_bar_refresh
             ;;
         normal)
             rm -f "$state_file"
-            sed -i '' "s/outer\.top =.*/outer.top =        $((BAR_HEIGHT_NORMAL + BAR_GAP))/" "$AEROSPACE_CONFIG"
+            sed -i '' "s/outer\.top =.*/outer.top =        $((HUB_BAR_HEIGHT_NORMAL + HUB_BAR_GAP))/" "$AEROSPACE_CONFIG"
             aerospace reload-config
-            bar_refresh
+            hub_bar_refresh
             ;;
         toggle)
             if $is_tall; then
-                cmd_bar_height normal
+                cmd_hub_bar_height normal
             else
-                cmd_bar_height tall
+                cmd_hub_bar_height tall
             fi
             ;;
         "")
@@ -2719,17 +2719,17 @@ cmd_bar_height() {
     esac
 }
 
-cmd_bar_sync() {
-    # Read bar_outer_top written by status_bar.swift: barH + menuBarInset (from frame.maxY).
+cmd_hub_bar_sync() {
+    # Read hub_bar_outer_top written by hub_bar.swift: barH + menuBarInset (from frame.maxY).
     # AeroSpace measures outer.top from frame.maxY (absolute top), so the inset must be
     # included. Add BAR_GAP for the spacing between bar bottom and the first tiled window.
     local outer_top
-    outer_top=$(cat "$HOME/.config/hub/bar_outer_top" 2>/dev/null)
+    outer_top=$(cat "$HOME/.config/hub/hub_bar_outer_top" 2>/dev/null)
     if [[ ! "$outer_top" =~ ^[0-9]+$ ]]; then
         # Fallback: no file yet, use shell-known height (no menu-bar inset — fullscreen assumed)
-        outer_top=$BAR_HEIGHT_NORMAL
+        outer_top=$HUB_BAR_HEIGHT_NORMAL
     fi
-    local want=$((outer_top + BAR_GAP))
+    local want=$((outer_top + HUB_BAR_GAP))
     # Serialize against concurrent invocations (e.g. multiple monitors all calling in).
     _hub_lock_acquire "$HUB_CONFIG_LOCK_DIR" || return 0
     local cur
@@ -2754,15 +2754,15 @@ cmd_fullscreen() {
             touch "$FULLSCREEN_STATE_FILE"
             hub_log INPUT "fullscreen on"
             _fullscreen_apply
-            # Restart the bar after the menu bar hides so it reads the new visibleFrame.
-            sleep 0.8 && bar_restart &
+            # Restart the Hub Bar after the menu bar hides so it reads the new visibleFrame.
+            sleep 0.8 && hub_bar_restart &
             ;;
         off)
             rm -f "$FULLSCREEN_STATE_FILE"
             hub_log INPUT "fullscreen off"
             _fullscreen_restore
-            # Restart the bar after the menu bar reappears so it reads the new visibleFrame.
-            sleep 0.8 && bar_restart &
+            # Restart the Hub Bar after the menu bar reappears so it reads the new visibleFrame.
+            sleep 0.8 && hub_bar_restart &
             ;;
         toggle)
             if $is_on; then cmd_fullscreen off; else cmd_fullscreen on; fi
@@ -2795,45 +2795,45 @@ ensure_general_workspace() {
         updated="$(echo "$existing" | jq '. + [{name: "General", path: $ENV.HOME, root_repo: "", workspace_id: "Z"}]')"
         echo "$updated" > "$WORKSPACES_FILE"
         _hub_lock_release
-        update_bar_label "Z" "General"
+        update_hub_bar_label "Z" "General"
         success "Created General workspace (Z)"
     else
         _hub_lock_release
     fi
 }
 
-bar_refresh() {
-    if [[ -f "$STATUS_BAR_PIDFILE" ]]; then
+hub_bar_refresh() {
+    if [[ -f "$HUB_BAR_PIDFILE" ]]; then
         local _pid
-        _pid="$(cat "$STATUS_BAR_PIDFILE" 2>/dev/null || true)"
+        _pid="$(cat "$HUB_BAR_PIDFILE" 2>/dev/null || true)"
         [[ -n "$_pid" ]] && kill -USR1 "$_pid" 2>/dev/null || true
     fi
 }
 
-bar_down() {
+hub_bar_down() {
     local _running=false
-    if [[ -f "$STATUS_BAR_PIDFILE" ]]; then
+    if [[ -f "$HUB_BAR_PIDFILE" ]]; then
         local _pid
-        _pid="$(cat "$STATUS_BAR_PIDFILE" 2>/dev/null || true)"
+        _pid="$(cat "$HUB_BAR_PIDFILE" 2>/dev/null || true)"
         if [[ -n "$_pid" ]] && kill -0 "$_pid" 2>/dev/null; then
             kill "$_pid" 2>/dev/null || true
             local _i=0
             while kill -0 "$_pid" 2>/dev/null && [[ $_i -lt 20 ]]; do sleep 0.1; ((_i++)); done
             _running=true
         fi
-        rm -f "$STATUS_BAR_PIDFILE"
+        rm -f "$HUB_BAR_PIDFILE"
     fi
     # Fallback: kill any stray process
-    pkill -f "status_bar" 2>/dev/null || true
+    pkill -f "hub_bar" 2>/dev/null || true
     $_running
 }
 
-bar_restart() {
-    bar_down 2>/dev/null || true
-    if [[ -x "$STATUS_BAR_BIN" ]]; then
-        "$STATUS_BAR_BIN" &>/dev/null &
+hub_bar_restart() {
+    hub_bar_down 2>/dev/null || true
+    if [[ -x "$HUB_BAR_BIN" ]]; then
+        "$HUB_BAR_BIN" &>/dev/null &
         disown
-        bar_refresh
+        hub_bar_refresh
     fi
 }
 
@@ -2872,16 +2872,16 @@ cmd_up() {
     # Rebuild workspace labels cache (/tmp is cleared on reboot)
     rebuild_labels_file
 
-    # Launch native status bar daemon (kill stale instance first)
-    bar_down 2>/dev/null || true
-    if [[ -x "$STATUS_BAR_BIN" ]]; then
-        "$STATUS_BAR_BIN" &>/dev/null &
+    # Launch Hub Bar daemon (kill stale instance first)
+    hub_bar_down 2>/dev/null || true
+    if [[ -x "$HUB_BAR_BIN" ]]; then
+        "$HUB_BAR_BIN" &>/dev/null &
         disown
-        success "status bar started"
+        success "Hub Bar started"
     else
-        warn "status_bar not compiled — run hub install first"
+        warn "hub_bar not compiled — run hub install first"
     fi
-    bar_refresh
+    hub_bar_refresh
 
     if ! pgrep -q borders; then
         borders active_color=0xff00ff00 width=10.0 style=round &>/dev/null &
@@ -2938,11 +2938,11 @@ cmd_down() {
         warn "JankyBorders was not running"
     fi
 
-    # Stop status bar
-    if bar_down 2>/dev/null; then
-        success "status bar stopped"
+    # Stop Hub Bar
+    if hub_bar_down 2>/dev/null; then
+        success "Hub Bar stopped"
     else
-        warn "status bar was not running"
+        warn "Hub Bar was not running"
     fi
 
     # Stop AeroSpace
@@ -3180,7 +3180,7 @@ HOOKS_JSON
         echo "Done! Notification hooks are active."
         echo
         echo 'Toggles (all on by default; set to "0" to disable):'
-        echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on status bar workspace pill"
+        echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on Hub Bar workspace pill"
         echo "  HUB_CLAUDE_NOTIFY_SOUND — play alert sound (or set to a file path)"
         ;;
     uninstall|remove)
@@ -3244,7 +3244,7 @@ HOOKS_JSON
         echo "On user activity: restores normal pill. Type '.', 'dismiss', or 'clear' to clear silently."
         echo
         echo "Toggles (env vars, all on by default):"
-        echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on status bar workspace pill"
+        echo "  HUB_CLAUDE_NOTIFY_COLOR — amber border on Hub Bar workspace pill"
         echo "  HUB_CLAUDE_NOTIFY_SOUND — alert sound (path or 0)"
         ;;
     esac
@@ -3274,11 +3274,11 @@ case "$command" in
     keys)         cmd_keys ;;
     dashboard)    cmd_dashboard ;;
     label-length) cmd_label_length "$@" ;;
-    bar-height)   cmd_bar_height "$@" ;;
-    bar-sync)     cmd_bar_sync ;;
-    bar-reload|bar-restart) bar_restart ;;
-    bar-refresh)  bar_refresh ;;
-    bar-up)       bar_restart ;;
+    bar-height)   cmd_hub_bar_height "$@" ;;
+    bar-sync)     cmd_hub_bar_sync ;;
+    bar-reload|bar-restart) hub_bar_restart ;;
+    bar-refresh)  hub_bar_refresh ;;
+    bar-up)       hub_bar_restart ;;
     repo-prefix)  cmd_repo_prefix "$@" ;;
     fullscreen)   cmd_fullscreen "$@" ;;
     arrange-open-window) arrange_after_open "${1:-}" ;;

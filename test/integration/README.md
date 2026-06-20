@@ -1,7 +1,7 @@
 # Hub Live Integration Tests
 
 These tests run against **real, running macOS services** (AeroSpace,
-JankyBorders, the native Swift status bar). They are entirely separate from the
+JankyBorders, the native Swift Hub Bar). They are entirely separate from the
 stubbed unit-test suite in `test/` and are gated so they never run by accident.
 
 ---
@@ -16,8 +16,8 @@ repo's own templates), this is safe to run on your normal dev machine:
 
 - overwrites `~/.aerospace.toml` from `config/aerospace.toml` — same result
 - shell rc / global gitignore / `~/.claude/commands` — all guarded; no-op if already installed
-- recompiles Swift HUD binaries (including the native bar)
-- `hub up` restarts the native bar (brief flicker) and reloads AeroSpace config
+- recompiles Swift HUD binaries (including the Hub Bar)
+- `hub up` restarts the Hub Bar (brief flicker) and reloads AeroSpace config
 
 Visible side effects on your screen during the suite:
 - A brief bar reload flicker (test 1)
@@ -54,7 +54,7 @@ Tests must run in a **real `loginwindow` GUI session** on the display. The guard
 checks for `WindowServer` (present only in a live session). SSH sessions without
 a window server (headless) will self-skip.
 
-AeroSpace and the native bar do **not** need to be running before you start —
+AeroSpace and the Hub Bar do **not** need to be running before you start —
 test 1 launches them via `hub up`.
 
 ---
@@ -81,8 +81,8 @@ never touch `test/integration/`.
 
 | File | What it tests |
 |---|---|
-| `01_install_up.bats` | `hub install` (non-interactive) + `hub up` — services start, native bar running, bar_labels file created |
-| `02_new_workspace.bats` | `hub new` — worktree created, workspaces.json entry, `hub list`, bar_labels entry |
+| `01_install_up.bats` | `hub install` (non-interactive) + `hub up` — services start, Hub Bar running, hub_bar_labels file created |
+| `02_new_workspace.bats` | `hub new` — worktree created, workspaces.json entry, `hub list`, hub_bar_labels entry |
 | `03_new_workspace_custom_setup.bats` | Same + `.superset/config.json` `"setup"` hook writes a marker file in the worktree |
 
 ---

@@ -249,13 +249,13 @@ apps_remove_slot() {
     apps_refresh
 }
 
-# Refresh status bar after apps.json changes.
+# Refresh Hub Bar after apps.json changes.
 apps_refresh() {
-    if command -v bar_refresh >/dev/null 2>&1; then
-        bar_refresh
-    elif [ -f "$HOME/.config/hub/status_bar.pid" ]; then
+    if command -v hub_bar_refresh >/dev/null 2>&1; then
+        hub_bar_refresh
+    elif [ -f "$HOME/.config/hub/hub_bar.pid" ]; then
         local _pid
-        _pid="$(cat "$HOME/.config/hub/status_bar.pid" 2>/dev/null || true)"
+        _pid="$(cat "$HOME/.config/hub/hub_bar.pid" 2>/dev/null || true)"
         [ -n "$_pid" ] && kill -USR1 "$_pid" 2>/dev/null || true
     fi
 }

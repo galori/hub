@@ -2,7 +2,7 @@
 # Claude hook: track active/working state and clear alert state after user activity.
 # Triggered by: UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, SessionStart
 #
-# UserPromptSubmit / PreToolUse: set active state flag (bar pulse animation runs in Swift).
+# UserPromptSubmit / PreToolUse: set active state flag (Hub Bar pulse animation runs in Swift).
 # PostToolUse / PostToolUseFailure: do nothing — Claude is still mid-turn.
 # SessionStart: reset all state flags.
 # UserPromptSubmit with ".", "dismiss", or "clear": reset all state, block the prompt.

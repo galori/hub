@@ -3,7 +3,7 @@
 
 config-version = 2
 
-# hub: launch status bar and jankyborders on startup
+# hub: launch Hub Bar and jankyborders on startup
 after-startup-command = [
     'exec-and-forget __HUB_SCRIPT__ bar-up',
     'exec-and-forget borders active_color=0xff00ff00 width=10.0 style=round',
@@ -12,7 +12,7 @@ after-startup-command = [
 # hub: start at login
 start-at-login = true
 
-# hub: refresh status bar on workspace focus change
+# hub: refresh Hub Bar on workspace focus change
 exec-on-workspace-change = ['/bin/bash', '-c',
     '__HUB_SCRIPT__ bar-refresh']
 
@@ -198,7 +198,7 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     ctrl-alt-equal = 'exec-and-forget __HUB_SCRIPT__ label-length grow'
     ctrl-alt-shift-minus = 'exec-and-forget __HUB_SCRIPT__ label-length min'
     ctrl-alt-shift-equal = 'exec-and-forget __HUB_SCRIPT__ label-length max'
-    # hub: toggle bar height (notch avoidance) / reload bar
+    # hub: toggle Hub Bar height (notch avoidance) / reload Hub Bar
     ctrl-alt-shift-b = 'exec-and-forget __HUB_SCRIPT__ bar-height toggle'
     ctrl-alt-b = 'exec-and-forget __HUB_SCRIPT__ bar-reload'
     # hub: toggle repo name prefix on workspace labels

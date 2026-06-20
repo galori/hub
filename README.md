@@ -2,7 +2,7 @@
 
 <img src="assets/hub-logo.png" width="20%" align="right" style="padding:20px; ">
 
-A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https://github.com/nikitabobko/AeroSpace) (tiling window manager) and [JankyBorders](https://github.com/FelixKratz/JankyBorders) (window borders) with a native Swift status bar into a unified workspace manager.
+A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https://github.com/nikitabobko/AeroSpace) (tiling window manager) and [JankyBorders](https://github.com/FelixKratz/JankyBorders) (window borders) with a native Swift Hub Bar into a unified workspace manager.
 
 <img src="assets/hub-screenshot.png">
 <br/>
@@ -55,7 +55,7 @@ cd ~/workspace/hub
 This will:
 - Check and optionally install dependencies via Homebrew (aerospace, borders)
 - Deploy the AeroSpace config to `~/.aerospace.toml`
-- Compile Swift binaries (status bar, overlay HUD, workspace dialog, and more)
+- Compile Swift binaries (Hub Bar, overlay HUD, workspace dialog, and more)
 - Install a `hub` shell alias in your shell config
 - Deploy Claude Code slash commands to `~/.claude/commands/`
 
@@ -65,7 +65,7 @@ This will:
 hub up
 ```
 
-Starts AeroSpace, the native bar, and JankyBorders. Hides the macOS Dock and menu bar for a distraction-free tiled workspace.
+Starts AeroSpace, the Hub Bar, and JankyBorders. Hides the macOS Dock and menu bar for a distraction-free tiled workspace.
 
 ### Stop the environment
 
@@ -85,7 +85,7 @@ CLI alternative: `hub new`
 
 ### List workspaces
 
-The status bar displays all workspace labels at all times.
+The Hub Bar displays all workspace labels at all times.
 
 CLI alternative: `hub list` — shows a table of all defined workspaces with their ID, name, path, and root repo.
 
@@ -106,7 +106,7 @@ hub remove A -y   # remove without confirmation
 
 Press **`Ctrl+Alt+R`** to rename the current workspace.
 
-Opens a dialog to rename the workspace. Updates the bar label immediately.
+Opens a dialog to rename the workspace. Updates the Hub Bar label immediately.
 
 CLI alternative:
 ```sh
@@ -122,7 +122,7 @@ Opens the apps defined in `~/.config/hub/apps.json` in the current workspace. Sk
 
 Default apps: iTerm2, Safari, VS Code. Edit `~/.config/hub/apps.json` to customize (up to 5 slots).
 
-The status bar shows clickable app icons on the right side — full-size when open on the current workspace, dimmed when not.
+The Hub Bar shows clickable app icons on the right side — full-size when open on the current workspace, dimmed when not.
 
 CLI alternative:
 ```sh
@@ -135,7 +135,7 @@ hub open 2         # open just the second configured app (e.g., Safari)
 
 - **Keyboard-first**: Everything should be keyboard-only accessible, similar to how AeroSpace is designed for keyboard use, but also usable with the mouse.
 - **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command.
-- **Minimal chrome**: Hide the Dock and menu bar. The native bar provides only what's needed.
+- **Minimal chrome**: Hide the Dock and menu bar. The Hub Bar provides only what's needed.
 - **Single command**: `hub up` to start, `hub down` to stop. No manual config needed after install.
 
 ## Development

@@ -2,7 +2,7 @@
 
 ## Context
 
-Hub is a macOS workspace manager (~1800 lines bash) that orchestrates AeroSpace and app launching, with a native Swift status bar. It already has 8+ standalone Swift binaries for UI (dialogs, overlay, browser control, status bar). The goal is to move core orchestration logic into a single Swift binary (`hub-core`) while keeping peripheral scripts (install/deploy, up/down lifecycle) in bash. This gives type safety and eliminates fragile `jq` pipelines for the critical path, without rewriting everything.
+Hub is a macOS workspace manager (~1800 lines bash) that orchestrates AeroSpace and app launching, with a native Swift Hub Bar. It already has 8+ standalone Swift binaries for UI (dialogs, overlay, browser control, Hub Bar). The goal is to move core orchestration logic into a single Swift binary (`hub-core`) while keeping peripheral scripts (install/deploy, up/down lifecycle) in bash. This gives type safety and eliminates fragile `jq` pipelines for the critical path, without rewriting everything.
 
 ## Architecture
 
@@ -13,7 +13,7 @@ lib/core/
   main.swift          -- CLI dispatch (CommandLine.arguments)
   State.swift         -- Codable models, JSON persistence, label file generation
   Aerospace.swift     -- Process wrapper for aerospace CLI
-  BarRefresh.swift    -- Signal the native status bar to refresh (SIGUSR1)
+  BarRefresh.swift    -- Signal the Hub Bar to refresh (SIGUSR1)
   Tiling.swift        -- Window arrangement logic (2-5 window layouts)
   AppSlots.swift      -- App open/focus/cycle logic
   Navigation.swift    -- next/prev workspace cycling
@@ -56,7 +56,7 @@ No SPM, no Xcode. Same pattern as existing Swift binaries but multi-file.
 | `remove` (orchestration) | Launches confirm dialog, calls `hub-core delete`, cleans worktrees |
 | `dashboard` / `keys` | Terminal formatting, dialog launching |
 | `tree` | Delegates to existing Python agent script |
-| Native bar | Swift process — refreshed via SIGUSR1 |
+| Hub Bar | Swift process — refreshed via SIGUSR1 |
 
 ## Key models (`State.swift`)
 

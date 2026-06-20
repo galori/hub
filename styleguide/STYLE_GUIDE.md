@@ -8,9 +8,9 @@ This file is the fast working reference; it does not replace the HTML.
 
 ## Principles
 
-1. **Floating & docked** — every UI is either a floating panel (blur/shadow) or docked to the bar. No native titlebars.
+1. **Floating & docked** — every UI is either a floating panel (blur/shadow) or docked to the Hub Bar. No native titlebars.
 2. **Mono means machine** — monospace (`Theme.Font.mono`) for anything system-generated (paths, branch names, log output, step labels). Inter (`Theme.Font.ui`) for prose, titles, button labels.
-3. **One bright thing** — at most one accent color per surface (teal for the bar, blue for modals/launchers). Never mix accents on the same card.
+3. **One bright thing** — at most one accent color per surface (teal for the Hub Bar, blue for modals/launchers). Never mix accents on the same card.
 
 ---
 
@@ -58,7 +58,7 @@ Theme.applyCardBackground(to: view, radius: Theme.Radius.panel, kind: .panel)
 
 | Token | Hex | Usage |
 |---|---|---|
-| `Theme.Color.accentTeal` | `#41D1C4` | Status bar pills, bar elements |
+| `Theme.Color.accentTeal` | `#41D1C4` | Hub Bar pills, Hub Bar elements |
 | `Theme.Color.accentBlue` | `#3B82F6` | Modals, progress border, primary buttons |
 | `Theme.Color.ok` | `#37D07A` | Success state, checkmarks, "new worktree" row |
 | `Theme.Color.activity` | `#F0883E` | Activity indicator, orange accent |
@@ -98,7 +98,7 @@ Theme.Font.ui(size, weight: .bold)         // Button labels, dialog titles
 
 | Token | Value | Usage |
 |---|---|---|
-| `Theme.Radius.pill` | `8pt` | Status bar window pills, small tiles |
+| `Theme.Radius.pill` | `8pt` | Hub Bar window pills, small tiles |
 | `Theme.Radius.control` | `11pt` | Inputs, buttons, branch/worktree rows |
 | `Theme.Radius.panel` | `16pt` | Floating panels |
 | `Theme.Radius.modal` | `18pt` | Dialogs, overlays, progress container |
@@ -112,7 +112,7 @@ Theme.Font.ui(size, weight: .bold)         // Button labels, dialog titles
 ```swift
 Theme.Metric.bannerW        // 360pt  — progress/testing banner width
 Theme.Metric.bannerMargin   // 16pt   — gap from screen edge
-Theme.Metric.barClearance   // 100pt  — vertical gap below status bar
+Theme.Metric.barClearance   // 100pt  — vertical gap below Hub Bar
 Theme.Metric.buttonH        // 44pt   — standard button height
 Theme.Metric.inputH         // 48pt   — standard input height
 Theme.Metric.dialogPadH     // 26pt   — dialog horizontal padding
@@ -208,7 +208,7 @@ Theme.makeDismissButton(onPress: { dismiss() })
 
 All floating HUDs tied to an external process **must** include this button (`ignoresMouseEvents = false`).
 
-### Status Bar Pills
+### Hub Bar Pills
 
 ```swift
 bg (idle):   Theme.Color.pillIdleBg   // white @3.5%
@@ -249,7 +249,7 @@ Full-screen modal backdrops use `NSColor(white: 0, alpha: 0.85)` — intentional
 | File | Status | Notes |
 |---|---|---|
 | `lib/theme.swift` | ✅ Authoritative | All tokens, `applyCardBackground`, `makeDismissButton`, `makeKeycapLabel`, `ClickView`, `ansiColor` |
-| `lib/status_bar.swift` | ✅ Themed | Uses teal accent |
+| `lib/hub_bar.swift` | ✅ Themed | Uses teal accent |
 | `lib/progress_banner.swift` | ✅ Themed | Custom `SpinnerRing`, style-guide step rows |
 | `lib/overlay.swift` | ✅ Themed | Short-lived modal overlay |
 | `lib/confirm_dialog.swift` | ✅ Themed | Reference `CustomCheckbox` implementation |

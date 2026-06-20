@@ -4,7 +4,7 @@
 #               PermissionRequest (permission dialog appears)
 #
 # Toggles (all enabled by default; set to "0" to skip):
-#   HUB_CLAUDE_NOTIFY_COLOR — amber border on the status bar workspace pill
+#   HUB_CLAUDE_NOTIFY_COLOR — amber border on the Hub Bar workspace pill
 #   HUB_CLAUDE_NOTIFY_SOUND — play alert sound (set to a file path for custom sound)
 
 set -euo pipefail
@@ -62,7 +62,7 @@ HUB_PATH_FILE="$HOME/.config/hub/hub_path"
 HUB_SCRIPT=""
 [ -f "$HUB_PATH_FILE" ] && HUB_SCRIPT="$(cat "$HUB_PATH_FILE" 2>/dev/null || true)"
 
-# --- Amber workspace pill (clear active state, set attention state, refresh bar) ---
+# --- Amber workspace pill (clear active state, set attention state, refresh Hub Bar) ---
 if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ]; then
     rm -f "/tmp/hub_claude_active_${WS_ID}"
     touch "/tmp/hub_claude_alert_${WS_ID}"

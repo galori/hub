@@ -2,9 +2,9 @@ import Cocoa
 import IOKit.ps
 import CoreAudio
 
-// Single-file native Swift status bar for hub.
+// Single-file native Swift Hub Bar for hub.
 // Reads state files + aerospace queries on SIGUSR1, re-renders all views.
-// PID written to ~/.config/hub/status_bar.pid; hub bar-refresh sends SIGUSR1.
+// PID written to ~/.config/hub/hub_bar.pid; hub bar-refresh sends SIGUSR1.
 
 // ──────────────────────────────────────────────────────────────────────────────
 // MARK: – Local aliases & geometry  (colors come from Theme in theme.swift)
@@ -22,7 +22,7 @@ let GRAD_TOP:    UInt32 = 0xFF1A1C22
 let GRAD_BOT:    UInt32 = 0xFF15171C
 let CLUSTER_BG:  UInt32 = 0xFF181A20
 
-// ── Accent (teal drives the status bar) ──
+// ── Accent (teal drives the Hub Bar) ──
 let ACCENT:      UInt32 = 0xFF41D1C4
 let ACCENT_SOFT: UInt32 = 0x2241D1C4
 let ACCENT_DOT:  UInt32 = 0xFF41D1C4
@@ -118,14 +118,14 @@ func hubScriptPath() -> String? {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// MARK: – BarState
+// MARK: – HubBarState
 // ──────────────────────────────────────────────────────────────────────────────
 
 struct WsInfo {
     var id: String; var name: String; var color: String; var repo: String
 }
 
-struct BarState {
+struct HubBarState {
     var focused: String = ""
     var active: Set<String> = []
     var wsInfo: [String: WsInfo] = [:]
@@ -139,8 +139,8 @@ struct BarState {
     var claudeAlert: Set<String> = []
     var claudeActive: Set<String> = []
 
-    static func snapshot() -> BarState {
-        var s = BarState()
+    static func snapshot() -> HubBarState {
+        var s = HubBarState()
         let hub = NSHomeDirectory() + "/.config/hub"
 
         s.focused = Aerospace.run(["list-workspaces", "--focused"])
@@ -156,7 +156,7 @@ struct BarState {
         }
 
         // Labels file
-        let labelsFile = hub + "/bar_labels"
+        let labelsFile = hub + "/hub_bar_labels"
         if let lines = try? String(contentsOfFile: labelsFile, encoding: .utf8) {
             for line in lines.split(separator: "\n") {
                 let parts = line.split(separator: ":", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
@@ -195,7 +195,7 @@ struct BarState {
         }
 
         // bar_tall
-        s.barTall = FileManager.default.fileExists(atPath: hub + "/bar_tall")
+        s.barTall = FileManager.default.fileExists(atPath: hub + "/hub_bar_tall")
 
         // service mode
         s.serviceMode = FileManager.default.fileExists(atPath: "/tmp/hub_service_mode")
@@ -241,10 +241,10 @@ struct BarState {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// MARK: – BarBackgroundView (gradient + highlight + border)
+// MARK: – HubBarBackgroundView (gradient + highlight + border)
 // ──────────────────────────────────────────────────────────────────────────────
 
-class BarBackgroundView: NSView {
+class HubBarBackgroundView: NSView {
     private let gradLayer = CAGradientLayer()
     private let highlightLayer = CALayer()
 
@@ -279,10 +279,10 @@ class BarBackgroundView: NSView {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// MARK: – BarClickView
+// MARK: – HubBarClickView
 // ──────────────────────────────────────────────────────────────────────────────
 
-class BarClickView: NSView {
+class HubBarClickView: NSView {
     var onPress: (() -> Void)?
     var hoverBG: NSColor = NSColor(argb: HOVER_BG)
     var normalBG: NSColor = .clear
@@ -444,7 +444,7 @@ class WorkspacePill: NSView {
 // MARK: – AppSlotView (launcher icon)
 // ──────────────────────────────────────────────────────────────────────────────
 
-class AppSlotView: BarClickView {
+class AppSlotView: HubBarClickView {
     let imageView = NSImageView()
     let dotView   = NSView()
     let tipLabel  = NSTextField(labelWithString: "")
@@ -493,7 +493,7 @@ class AppSlotView: BarClickView {
 // MARK: – WsWinSlotView
 // ──────────────────────────────────────────────────────────────────────────────
 
-class WsWinSlotView: BarClickView {
+class WsWinSlotView: HubBarClickView {
     let imageView = NSImageView()
     var windowIDs: [Int] = []; var rotateIdx = 0
 
@@ -551,10 +551,10 @@ class VolumePopupWindow: NSWindow {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// MARK: – BarWindow (one per NSScreen)
+// MARK: – HubBarWindow (one per NSScreen)
 // ──────────────────────────────────────────────────────────────────────────────
 
-class BarWindow: NSWindow {
+class HubBarWindow: NSWindow {
     let barScreen: NSScreen
     var monitorIndex: Int = 1
     let leadingStack  = NSStackView()
@@ -585,7 +585,7 @@ class BarWindow: NSWindow {
         self.barScreen = screen
         let sf = screen.frame
         let vf = screen.visibleFrame
-        let topY = BarWindow.barTopY(sf: sf, vf: vf)
+        let topY = HubBarWindow.barTopY(sf: sf, vf: vf)
         let r = NSRect(x: sf.minX, y: topY - barHeightNormal, width: sf.width, height: barHeightNormal)
         super.init(contentRect: r, styleMask: .borderless, backing: .buffered, defer: false)
         // .statusBar (25) floats above all app windows but below macOS pull-down menus.
@@ -599,7 +599,7 @@ class BarWindow: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
     }
 
-    func buildContents(state: BarState) {
+    func buildContents(state: HubBarState) {
         let cv = contentView!
         leadingStack.arrangedSubviews.forEach { leadingStack.removeArrangedSubview($0); $0.removeFromSuperview() }
         trailingStack.arrangedSubviews.forEach { trailingStack.removeArrangedSubview($0); $0.removeFromSuperview() }
@@ -611,7 +611,7 @@ class BarWindow: NSWindow {
         let barH = state.barTall ? barHeightTall : barHeightNormal
         let sf = barScreen.frame
         let vf = barScreen.visibleFrame
-        let topY = BarWindow.barTopY(sf: sf, vf: vf)
+        let topY = HubBarWindow.barTopY(sf: sf, vf: vf)
         setFrame(NSRect(x: sf.minX, y: topY - barH, width: sf.width, height: barH), display: true)
         // Write bar height and the required aerospace outer.top for the primary screen.
         // outer.top is measured by AeroSpace from frame.maxY (absolute top), so it must
@@ -620,15 +620,15 @@ class BarWindow: NSWindow {
         // inset for the auto-hide zone, but the bar is flush with the screen top so menuInset=0.
         let menuInset = topY >= sf.maxY ? 0 : Int(sf.maxY - vf.maxY)
         let home = NSHomeDirectory()
-        try? "\(Int(barH))".write(toFile: home + "/.config/hub/bar_height", atomically: true, encoding: .utf8)
-        try? "\(Int(barH) + menuInset)".write(toFile: home + "/.config/hub/bar_outer_top", atomically: true, encoding: .utf8)
+        try? "\(Int(barH))".write(toFile: home + "/.config/hub/hub_bar_height", atomically: true, encoding: .utf8)
+        try? "\(Int(barH) + menuInset)".write(toFile: home + "/.config/hub/hub_bar_outer_top", atomically: true, encoding: .utf8)
         if let hub = hubScriptPath() {
             Process.launchedProcess(launchPath: "/bin/sh",
                 arguments: ["-c", "'\(hub)' bar-sync >/dev/null 2>&1 &"])
         }
 
         // Background
-        let bg = BarBackgroundView(frame: cv.bounds)
+        let bg = HubBarBackgroundView(frame: cv.bounds)
         bg.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(bg)
         NSLayoutConstraint.activate([
@@ -647,7 +647,7 @@ class BarWindow: NSWindow {
 
     // ── Compact layout ───────────────────────────────────────────────────────
 
-    func buildCompactLayout(cv: NSView, state: BarState) {
+    func buildCompactLayout(cv: NSView, state: HubBarState) {
         // Cluster (right side) — opaque so it occludes overflowing pills
         let cluster = buildCluster(state: state)
         cluster.translatesAutoresizingMaskIntoConstraints = false
@@ -691,7 +691,7 @@ class BarWindow: NSWindow {
 
     // ── Tall layout ──────────────────────────────────────────────────────────
 
-    func buildTallLayout(cv: NSView, state: BarState) {
+    func buildTallLayout(cv: NSView, state: HubBarState) {
         let rowH: CGFloat = barHeightTall / 2
 
         // Top row: cluster right-aligned
@@ -738,7 +738,7 @@ class BarWindow: NSWindow {
 
     // ── Workspace strip ──────────────────────────────────────────────────────
 
-    func buildWorkspaceStrip(state: BarState, tall: Bool) {
+    func buildWorkspaceStrip(state: HubBarState, tall: Bool) {
         let monitorWs = state.monitorWorkspaces[monitorIndex]
         for ws in ALL_WS {
             if let monWs = monitorWs, !monWs.contains(ws) { continue }
@@ -751,7 +751,7 @@ class BarWindow: NSWindow {
         applyWorkspaceState(state: state, tall: tall)
     }
 
-    func applyWorkspaceState(state: BarState, tall: Bool) {
+    func applyWorkspaceState(state: HubBarState, tall: Bool) {
         for ws in ALL_WS {
             guard let pill = wsPills[ws] else { continue }
             let isActive  = state.active.contains(ws) || ws == state.focused
@@ -789,7 +789,7 @@ class BarWindow: NSWindow {
 
     // ── Cluster (right-side widgets) ─────────────────────────────────────────
 
-    func buildCluster(state: BarState) -> NSView {
+    func buildCluster(state: HubBarState) -> NSView {
         // The cluster is an opaque view so it occludes pills sliding under it.
         let cluster = NSView()
         cluster.wantsLayer = true
@@ -842,7 +842,7 @@ class BarWindow: NSWindow {
 
     // ── App icon group ───────────────────────────────────────────────────────
 
-    func buildAppIconGroup(state: BarState) -> NSView {
+    func buildAppIconGroup(state: HubBarState) -> NSView {
         let group = NSView()
         group.wantsLayer = true
         group.layer?.backgroundColor = NSColor(argb: APPGRP_BG).cgColor
@@ -951,7 +951,7 @@ class BarWindow: NSWindow {
     func buildVolume(into stack: NSStackView) {
         let (ws, ic, lbl) = makeBareIconLabel(icon: "󰕾", iconColor: C_BLUE)
         volIcon = ic; volLabel = lbl
-        let click = BarClickView(frame: .zero)
+        let click = HubBarClickView(frame: .zero)
         click.translatesAutoresizingMaskIntoConstraints = false
         click.onPress = { [weak self] in self?.toggleVolumePopup() }
         let wrap = NSView()
@@ -981,7 +981,7 @@ class BarWindow: NSWindow {
     func buildBattery(into stack: NSStackView) {
         let (ws, ic, lbl) = makeBareIconLabel(icon: "󰁹", iconColor: C_GREEN)
         battIcon = ic; battLabel = lbl
-        let click = BarClickView(frame: .zero)
+        let click = HubBarClickView(frame: .zero)
         click.translatesAutoresizingMaskIntoConstraints = false
         click.onPress = { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.battery")!) }
         let wrap = NSView()
@@ -1130,7 +1130,7 @@ class BarWindow: NSWindow {
         volLabel?.stringValue = "\(pct)%"
     }
 
-    func applyRefresh(state: BarState) {
+    func applyRefresh(state: HubBarState) {
         applyWorkspaceState(state: state, tall: state.barTall)
         updateClock(); updateBattery(); updateVolume()
         serviceModeLabel?.isHidden = !state.serviceMode
@@ -1195,7 +1195,7 @@ class BarWindow: NSWindow {
         slider.target = target; slider.action = #selector(VolumeSliderTarget.sliderChanged(_:))
         objc_setAssociatedObject(popup, "sliderTarget", target, .OBJC_ASSOCIATION_RETAIN)
 
-        let muteBtn = BarClickView(frame: .zero)
+        let muteBtn = HubBarClickView(frame: .zero)
         muteBtn.translatesAutoresizingMaskIntoConstraints = false
         muteBtn.onPress = { [weak self] in
             var mut: UInt32 = 0; var mutSz = UInt32(MemoryLayout<UInt32>.size)
@@ -1235,18 +1235,18 @@ class VolumeSliderTarget: NSObject {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// MARK: – BarController
+// MARK: – HubBarController
 // ──────────────────────────────────────────────────────────────────────────────
 
-class BarController: NSObject {
-    var windows: [BarWindow] = []
+class HubBarController: NSObject {
+    var windows: [HubBarWindow] = []
     var clockTimer: Timer?; var batteryTimer: Timer?; var pulseTimer: Timer?
-    var pulseBright = true; var lastState = BarState()
+    var pulseBright = true; var lastState = HubBarState()
 
     func start() { writePIDFile(); buildWindows(); installSignalSource(); startTimers() }
 
     func writePIDFile() {
-        let path = NSHomeDirectory() + "/.config/hub/status_bar.pid"
+        let path = NSHomeDirectory() + "/.config/hub/hub_bar.pid"
         try? "\(ProcessInfo.processInfo.processIdentifier)\n".write(toFile: path, atomically: true, encoding: .utf8)
     }
 
@@ -1293,14 +1293,14 @@ class BarController: NSObject {
     func buildWindows() {
         windows.forEach { $0.close() }; windows.removeAll()
         DispatchQueue.global(qos: .userInitiated).async {
-            let state = BarState.snapshot()
+            let state = HubBarState.snapshot()
             let sortedScreens = NSScreen.screens.sorted { $0.frame.minX < $1.frame.minX }
             let monitorIDs = state.monitorWorkspaces.keys.sorted()
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 self.lastState = state
                 for (i, screen) in sortedScreens.enumerated() {
-                    let w = BarWindow(screen: screen)
+                    let w = HubBarWindow(screen: screen)
                     w.monitorIndex = monitorIDs.indices.contains(i) ? monitorIDs[i] : (i + 1)
                     w.buildContents(state: state)
                     self.windows.append(w)
@@ -1326,7 +1326,7 @@ class BarController: NSObject {
 
     func refresh() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let state = BarState.snapshot()
+            let state = HubBarState.snapshot()
             DispatchQueue.main.async {
                 let prevTall = self?.lastState.barTall ?? false
                 self?.lastState = state
@@ -1384,19 +1384,19 @@ class BarController: NSObject {
 // MARK: – Entry point
 // ──────────────────────────────────────────────────────────────────────────────
 
-let pidFile = NSHomeDirectory() + "/.config/hub/status_bar.pid"
+let pidFile = NSHomeDirectory() + "/.config/hub/hub_bar.pid"
 if let existing = try? String(contentsOfFile: pidFile, encoding: .utf8),
    let existingPID = Int(existing.trimmingCharacters(in: .whitespacesAndNewlines)),
    existingPID != Int(ProcessInfo.processInfo.processIdentifier) {
     let alive = kill(pid_t(existingPID), 0) == 0
-    if alive { fputs("status_bar: another instance already running (pid \(existingPID))\n", stderr); exit(1) }
+    if alive { fputs("hub_bar: another instance already running (pid \(existingPID))\n", stderr); exit(1) }
 }
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    let controller = BarController()
+    let controller = HubBarController()
     func applicationDidFinishLaunching(_ n: Notification) { controller.start() }
 }
 
