@@ -2716,12 +2716,14 @@ cmd_fullscreen() {
             touch "$FULLSCREEN_STATE_FILE"
             hub_log INPUT "fullscreen on"
             _fullscreen_apply
+            sleep 0.8 && bar_refresh &
             success "Fullscreen on (dock and menu bar hidden)"
             ;;
         off)
             rm -f "$FULLSCREEN_STATE_FILE"
             hub_log INPUT "fullscreen off"
             _fullscreen_restore
+            sleep 0.8 && bar_refresh &
             success "Fullscreen off (dock and menu bar restored)"
             ;;
         toggle)

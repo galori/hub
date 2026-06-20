@@ -1289,8 +1289,16 @@ class BarController: NSObject {
         // Re-assert windows when a full-screen transition creates/destroys a space
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.orderFrontRegardless() } }
+        // Debounce screen parameter changes — Dock restart fires this notification multiple times
+        // while geometry is still settling (e.g. during hub fullscreen toggle).
+        var screenDebounce: DispatchWorkItem?
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
-            object: nil, queue: .main) { [weak self] _ in self?.buildWindows() }
+            object: nil, queue: .main) { [weak self] _ in
+                screenDebounce?.cancel()
+                let item = DispatchWorkItem { self?.buildWindows() }
+                screenDebounce = item
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
+        }
     }
 }
 
