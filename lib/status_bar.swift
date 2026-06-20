@@ -583,6 +583,7 @@ class BarWindow: NSWindow {
         isOpaque = false
         hasShadow = false
         ignoresMouseEvents = false
+        isReleasedWhenClosed = false  // ARC owns lifetime; prevent double-free on close()
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
     }
 
