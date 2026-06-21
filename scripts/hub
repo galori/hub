@@ -29,6 +29,8 @@ BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
 BROWSER_CTL_BIN="$HOME/.config/hub/browser_ctl"
 SPATIAL_ORDER_SRC="$LIB_DIR/spatial_order.swift"
 SPATIAL_ORDER_BIN="$HOME/.config/hub/spatial_order"
+FLOAT_NUDGE_SRC="$LIB_DIR/float_nudge.swift"
+FLOAT_NUDGE_BIN="$HOME/.config/hub/float_nudge"
 THEME_SRC="$LIB_DIR/theme.swift"
 TESTING_BANNER_PIDFILE="$HOME/.config/hub/testing_banner.pid"
 PROGRESS_BANNER_SRC="$LIB_DIR/progress_banner.swift"
@@ -549,6 +551,7 @@ compile_all() {
     # CLI-only helpers — no UI, no theme
     compile_swift "browser_ctl"          "$BROWSER_CTL_SRC"   "$BROWSER_CTL_BIN"
     compile_swift "spatial_order"        "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
+    compile_swift "float_nudge"          "$FLOAT_NUDGE_SRC"   "$FLOAT_NUDGE_BIN"
     if [[ -f "$REPO_DIR/assets/hub-logo.png" ]]; then
         cp "$REPO_DIR/assets/hub-logo.png" "$HOME/.config/hub/hub-logo.png"
         success "hub-logo.png deployed"
@@ -2057,6 +2060,30 @@ arrange_after_open() {
 # arrange_workspace_windows WS_ID WID... — arranges by current geometry, ignoring the wid list.
 arrange_workspace_windows() { local ws_id="$1"; arrange_workspace "$ws_id"; }
 
+# nudge_float_window AEROSPACE_WINDOW_ID
+# Moves a floating window down so it doesn't spawn under the Hub Bar.
+# Called from on-window-detected for all floating windows.
+nudge_float_window() {
+    local aero_wid="${1:-}"
+    [[ -z "$aero_wid" ]] && return 0
+    [[ ! -x "$FLOAT_NUDGE_BIN" ]] && return 0
+
+    # Get the app PID for this AeroSpace window.
+    local app_pid
+    app_pid="$(aerospace list-windows --all \
+        --format '%{window-id}|%{app-pid}' 2>/dev/null \
+        | awk -F'|' -v id="$aero_wid" '$1==id {print $2; exit}')"
+
+    [[ -z "$app_pid" || ! "$app_pid" =~ ^[0-9]+$ ]] && return 0
+
+    # Read the bar height from the file written by hub_bar.swift.
+    local bar_h
+    bar_h="$(cat "$HOME/.config/hub/hub_bar_outer_top" 2>/dev/null || echo "$HUB_BAR_HEIGHT_NORMAL")"
+    [[ ! "$bar_h" =~ ^[0-9]+$ ]] && bar_h=$HUB_BAR_HEIGHT_NORMAL
+
+    "$FLOAT_NUDGE_BIN" "$app_pid" "$bar_h" &
+}
+
 # _launch_and_corral APP_NAME LAUNCH_CMD WS_ID [LAUNCH_DIR]
 # Runs LAUNCH_CMD, waits (up to 8s) for a NEW window of APP_NAME to appear, then
 # moves it to WS_ID (if it didn't already land there) and focuses it. This is the
@@ -3282,6 +3309,7 @@ case "$command" in
     repo-prefix)  cmd_repo_prefix "$@" ;;
     fullscreen)   cmd_fullscreen "$@" ;;
     arrange-open-window) arrange_after_open "${1:-}" ;;
+    nudge-float-window) nudge_float_window "${1:-}" ;;
     log)            cmd_log "$@" ;;
     config)         cmd_config "$@" ;;
     testing-banner) cmd_testing_banner "$@" ;;

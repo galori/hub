@@ -64,9 +64,10 @@ if.app-id = 'dev.zed.Zed'
 check-further-callbacks = false
 run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WORKSPACE_ID']
 
-# Everything else floats by default
+# Everything else floats by default; nudge it below the Hub Bar if needed.
 [[on-window-detected]]
-run = 'layout floating'
+run = ['layout floating',
+       'exec-and-forget __HUB_SCRIPT__ nudge-float-window $AEROSPACE_WINDOW_ID']
 
 # See https://nikitabobko.github.io/AeroSpace/guide#key-mapping
 [key-mapping]
