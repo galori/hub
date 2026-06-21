@@ -2747,13 +2747,12 @@ cmd_hub_bar_height() {
 }
 
 cmd_hub_bar_sync() {
-    # Read hub_bar_outer_top written by hub_bar.swift: barH + menuBarInset (from frame.maxY).
-    # AeroSpace measures outer.top from frame.maxY (absolute top), so the inset must be
-    # included. Add BAR_GAP for the spacing between bar bottom and the first tiled window.
+    # Read hub_bar_height written by hub_bar.swift: actual rendered bar height in px.
+    # AeroSpace outer.top is measured from visibleFrame.maxY (below the menu bar), so
+    # it needs only barHeight + gap — NOT barHeight + menuBarInset + gap.
     local outer_top
-    outer_top=$(cat "$HOME/.config/hub/hub_bar_outer_top" 2>/dev/null)
+    outer_top=$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null)
     if [[ ! "$outer_top" =~ ^[0-9]+$ ]]; then
-        # Fallback: no file yet, use shell-known height (no menu-bar inset — fullscreen assumed)
         outer_top=$HUB_BAR_HEIGHT_NORMAL
     fi
     local want=$((outer_top + HUB_BAR_GAP))
