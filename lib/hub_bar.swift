@@ -213,13 +213,13 @@ struct HubBarState {
         return s
     }
 
-    // Returns (idx, name) spans for display. tall=true ⇒ never truncate.
+    // Returns (idx, name) spans for display.
     func spansFor(ws: String, tall: Bool) -> (idx: String, name: String) {
         guard let info = wsInfo[ws], !info.name.isEmpty else { return (ws, "") }
         var name = info.name
         if repoPrefix, !info.repo.isEmpty, name != info.repo { name = "\(info.repo):\(name)" }
         if labelMaxLen == 0 { return (ws, "") }
-        if !tall, labelMaxLen > 0, name.count > labelMaxLen, ws != focused {
+        if labelMaxLen > 0, name.count > labelMaxLen, ws != focused {
             return (ws, String(name.prefix(labelMaxLen)) + "…")
         }
         return (ws, name)
