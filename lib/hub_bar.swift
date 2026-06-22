@@ -57,7 +57,6 @@ let SERVICE_BG: UInt32 = 0xFFC91B00
 
 // ── Geometry ──
 let barHeightNormal: CGFloat = 40
-let barHeightTall:   CGFloat = 80
 let pillH:           CGFloat = Theme.Metric.pillH
 let pillRadius:      CGFloat = Theme.Radius.pill
 let pillPadH:        CGFloat = Theme.Metric.pillPadH
@@ -125,6 +124,8 @@ struct WsInfo {
     var id: String; var name: String; var color: String; var repo: String
 }
 
+enum LayoutMode { case auto, manual }
+
 struct HubBarState {
     var focused: String = ""
     var active: Set<String> = []
@@ -138,6 +139,7 @@ struct HubBarState {
     var serviceMode: Bool = false
     var claudeAlert: Set<String> = []
     var claudeActive: Set<String> = []
+    var layoutMode: LayoutMode = .auto
 
     static func snapshot() -> HubBarState {
         var s = HubBarState()
@@ -194,8 +196,13 @@ struct HubBarState {
             s.repoPrefix = v.trimmingCharacters(in: .whitespacesAndNewlines) == "on"
         }
 
-        // bar_tall
+        // bar_tall (manual mode legacy)
         s.barTall = FileManager.default.fileExists(atPath: hub + "/hub_bar_tall")
+
+        // layout_mode
+        if let v = try? String(contentsOfFile: hub + "/layout_mode", encoding: .utf8) {
+            s.layoutMode = v.trimmingCharacters(in: .whitespacesAndNewlines) == "manual" ? .manual : .auto
+        }
 
         // service mode
         s.serviceMode = FileManager.default.fileExists(atPath: "/tmp/hub_service_mode")
@@ -213,21 +220,21 @@ struct HubBarState {
         return s
     }
 
-    // Returns (idx, name) spans for display.
-    func spansFor(ws: String, tall: Bool) -> (idx: String, name: String) {
+    // Returns (idx, name) spans for display, using the given effective cap.
+    func spansFor(ws: String, cap: Int) -> (idx: String, name: String) {
         guard let info = wsInfo[ws], !info.name.isEmpty else { return (ws, "") }
         var name = info.name
         if repoPrefix, !info.repo.isEmpty, name != info.repo { name = "\(info.repo):\(name)" }
-        if labelMaxLen == 0 { return (ws, "") }
-        if labelMaxLen > 0, name.count > labelMaxLen, ws != focused {
-            return (ws, String(name.prefix(labelMaxLen)) + "…")
+        if cap == 0 { return (ws, "") }
+        if cap > 0, name.count > cap, ws != focused {
+            return (ws, String(name.prefix(cap)) + "…")
         }
         return (ws, name)
     }
 
     // Kept for backward compat
     func labelFor(ws: String) -> String {
-        let (idx, name) = spansFor(ws: ws, tall: false)
+        let (idx, name) = spansFor(ws: ws, cap: labelMaxLen)
         return name.isEmpty ? idx : "\(idx) \(name)"
     }
 
@@ -238,6 +245,202 @@ struct HubBarState {
         }
         return slotColorMap[ws] ?? ITEM_BG
     }
+
+    // Visible pills for this monitor (in ALL_WS order)
+    func visiblePillInfos(monitorWs: Set<String>?) -> [(ws: String, fullName: String, isFocused: Bool)] {
+        var result: [(ws: String, fullName: String, isFocused: Bool)] = []
+        for ws in ALL_WS {
+            if let mws = monitorWs, !mws.contains(ws) { continue }
+            let isActive = active.contains(ws) || ws == focused
+            let isLabeled = wsInfo[ws] != nil
+            guard isActive || isLabeled else { continue }
+            var name = wsInfo[ws]?.name ?? ""
+            if repoPrefix, let repo = wsInfo[ws]?.repo, !repo.isEmpty, name != repo { name = "\(repo):\(name)" }
+            result.append((ws: ws, fullName: name, isFocused: ws == focused))
+        }
+        return result
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MARK: – Text-width measurement cache
+// ──────────────────────────────────────────────────────────────────────────────
+
+private var textWidthCache: [String: CGFloat] = [:]
+
+func cachedTextWidth(_ s: String, font: NSFont) -> CGFloat {
+    let key = "\(font.pointSize)/\(font.fontName)/\(s)"
+    if let cached = textWidthCache[key] { return cached }
+    let w = (s as NSString).size(withAttributes: [.font: font]).width
+    textWidthCache[key] = w
+    return w
+}
+
+// Analytic pill width for a given (idx, name) pair — mirrors WorkspacePill layout constants.
+// showDot adds 4(spacing)+6(dot) to the inner stack.
+func analyticalPillWidth(idx: String, name: String, showDot: Bool) -> CGFloat {
+    let idxFont = NSFontManager.shared.font(withFamily: "Hack Nerd Font", traits: .boldFontMask, weight: 9, size: 11)
+                  ?? monoFont11
+    var w = pillPadH * 2 + cachedTextWidth(idx, font: idxFont)
+    if !name.isEmpty {
+        w += 4 + cachedTextWidth(name, font: monoFont13)  // innerStack spacing=4
+    }
+    if showDot { w += 4 + 6 }  // spacing + dot width
+    return ceil(w)
+}
+
+// Total strip width for a slice of pills at a given label cap.
+func stripWidth(pills: [(ws: String, fullName: String, isFocused: Bool)],
+                cap: Int, focused: String,
+                claudeAlert: Set<String>, claudeActive: Set<String>) -> CGFloat {
+    guard !pills.isEmpty else { return 0 }
+    var total: CGFloat = 0
+    for (i, p) in pills.enumerated() {
+        if i > 0 { total += pillGap }
+        let effCap = (cap == -1 || p.isFocused) ? -1 : cap
+        let name: String
+        if effCap == 0 {
+            name = ""
+        } else if effCap > 0, p.fullName.count > effCap {
+            name = String(p.fullName.prefix(effCap)) + "…"
+        } else {
+            name = p.fullName
+        }
+        let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
+        total += analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
+    }
+    return total
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MARK: – FitDecision
+// ──────────────────────────────────────────────────────────────────────────────
+
+struct FitDecision {
+    var rows: Int           // 1..maxRows
+    var rowAssignment: [[Int]]  // indices into `pills` for each row
+    var effectiveCap: Int   // label cap (-1 unlimited, 0 code-only, N>0 truncated)
+}
+
+let FIT_MAX_ROWS = 4
+let FIT_HYSTERESIS: CGFloat = 24  // px slack before dropping a row
+
+// Greedy packing of pills into rows given row widths.
+// Row 0 may have restricted capacity (notch / cluster); rows 1+ are full-width.
+// Returns (rowAssignment, rowsUsed) where rowAssignment[r] = [pill indices].
+private func greedyPack(pills: [(ws: String, fullName: String, isFocused: Bool)],
+                        cap: Int, focused: String,
+                        claudeAlert: Set<String>, claudeActive: Set<String>,
+                        row0Width: CGFloat, fullRowWidth: CGFloat,
+                        maxRows: Int) -> (assignment: [[Int]], rowsUsed: Int) {
+    var rows: [[Int]] = Array(repeating: [], count: maxRows)
+    var rowWidths = [row0Width] + Array(repeating: fullRowWidth, count: maxRows - 1)
+    var used: [CGFloat] = Array(repeating: 0, count: maxRows)
+    var r = 0
+
+    for (i, p) in pills.enumerated() {
+        let effCap = (cap == -1 || p.isFocused) ? -1 : cap
+        let name: String
+        if effCap == 0 { name = "" }
+        else if effCap > 0, p.fullName.count > effCap { name = String(p.fullName.prefix(effCap)) + "…" }
+        else { name = p.fullName }
+        let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
+        let pw = analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
+        let gap: CGFloat = rows[r].isEmpty ? 0 : pillGap
+        let needWidth = used[r] + gap + pw
+
+        if needWidth <= rowWidths[r] {
+            used[r] += gap + pw
+            rows[r].append(i)
+        } else {
+            // Try next row
+            r += 1
+            if r >= maxRows {
+                // Overflow — pin last row, accept clip
+                rows[maxRows - 1].append(i)
+            } else {
+                used[r] = pw
+                rows[r].append(i)
+            }
+        }
+    }
+    let rowsUsed = max(1, rows.lastIndex(where: { !$0.isEmpty }).map { $0 + 1 } ?? 1)
+    return (Array(rows.prefix(rowsUsed)), rowsUsed)
+}
+
+// Pure fit decision: given pill data, screen geometry, and preferences — returns layout.
+// `lastRows` is the only retained state (hysteresis). Pass 1 on first call.
+func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
+               screenW: CGFloat, clusterW: CGFloat,
+               notchMinX: CGFloat?, notchMaxX: CGFloat?,
+               isFullscreen: Bool, focused: String,
+               claudeAlert: Set<String>, claudeActive: Set<String>,
+               userPrefCap: Int, lastRows: Int) -> FitDecision {
+
+    let leadingInset: CGFloat = 8
+    let trailingInset: CGFloat = 8
+    let clusterGap: CGFloat = 4
+
+    // Row 0 available width: if fullscreen+notch, we have left+right segments;
+    // otherwise screenW minus cluster (with clip view).
+    let row0W: CGFloat
+    if isFullscreen, let nMin = notchMinX, let nMax = notchMaxX {
+        // Left segment capacity + right segment (from notch right to cluster left)
+        let leftSeg = nMin - leadingInset
+        let rightSeg = screenW - nMax - clusterW - clusterGap - trailingInset
+        row0W = leftSeg + rightSeg  // approximation for pack capacity
+    } else {
+        row0W = screenW - clusterW - clusterGap - leadingInset - trailingInset
+    }
+    let fullRowW = screenW - leadingInset - trailingInset
+
+    let cap = userPrefCap
+
+    // Try 1..maxRows at full label cap
+    for r in 1...FIT_MAX_ROWS {
+        let (assignment, rowsUsed) = greedyPack(
+            pills: pills, cap: cap, focused: focused,
+            claudeAlert: claudeAlert, claudeActive: claudeActive,
+            row0Width: row0W, fullRowWidth: fullRowW, maxRows: r)
+
+        if rowsUsed <= r {
+            // Fits in r rows. Apply hysteresis: only drop rows if extra slack >= threshold.
+            let effectiveRows: Int
+            if r < lastRows {
+                // Would reduce rows — only do so if comfortable slack
+                let (_, usedWithLast) = greedyPack(
+                    pills: pills, cap: cap, focused: focused,
+                    claudeAlert: claudeAlert, claudeActive: claudeActive,
+                    row0Width: row0W, fullRowWidth: fullRowW, maxRows: lastRows)
+                effectiveRows = usedWithLast < lastRows ? r : lastRows
+            } else {
+                effectiveRows = r
+            }
+            let (finalAssignment, _) = greedyPack(
+                pills: pills, cap: cap, focused: focused,
+                claudeAlert: claudeAlert, claudeActive: claudeActive,
+                row0Width: row0W, fullRowWidth: fullRowW, maxRows: effectiveRows)
+            return FitDecision(rows: effectiveRows, rowAssignment: finalAssignment, effectiveCap: cap)
+        }
+    }
+
+    // Exceeds maxRows at full cap — pin maxRows, shrink labels by binary search
+    var lo = 0, hi = cap == -1 ? 50 : cap
+    var bestCap = 0
+    var bestAssignment: [[Int]] = [Array(0..<pills.count)]
+    while lo <= hi {
+        let mid = (lo + hi) / 2
+        let (assignment, rowsUsed) = greedyPack(
+            pills: pills, cap: mid, focused: focused,
+            claudeAlert: claudeAlert, claudeActive: claudeActive,
+            row0Width: row0W, fullRowWidth: fullRowW, maxRows: FIT_MAX_ROWS)
+        if rowsUsed <= FIT_MAX_ROWS {
+            bestCap = mid; bestAssignment = assignment; lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return FitDecision(rows: FIT_MAX_ROWS, rowAssignment: bestAssignment, effectiveCap: bestCap)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -557,9 +760,8 @@ class VolumePopupWindow: NSWindow {
 class HubBarWindow: NSWindow {
     let barScreen: NSScreen
     var monitorIndex: Int = 1
-    let leadingStack  = NSStackView()
-    let trailingStack = NSStackView()   // kept for compat but unused in new layout
 
+    // Pill views keyed by ws id
     var wsPills: [String: WorkspacePill] = [:]
     var appSlots:   [AppSlotView]   = []
     var wsWinSlots: [WsWinSlotView] = []
@@ -572,6 +774,11 @@ class HubBarWindow: NSWindow {
     var volLabel:   NSTextField?
     var volIcon:    NSTextField?
     var serviceModeLabel: NSView?
+    var layoutModeIcon: NSTextField?
+
+    // Last fit decision, for applyRefresh change-detection
+    var lastFitRows: Int = 0
+    var lastFitCap: Int = -2  // sentinel "unknown"
 
     // In hub fullscreen mode the macOS menu bar is hidden (auto-hide), but visibleFrame still
     // reserves a ~32px inset for the auto-hide trigger zone. Use the absolute screen top instead.
@@ -579,6 +786,19 @@ class HubBarWindow: NSWindow {
         let home = NSHomeDirectory()
         let isFullscreen = FileManager.default.fileExists(atPath: home + "/.config/hub/fullscreen")
         return isFullscreen ? sf.maxY : vf.maxY
+    }
+
+    // Notch rect in window-local x coordinates (nil if no notch or not fullscreen)
+    func notchRange(isFullscreen: Bool) -> (minX: CGFloat, maxX: CGFloat)? {
+        guard isFullscreen else { return nil }
+        if #available(macOS 12.0, *) {
+            guard let l = barScreen.auxiliaryTopLeftArea,
+                  let r = barScreen.auxiliaryTopRightArea else { return nil }
+            let sf = barScreen.frame
+            // Convert screen x to window-local x (window spans full screen width starting at sf.minX)
+            return (minX: l.maxX - sf.minX, maxX: r.minX - sf.minX)
+        }
+        return nil
     }
 
     init(screen: NSScreen) {
@@ -599,35 +819,77 @@ class HubBarWindow: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
     }
 
-    func buildContents(state: HubBarState) {
+    func buildContents(state: HubBarState, lastRows: Int = 1) {
         let cv = contentView!
-        leadingStack.arrangedSubviews.forEach { leadingStack.removeArrangedSubview($0); $0.removeFromSuperview() }
-        trailingStack.arrangedSubviews.forEach { trailingStack.removeArrangedSubview($0); $0.removeFromSuperview() }
         cv.subviews.forEach { $0.removeFromSuperview() }
         wsPills.removeAll(); appSlots.removeAll(); wsWinSlots.removeAll(); volPopup = nil
         clockLabel = nil; battLabel = nil; battIcon = nil; volLabel = nil; volIcon = nil
-        serviceModeLabel = nil
+        serviceModeLabel = nil; layoutModeIcon = nil
 
-        let barH = state.barTall ? barHeightTall : barHeightNormal
         let sf = barScreen.frame
         let vf = barScreen.visibleFrame
         let topY = HubBarWindow.barTopY(sf: sf, vf: vf)
-        setFrame(NSRect(x: sf.minX, y: topY - barH, width: sf.width, height: barH), display: true)
-        // Write bar height and the required aerospace outer.top for the primary screen.
-        // outer.top is measured by AeroSpace from frame.maxY (absolute top), so it must
-        // include both the bar height and the menu-bar inset (frame.maxY - visibleFrame.maxY).
-        // In fullscreen mode the menu bar is hidden; macOS still reports a non-zero visibleFrame
-        // inset for the auto-hide zone, but the bar is flush with the screen top so menuInset=0.
-        let menuInset = topY >= sf.maxY ? 0 : Int(sf.maxY - vf.maxY)
-        let home = NSHomeDirectory()
-        try? "\(Int(barH))".write(toFile: home + "/.config/hub/hub_bar_height", atomically: true, encoding: .utf8)
-        try? "\(Int(barH) + menuInset)".write(toFile: home + "/.config/hub/hub_bar_outer_top", atomically: true, encoding: .utf8)
-        if let hub = hubScriptPath() {
-            Process.launchedProcess(launchPath: "/bin/sh",
-                arguments: ["-c", "'\(hub)' bar-sync >/dev/null 2>&1 &"])
+        let isFullscreen = topY >= sf.maxY
+
+        // ── Determine fit decision ──────────────────────────────────────────
+        // Build cluster first (off-screen) to measure its width.
+        let clusterView = buildCluster(state: state)
+        clusterView.translatesAutoresizingMaskIntoConstraints = false
+        // Force layout to measure
+        clusterView.layoutSubtreeIfNeeded()
+        let clusterW = clusterView.fittingSize.width + 8  // +8 for right margin
+
+        let monitorWs = state.monitorWorkspaces[monitorIndex]
+        let pills = state.visiblePillInfos(monitorWs: monitorWs)
+
+        let notch = notchRange(isFullscreen: isFullscreen)
+        let fit: FitDecision
+
+        if state.layoutMode == .manual {
+            // Manual: use hub_bar_tall (1 or 2 rows) + labelMaxLen
+            let rows = state.barTall ? 2 : 1
+            // Pack pills into those rows without care for fit (manual)
+            var assignment: [[Int]] = Array(repeating: [], count: rows)
+            for (i, _) in pills.enumerated() { assignment[rows - 1].append(i) }
+            // Actually do a proper pack
+            let row0W = sf.width - clusterW - 8
+            let fullW = sf.width - 16
+            let (asgn, _) = greedyPack(pills: pills, cap: state.labelMaxLen, focused: state.focused,
+                                        claudeAlert: state.claudeAlert, claudeActive: state.claudeActive,
+                                        row0Width: row0W, fullRowWidth: fullW, maxRows: rows)
+            fit = FitDecision(rows: rows, rowAssignment: asgn, effectiveCap: state.labelMaxLen)
+        } else {
+            fit = decideFit(
+                pills: pills, screenW: sf.width, clusterW: clusterW,
+                notchMinX: notch?.minX, notchMaxX: notch?.maxX,
+                isFullscreen: isFullscreen, focused: state.focused,
+                claudeAlert: state.claudeAlert, claudeActive: state.claudeActive,
+                userPrefCap: state.labelMaxLen, lastRows: lastRows)
         }
 
-        // Background
+        lastFitRows = fit.rows
+        lastFitCap  = fit.effectiveCap
+
+        // ── Resize window to match row count ───────────────────────────────
+        let barH = barHeightNormal * CGFloat(fit.rows)
+        setFrame(NSRect(x: sf.minX, y: topY - barH, width: sf.width, height: barH), display: true)
+
+        // Write bar height for bar-sync (primary screen only to avoid multi-monitor flapping)
+        let isPrimary = barScreen == NSScreen.screens.first
+        if isPrimary {
+            let menuInset = topY >= sf.maxY ? 0 : Int(sf.maxY - vf.maxY)
+            let home = NSHomeDirectory()
+            try? "\(Int(barH))".write(toFile: home + "/.config/hub/hub_bar_height", atomically: true, encoding: .utf8)
+            try? "\(Int(barH) + menuInset)".write(toFile: home + "/.config/hub/hub_bar_outer_top", atomically: true, encoding: .utf8)
+            // Also cache effective cap for script to seed manual mode from
+            try? "\(fit.effectiveCap)".write(toFile: home + "/.config/hub/auto_label_cap", atomically: true, encoding: .utf8)
+            if let hub = hubScriptPath() {
+                Process.launchedProcess(launchPath: "/bin/sh",
+                    arguments: ["-c", "'\(hub)' bar-sync >/dev/null 2>&1 &"])
+            }
+        }
+
+        // ── Background ─────────────────────────────────────────────────────
         let bg = HubBarBackgroundView(frame: cv.bounds)
         bg.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(bg)
@@ -638,120 +900,203 @@ class HubBarWindow: NSWindow {
             bg.bottomAnchor.constraint(equalTo: cv.bottomAnchor),
         ])
 
-        if state.barTall {
-            buildTallLayout(cv: cv, state: state)
-        } else {
-            buildCompactLayout(cv: cv, state: state)
+        // ── Build layout ────────────────────────────────────────────────────
+        buildRowLayout(cv: cv, state: state, fit: fit,
+                       clusterView: clusterView,
+                       notch: notch, isFullscreen: isFullscreen, pills: pills)
+    }
+
+    // ── Multi-row layout ─────────────────────────────────────────────────────
+
+    func buildRowLayout(cv: NSView, state: HubBarState, fit: FitDecision,
+                        clusterView: NSView, notch: (minX: CGFloat, maxX: CGFloat)?,
+                        isFullscreen: Bool, pills: [(ws: String, fullName: String, isFocused: Bool)]) {
+        let rows = fit.rows
+        let rowH = barHeightNormal
+
+        // Add the already-built cluster to top row, right-aligned
+        cv.addSubview(clusterView)
+        NSLayoutConstraint.activate([
+            clusterView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8),
+            clusterView.centerYAnchor.constraint(equalTo: cv.topAnchor, constant: rowH / 2),
+        ])
+
+        // Build one pill stack per row
+        for r in 0..<rows {
+            let pillIndices = r < fit.rowAssignment.count ? fit.rowAssignment[r] : []
+            let rowPills = pillIndices.map { pills[$0] }
+
+            if r > 0 {
+                // Horizontal divider above rows 1+
+                let div = NSView()
+                div.wantsLayer = true
+                div.layer?.backgroundColor = NSColor(argb: 0x0FFFFFFF).cgColor
+                div.translatesAutoresizingMaskIntoConstraints = false
+                cv.addSubview(div)
+                NSLayoutConstraint.activate([
+                    div.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
+                    div.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
+                    div.heightAnchor.constraint(equalToConstant: 1),
+                    div.topAnchor.constraint(equalTo: cv.topAnchor, constant: rowH * CGFloat(r)),
+                ])
+            }
+
+            let rowCenterY = rowH * CGFloat(r) + rowH / 2
+
+            if r == 0 && isFullscreen, let n = notch {
+                // Split top row around the notch
+                buildNotchSplitRow(cv: cv, state: state, fit: fit,
+                                   pills: rowPills, centerY: rowCenterY,
+                                   notchMinX: n.minX, notchMaxX: n.maxX,
+                                   clusterView: clusterView)
+            } else if r == 0 {
+                // Top row: pill strip clipped to cluster left edge
+                buildTopRowPills(cv: cv, state: state, fit: fit,
+                                 pills: rowPills, centerY: rowCenterY,
+                                 clusterView: clusterView)
+            } else {
+                // Full-width row
+                buildFullRow(cv: cv, state: state, fit: fit,
+                             pills: rowPills, centerY: rowCenterY)
+            }
         }
     }
 
-    // ── Compact layout ───────────────────────────────────────────────────────
-
-    func buildCompactLayout(cv: NSView, state: HubBarState) {
-        // Cluster (right side) — opaque so it occludes overflowing pills
-        let cluster = buildCluster(state: state)
-        cluster.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(cluster)  // added AFTER background
-
-        // Clip view (holds leadingStack, clips at cluster left edge)
+    // Top row (non-notch): pills in a clip view that stops at the cluster
+    private func buildTopRowPills(cv: NSView, state: HubBarState, fit: FitDecision,
+                                  pills: [(ws: String, fullName: String, isFocused: Bool)],
+                                  centerY: CGFloat, clusterView: NSView) {
         let clipView = NSView()
-        clipView.wantsLayer = true
-        clipView.layer?.masksToBounds = true
+        clipView.wantsLayer = true; clipView.layer?.masksToBounds = true
         clipView.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(clipView)  // added BEFORE cluster so cluster paints on top
-
-        // leadingStack inside clipView (no trailing constraint → overflows)
-        leadingStack.translatesAutoresizingMaskIntoConstraints = false
-        leadingStack.orientation = .horizontal
-        leadingStack.spacing = pillGap
-        leadingStack.alignment = .centerY
-        leadingStack.setContentHuggingPriority(.required, for: .horizontal)
-        clipView.addSubview(leadingStack)
-
         NSLayoutConstraint.activate([
-            // cluster: right-aligned, vertically centered
-            cluster.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8),
-            cluster.centerYAnchor.constraint(equalTo: cv.centerYAnchor),
-
-            // clipView: leading to cv, trailing to cluster left edge
             clipView.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
-            clipView.trailingAnchor.constraint(equalTo: cluster.leadingAnchor, constant: -4),
+            clipView.trailingAnchor.constraint(equalTo: clusterView.leadingAnchor, constant: -4),
             clipView.topAnchor.constraint(equalTo: cv.topAnchor),
-            clipView.bottomAnchor.constraint(equalTo: cv.bottomAnchor),
-
-            // leadingStack: left-pinned, centered, NO trailing constraint
-            leadingStack.leadingAnchor.constraint(equalTo: clipView.leadingAnchor, constant: 8),
-            leadingStack.centerYAnchor.constraint(equalTo: clipView.centerYAnchor),
-            leadingStack.heightAnchor.constraint(equalToConstant: pillH),
+            clipView.heightAnchor.constraint(equalToConstant: barHeightNormal),
         ])
 
-        buildWorkspaceStrip(state: state, tall: false)
-        applyWorkspaceState(state: state, tall: false)
+        let stack = makeRowStack()
+        clipView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: clipView.leadingAnchor, constant: 8),
+            stack.centerYAnchor.constraint(equalTo: clipView.centerYAnchor),
+            stack.heightAnchor.constraint(equalToConstant: pillH),
+        ])
+        populateStack(stack, pills: pills, state: state, fit: fit)
     }
 
-    // ── Tall layout ──────────────────────────────────────────────────────────
+    // Top row with notch: left stack up to notch, right stack from notch to cluster
+    private func buildNotchSplitRow(cv: NSView, state: HubBarState, fit: FitDecision,
+                                    pills: [(ws: String, fullName: String, isFocused: Bool)],
+                                    centerY: CGFloat,
+                                    notchMinX: CGFloat, notchMaxX: CGFloat,
+                                    clusterView: NSView) {
+        // Split pills analytically at the notch boundary
+        var leftPills: [(ws: String, fullName: String, isFocused: Bool)] = []
+        var rightPills: [(ws: String, fullName: String, isFocused: Bool)] = []
+        var leftUsed: CGFloat = 8  // leading inset
+        for p in pills {
+            let name = truncatedName(p, cap: fit.effectiveCap)
+            let showDot = state.claudeAlert.contains(p.ws) || state.claudeActive.contains(p.ws)
+            let pw = analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
+            let gap: CGFloat = leftPills.isEmpty ? 0 : pillGap
+            if leftUsed + gap + pw <= notchMinX - 2 {
+                leftUsed += gap + pw
+                leftPills.append(p)
+            } else {
+                rightPills.append(p)
+            }
+        }
 
-    func buildTallLayout(cv: NSView, state: HubBarState) {
-        let rowH: CGFloat = barHeightTall / 2
+        // Left stack
+        if !leftPills.isEmpty {
+            let leftStack = makeRowStack()
+            cv.addSubview(leftStack)
+            NSLayoutConstraint.activate([
+                leftStack.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 8),
+                leftStack.centerYAnchor.constraint(equalTo: cv.topAnchor, constant: centerY),
+                leftStack.heightAnchor.constraint(equalToConstant: pillH),
+                leftStack.trailingAnchor.constraint(lessThanOrEqualTo: cv.leadingAnchor, constant: notchMinX - 2),
+            ])
+            populateStack(leftStack, pills: leftPills, state: state, fit: fit)
+        }
 
-        // Top row: cluster right-aligned
-        let cluster = buildCluster(state: state)
-        cluster.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(cluster)
+        // Right stack (between notch and cluster)
+        if !rightPills.isEmpty {
+            let clipView = NSView()
+            clipView.wantsLayer = true; clipView.layer?.masksToBounds = true
+            clipView.translatesAutoresizingMaskIntoConstraints = false
+            cv.addSubview(clipView)
+            NSLayoutConstraint.activate([
+                clipView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: notchMaxX + 2),
+                clipView.trailingAnchor.constraint(equalTo: clusterView.leadingAnchor, constant: -4),
+                clipView.topAnchor.constraint(equalTo: cv.topAnchor),
+                clipView.heightAnchor.constraint(equalToConstant: barHeightNormal),
+            ])
+            let rightStack = makeRowStack()
+            clipView.addSubview(rightStack)
+            NSLayoutConstraint.activate([
+                rightStack.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
+                rightStack.centerYAnchor.constraint(equalTo: clipView.centerYAnchor),
+                rightStack.heightAnchor.constraint(equalToConstant: pillH),
+            ])
+            populateStack(rightStack, pills: rightPills, state: state, fit: fit)
+        }
+    }
 
-        // Divider
-        let divider = NSView()
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor(argb: 0x0FFFFFFF).cgColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(divider)
-
-        // Bottom row: full-width pill strip (no clip, no truncation)
-        leadingStack.translatesAutoresizingMaskIntoConstraints = false
-        leadingStack.orientation = .horizontal
-        leadingStack.spacing = pillGap + 1
-        leadingStack.alignment = .centerY
-        leadingStack.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        cv.addSubview(leadingStack)
-
+    // Full-width row (rows 1+)
+    private func buildFullRow(cv: NSView, state: HubBarState, fit: FitDecision,
+                              pills: [(ws: String, fullName: String, isFocused: Bool)],
+                              centerY: CGFloat) {
+        let stack = makeRowStack()
+        cv.addSubview(stack)
         NSLayoutConstraint.activate([
-            // Top row cluster
-            cluster.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8),
-            cluster.centerYAnchor.constraint(equalTo: cv.topAnchor, constant: rowH / 2),
-
-            // Divider at midpoint
-            divider.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
-            divider.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
-            divider.heightAnchor.constraint(equalToConstant: 1),
-            divider.topAnchor.constraint(equalTo: cv.topAnchor, constant: rowH),
-
-            // Bottom row pill strip: full width
-            leadingStack.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 8),
-            leadingStack.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -8),
-            leadingStack.centerYAnchor.constraint(equalTo: cv.topAnchor, constant: rowH + rowH / 2),
-            leadingStack.heightAnchor.constraint(equalToConstant: pillH),
+            stack.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: cv.trailingAnchor, constant: -8),
+            stack.centerYAnchor.constraint(equalTo: cv.topAnchor, constant: centerY),
+            stack.heightAnchor.constraint(equalToConstant: pillH),
         ])
+        populateStack(stack, pills: pills, state: state, fit: fit)
+    }
 
-        buildWorkspaceStrip(state: state, tall: true)
-        applyWorkspaceState(state: state, tall: true)
+    private func makeRowStack() -> NSStackView {
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = pillGap
+        stack.alignment = .centerY
+        stack.setContentHuggingPriority(.required, for: .horizontal)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        return stack
+    }
+
+    private func truncatedName(_ p: (ws: String, fullName: String, isFocused: Bool), cap: Int) -> String {
+        if p.fullName.isEmpty { return "" }
+        if cap == 0 { return "" }
+        if cap > 0, !p.isFocused, p.fullName.count > cap { return String(p.fullName.prefix(cap)) + "…" }
+        return p.fullName
+    }
+
+    private func populateStack(_ stack: NSStackView,
+                                pills: [(ws: String, fullName: String, isFocused: Bool)],
+                                state: HubBarState, fit: FitDecision) {
+        for p in pills {
+            let pill = wsPills[p.ws] ?? {
+                let newPill = WorkspacePill(wsID: p.ws)
+                newPill.translatesAutoresizingMaskIntoConstraints = false
+                newPill.heightAnchor.constraint(equalToConstant: pillH).isActive = true
+                wsPills[p.ws] = newPill
+                return newPill
+            }()
+            stack.addArrangedSubview(pill)
+        }
+        applyWorkspaceState(state: state, cap: fit.effectiveCap)
     }
 
     // ── Workspace strip ──────────────────────────────────────────────────────
 
-    func buildWorkspaceStrip(state: HubBarState, tall: Bool) {
-        let monitorWs = state.monitorWorkspaces[monitorIndex]
-        for ws in ALL_WS {
-            if let monWs = monitorWs, !monWs.contains(ws) { continue }
-            let pill = WorkspacePill(wsID: ws)
-            pill.translatesAutoresizingMaskIntoConstraints = false
-            pill.heightAnchor.constraint(equalToConstant: pillH).isActive = true
-            wsPills[ws] = pill
-            leadingStack.addArrangedSubview(pill)
-        }
-        applyWorkspaceState(state: state, tall: tall)
-    }
-
-    func applyWorkspaceState(state: HubBarState, tall: Bool) {
+    func applyWorkspaceState(state: HubBarState, cap: Int) {
         for ws in ALL_WS {
             guard let pill = wsPills[ws] else { continue }
             let isActive  = state.active.contains(ws) || ws == state.focused
@@ -764,7 +1109,7 @@ class HubBarWindow: NSWindow {
             let showDot   = hasAlert || hasActive
             let dotColor: UInt32 = hasActive ? DOT_BLUE : DOT_ORANGE
 
-            let (idxStr, nameStr) = state.spansFor(ws: ws, tall: tall)
+            let (idxStr, nameStr) = state.spansFor(ws: ws, cap: cap)
 
             if isFocused {
                 pill.apply(bg: ACCENT, idxColor: PILL_IDX_ACT, nameColor: PILL_NAME_ACT,
@@ -824,6 +1169,11 @@ class HubBarWindow: NSWindow {
             stack.addArrangedSubview(group)
         }
 
+        // Layout mode indicator (auto/manual)
+        let modeIcon = buildLayoutModeIcon(state: state)
+        modeIcon.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(modeIcon)
+
         // Spacer
         stack.addArrangedSubview(makeHSpacer(4))
 
@@ -837,6 +1187,44 @@ class HubBarWindow: NSWindow {
         buildClock(into: stack)
 
         return cluster
+    }
+
+    // ── Layout mode icon ─────────────────────────────────────────────────────
+
+    func buildLayoutModeIcon(state: HubBarState) -> NSView {
+        let isAuto = state.layoutMode == .auto
+        let icon = NSTextField(labelWithString: isAuto ? "󰁪" : "")
+        icon.font = nerdFont13
+        icon.textColor = isAuto ? NSColor(argb: ACCENT).withAlphaComponent(0.6) : NSColor(argb: C_ORANGE)
+        icon.isEditable = false; icon.isBordered = false; icon.backgroundColor = .clear
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        layoutModeIcon = icon
+
+        let click = HubBarClickView(frame: .zero)
+        click.translatesAutoresizingMaskIntoConstraints = false
+        click.isHidden = isAuto  // only clickable (and visible as indicator) in manual mode
+        click.onPress = { [weak self] in
+            guard let hub = hubScriptPath() else { return }
+            Process.launchedProcess(launchPath: "/bin/sh",
+                arguments: ["-c", "'\(hub)' layout-mode auto >/dev/null 2>&1 &"])
+        }
+
+        let wrap = NSView()
+        wrap.translatesAutoresizingMaskIntoConstraints = false
+        wrap.addSubview(icon); wrap.addSubview(click)
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
+            icon.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
+            icon.topAnchor.constraint(equalTo: wrap.topAnchor),
+            icon.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
+            click.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
+            click.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
+            click.topAnchor.constraint(equalTo: wrap.topAnchor),
+            click.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
+        ])
+        // Hide the whole wrap when in auto (no indicator needed)
+        wrap.isHidden = isAuto
+        return wrap
     }
 
     // ── App icon group ───────────────────────────────────────────────────────
@@ -1129,10 +1517,15 @@ class HubBarWindow: NSWindow {
         volLabel?.stringValue = "\(pct)%"
     }
 
-    func applyRefresh(state: HubBarState) {
-        applyWorkspaceState(state: state, tall: state.barTall)
+    func applyRefresh(state: HubBarState, newRows: Int, newCap: Int) {
+        applyWorkspaceState(state: state, cap: newCap)
         updateClock(); updateBattery(); updateVolume()
         serviceModeLabel?.isHidden = !state.serviceMode
+        // Update mode icon visibility
+        if let icon = layoutModeIcon?.superview {
+            let isAuto = state.layoutMode == .auto
+            icon.isHidden = isAuto
+        }
     }
 
     // ── Volume popup (kept from original) ───────────────────────────────────
@@ -1301,7 +1694,7 @@ class HubBarController: NSObject {
                 for (i, screen) in sortedScreens.enumerated() {
                     let w = HubBarWindow(screen: screen)
                     w.monitorIndex = monitorIDs.indices.contains(i) ? monitorIDs[i] : (i + 1)
-                    w.buildContents(state: state)
+                    w.buildContents(state: state, lastRows: 1)
                     self.windows.append(w)
                 }
                 self.updateVisibility()
@@ -1327,13 +1720,50 @@ class HubBarController: NSObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let state = HubBarState.snapshot()
             DispatchQueue.main.async {
-                let prevTall = self?.lastState.barTall ?? false
-                self?.lastState = state
-                for w in self?.windows ?? [] {
-                    if state.barTall != prevTall {
-                        w.buildContents(state: state); w.orderFrontRegardless()
+                guard let self = self else { return }
+                let prevState = self.lastState
+                self.lastState = state
+                for w in self.windows {
+                    // Re-run the fit decision with the new state to detect if rows/cap changed.
+                    let sf = w.barScreen.frame
+                    let vf = w.barScreen.visibleFrame
+                    let topY = HubBarWindow.barTopY(sf: sf, vf: vf)
+                    let isFullscreen = topY >= sf.maxY
+                    let notch = w.notchRange(isFullscreen: isFullscreen)
+                    let monitorWs = state.monitorWorkspaces[w.monitorIndex]
+                    let pills = state.visiblePillInfos(monitorWs: monitorWs)
+
+                    let newFit: FitDecision
+                    if state.layoutMode == .manual {
+                        let rows = state.barTall ? 2 : 1
+                        let row0W = sf.width - 200  // approximate, manual mode doesn't repack
+                        let fullW = sf.width - 16
+                        let (asgn, _) = greedyPack(pills: pills, cap: state.labelMaxLen,
+                                                     focused: state.focused,
+                                                     claudeAlert: state.claudeAlert,
+                                                     claudeActive: state.claudeActive,
+                                                     row0Width: row0W, fullRowWidth: fullW, maxRows: rows)
+                        newFit = FitDecision(rows: rows, rowAssignment: asgn, effectiveCap: state.labelMaxLen)
                     } else {
-                        w.applyRefresh(state: state)
+                        // Approximate cluster width (16px per app icon + overhead)
+                        let approxClusterW = CGFloat(200 + state.apps.count * 30)
+                        newFit = decideFit(
+                            pills: pills, screenW: sf.width, clusterW: approxClusterW,
+                            notchMinX: notch?.minX, notchMaxX: notch?.maxX,
+                            isFullscreen: isFullscreen, focused: state.focused,
+                            claudeAlert: state.claudeAlert, claudeActive: state.claudeActive,
+                            userPrefCap: state.labelMaxLen, lastRows: w.lastFitRows)
+                    }
+
+                    let rowsChanged = newFit.rows != w.lastFitRows
+                    let capChanged  = newFit.effectiveCap != w.lastFitCap
+                    let modeChanged = state.layoutMode != prevState.layoutMode
+
+                    if rowsChanged || capChanged || modeChanged {
+                        w.buildContents(state: state, lastRows: w.lastFitRows)
+                        w.orderFrontRegardless()
+                    } else {
+                        w.applyRefresh(state: state, newRows: newFit.rows, newCap: newFit.effectiveCap)
                     }
                 }
             }

@@ -98,6 +98,7 @@ print_usage() {
     echo "  dashboard     Show status and key bindings in a full-screen modal"
     echo "  label-length  Shrink or grow workspace label max length (+/-/grow/shrink/min/max/number)"
     echo "  bar-height    Toggle bar height for notch avoidance (tall/normal/toggle)"
+    echo "  layout-mode   Switch auto/manual layout mode (auto/manual)"
     echo "  bar-reload    Restart the Hub Bar (fix rendering inconsistencies)"
     echo "  fullscreen    Hide/show the Dock and menu bar (on/off/toggle)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
@@ -2632,6 +2633,7 @@ cmd_repo_prefix() {
 cmd_label_length() {
     local direction="${1:-}"
     local maxlen_file="$HOME/.config/hub/label_maxlen"
+    local layout_mode_file="$HOME/.config/hub/layout_mode"
     # -1 = unlimited, 0 = code only, N>0 = max N chars of name
     local current=-1
     [[ -f "$maxlen_file" ]] && current=$(cat "$maxlen_file" 2>/dev/null || echo -1)
@@ -2645,8 +2647,18 @@ cmd_label_length() {
         done < "$labels_file"
     fi
 
+    # Seed from auto_label_cap when transitioning from auto mode on relative adjustments.
+    _seed_from_auto_cap() {
+        local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
+        if [[ "$mode" == "auto" ]]; then
+            local auto_cap; auto_cap=$(cat "$HOME/.config/hub/auto_label_cap" 2>/dev/null || echo "")
+            [[ "$auto_cap" =~ ^-?[0-9]+$ ]] && current=$auto_cap
+        fi
+    }
+
     case "$direction" in
         +|up|grow)
+            _seed_from_auto_cap
             if [[ "$current" -lt 0 ]]; then
                 current=-1  # already unlimited, stay unlimited
             else
@@ -2654,6 +2666,7 @@ cmd_label_length() {
             fi
             ;;
         -|down|shrink)
+            _seed_from_auto_cap
             if [[ "$current" -lt 0 ]]; then
                 # First shrink from unlimited: start at longest - 2
                 if [[ "$longest" -gt 0 ]]; then
@@ -2672,8 +2685,9 @@ cmd_label_length() {
             current=-1
             ;;
         "")
-            # No argument: display current label length
-            echo -e "${bold}Label length:${reset}"
+            # No argument: display current label length and mode
+            local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
+            echo -e "${bold}Label length:${reset}  (layout mode: ${blue}$mode${reset})"
             if [[ "$current" -lt 0 ]]; then
                 echo -e "  unlimited  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
             elif [[ "$current" -eq 0 ]]; then
@@ -2701,26 +2715,29 @@ cmd_label_length() {
         fi
     fi
     echo "$current" > "$maxlen_file"
+    # Any explicit label adjustment enters manual mode
+    echo "manual" > "$layout_mode_file"
     hub_bar_refresh
 }
 
 cmd_hub_bar_height() {
     local action="${1:-}"
     local state_file="$HOME/.config/hub/hub_bar_tall"
+    local layout_mode_file="$HOME/.config/hub/layout_mode"
     local is_tall=false
     [[ -f "$state_file" ]] && is_tall=true
 
     case "$action" in
         tall)
             touch "$state_file"
-            sed -i '' "s/outer\.top =.*/outer.top =        $((HUB_BAR_HEIGHT_TALL + HUB_BAR_GAP))/" "$AEROSPACE_CONFIG"
-            aerospace reload-config
+            # Enter manual mode — seed from current auto height if coming from auto
+            local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
+            echo "manual" > "$layout_mode_file"
             hub_bar_refresh
             ;;
         normal)
             rm -f "$state_file"
-            sed -i '' "s/outer\.top =.*/outer.top =        $((HUB_BAR_HEIGHT_NORMAL + HUB_BAR_GAP))/" "$AEROSPACE_CONFIG"
-            aerospace reload-config
+            echo "manual" > "$layout_mode_file"
             hub_bar_refresh
             ;;
         toggle)
@@ -2731,16 +2748,47 @@ cmd_hub_bar_height() {
             fi
             ;;
         "")
-            echo -e "${bold}Bar height:${reset}"
+            local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
+            echo -e "${bold}Bar height:${reset}  (layout mode: ${blue}$mode${reset})"
             if $is_tall; then
-                echo -e "  tall (notch-avoidance mode)"
+                echo -e "  tall (manual)"
             else
-                echo -e "  normal"
+                echo -e "  normal (manual)"
             fi
             echo -e "  ${yellow}Usage: hub bar-height [tall|normal|toggle]${reset}"
             ;;
         *)
             fail "Usage: hub bar-height [tall|normal|toggle]"
+            return 1
+            ;;
+    esac
+}
+
+cmd_layout_mode() {
+    local action="${1:-}"
+    local layout_mode_file="$HOME/.config/hub/layout_mode"
+
+    case "$action" in
+        auto)
+            echo "auto" > "$layout_mode_file"
+            hub_bar_refresh
+            ;;
+        manual)
+            # Seed label_maxlen from auto_label_cap before switching
+            local auto_cap; auto_cap=$(cat "$HOME/.config/hub/auto_label_cap" 2>/dev/null || echo "")
+            if [[ "$auto_cap" =~ ^-?[0-9]+$ ]]; then
+                echo "$auto_cap" > "$HOME/.config/hub/label_maxlen"
+            fi
+            echo "manual" > "$layout_mode_file"
+            hub_bar_refresh
+            ;;
+        "")
+            local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
+            echo -e "${bold}Layout mode:${reset} $mode"
+            echo -e "  ${yellow}Usage: hub layout-mode [auto|manual]${reset}"
+            ;;
+        *)
+            fail "Usage: hub layout-mode [auto|manual]"
             return 1
             ;;
     esac
@@ -3301,6 +3349,7 @@ case "$command" in
     dashboard)    cmd_dashboard ;;
     label-length) cmd_label_length "$@" ;;
     bar-height)   cmd_hub_bar_height "$@" ;;
+    layout-mode)  cmd_layout_mode "$@" ;;
     bar-sync)     cmd_hub_bar_sync ;;
     bar-reload|bar-restart) hub_bar_restart ;;
     bar-refresh)  hub_bar_refresh ;;

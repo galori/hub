@@ -217,6 +217,8 @@ run = ['layout floating',
     # hub: toggle Hub Bar height (notch avoidance) / reload Hub Bar
     ctrl-alt-shift-b = 'exec-and-forget __HUB_SCRIPT__ bar-height toggle'
     ctrl-alt-b = 'exec-and-forget __HUB_SCRIPT__ bar-reload'
+    # hub: return Hub Bar to auto-fit layout mode
+    ctrl-alt-shift-a = 'exec-and-forget __HUB_SCRIPT__ layout-mode auto'
     # hub: toggle repo name prefix on workspace labels
     ctrl-alt-p = 'exec-and-forget __HUB_SCRIPT__ repo-prefix toggle'
 
