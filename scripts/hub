@@ -58,7 +58,7 @@ FULLSCREEN_STATE_FILE="$HOME/.config/hub/fullscreen"
 # Hub Bar heights (px) — MUST match barHeightNormal/barHeightTall in lib/hub_bar.swift.
 HUB_BAR_HEIGHT_NORMAL=40
 HUB_BAR_HEIGHT_TALL=80
-HUB_BAR_GAP=8   # px between bar bottom and first tiled window
+HUB_BAR_GAP=15  # px between bar bottom and first tiled window
 
 # Ensure standard binary paths are available — AeroSpace's exec-and-forget
 # inherits a minimal environment that omits /usr/local/bin and /opt/homebrew/bin.
