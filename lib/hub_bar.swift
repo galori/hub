@@ -1193,16 +1193,16 @@ class HubBarWindow: NSWindow {
 
     func buildLayoutModeIcon(state: HubBarState) -> NSView {
         let isAuto = state.layoutMode == .auto
-        let icon = NSTextField(labelWithString: isAuto ? "󰁪" : "")
+        // nf-fa-lock (U+F023), shown in manual mode as a clickable "return to auto" button.
+        let icon = NSTextField(labelWithString: "\u{F023}")
         icon.font = nerdFont13
-        icon.textColor = isAuto ? NSColor(argb: ACCENT).withAlphaComponent(0.6) : NSColor(argb: C_ORANGE)
+        icon.textColor = NSColor(argb: C_ORANGE)
         icon.isEditable = false; icon.isBordered = false; icon.backgroundColor = .clear
         icon.translatesAutoresizingMaskIntoConstraints = false
         layoutModeIcon = icon
 
         let click = HubBarClickView(frame: .zero)
         click.translatesAutoresizingMaskIntoConstraints = false
-        click.isHidden = isAuto  // only clickable (and visible as indicator) in manual mode
         click.onPress = { [weak self] in
             guard let hub = hubScriptPath() else { return }
             Process.launchedProcess(launchPath: "/bin/sh",
@@ -1222,7 +1222,7 @@ class HubBarWindow: NSWindow {
             click.topAnchor.constraint(equalTo: wrap.topAnchor),
             click.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
         ])
-        // Hide the whole wrap when in auto (no indicator needed)
+        // Hide in auto mode — the icon is only a "you're in manual, click to return" signal.
         wrap.isHidden = isAuto
         return wrap
     }
