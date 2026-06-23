@@ -327,16 +327,17 @@ let FIT_HYSTERESIS: CGFloat = 24  // px slack before dropping a row
 
 // Greedy packing of pills into rows given row widths.
 // Row 0 may have restricted capacity (notch / cluster); rows 1+ are full-width.
-// Returns (rowAssignment, rowsUsed) where rowAssignment[r] = [pill indices].
+// Returns (rowAssignment, overflowed). overflowed=true means content didn't fit in maxRows.
 private func greedyPack(pills: [(ws: String, fullName: String, isFocused: Bool)],
                         cap: Int, focused: String,
                         claudeAlert: Set<String>, claudeActive: Set<String>,
                         row0Width: CGFloat, fullRowWidth: CGFloat,
-                        maxRows: Int) -> (assignment: [[Int]], rowsUsed: Int) {
+                        maxRows: Int) -> (assignment: [[Int]], overflowed: Bool) {
     var rows: [[Int]] = Array(repeating: [], count: maxRows)
-    var rowWidths = [row0Width] + Array(repeating: fullRowWidth, count: maxRows - 1)
+    let rowWidths = [row0Width] + Array(repeating: fullRowWidth, count: maxRows - 1)
     var used: [CGFloat] = Array(repeating: 0, count: maxRows)
     var r = 0
+    var overflowed = false
 
     for (i, p) in pills.enumerated() {
         let effCap = (cap == -1 || p.isFocused) ? -1 : cap
@@ -347,25 +348,27 @@ private func greedyPack(pills: [(ws: String, fullName: String, isFocused: Bool)]
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
         let pw = analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
         let gap: CGFloat = rows[r].isEmpty ? 0 : pillGap
-        let needWidth = used[r] + gap + pw
 
-        if needWidth <= rowWidths[r] {
+        if used[r] + gap + pw <= rowWidths[r] {
             used[r] += gap + pw
             rows[r].append(i)
         } else {
-            // Try next row
-            r += 1
-            if r >= maxRows {
-                // Overflow — pin last row, accept clip
+            let next = r + 1
+            if next >= maxRows {
+                // Genuinely doesn't fit — signal overflow, park pill in last row
+                overflowed = true
                 rows[maxRows - 1].append(i)
+                // Keep r = maxRows - 1 so subsequent pills don't OOB
+                r = maxRows - 1
             } else {
+                r = next
                 used[r] = pw
                 rows[r].append(i)
             }
         }
     }
-    let rowsUsed = max(1, rows.lastIndex(where: { !$0.isEmpty }).map { $0 + 1 } ?? 1)
-    return (Array(rows.prefix(rowsUsed)), rowsUsed)
+    let usedRows = rows.prefix(maxRows)
+    return (Array(usedRows), overflowed)
 }
 
 // Pure fit decision: given pill data, screen geometry, and preferences — returns layout.
@@ -398,21 +401,21 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
 
     // Try 1..maxRows at full label cap
     for r in 1...FIT_MAX_ROWS {
-        let (assignment, rowsUsed) = greedyPack(
+        let (assignment, overflowed) = greedyPack(
             pills: pills, cap: cap, focused: focused,
             claudeAlert: claudeAlert, claudeActive: claudeActive,
             row0Width: row0W, fullRowWidth: fullRowW, maxRows: r)
 
-        if rowsUsed <= r {
-            // Fits in r rows. Apply hysteresis: only drop rows if extra slack >= threshold.
+        if !overflowed {
+            // Fits in r rows. Apply hysteresis: only reduce rows if we previously needed more.
             let effectiveRows: Int
             if r < lastRows {
-                // Would reduce rows — only do so if comfortable slack
-                let (_, usedWithLast) = greedyPack(
+                let (_, stillOverflows) = greedyPack(
                     pills: pills, cap: cap, focused: focused,
                     claudeAlert: claudeAlert, claudeActive: claudeActive,
-                    row0Width: row0W, fullRowWidth: fullRowW, maxRows: lastRows)
-                effectiveRows = usedWithLast < lastRows ? r : lastRows
+                    row0Width: row0W, fullRowWidth: fullRowW, maxRows: lastRows - 1)
+                // Only shrink rows if content fits comfortably with one fewer row
+                effectiveRows = stillOverflows ? lastRows : r
             } else {
                 effectiveRows = r
             }
@@ -425,16 +428,17 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
     }
 
     // Exceeds maxRows at full cap — pin maxRows, shrink labels by binary search
-    var lo = 0, hi = cap == -1 ? 50 : cap
+    let maxCap = cap == -1 ? 60 : cap
+    var lo = 0, hi = maxCap
     var bestCap = 0
     var bestAssignment: [[Int]] = [Array(0..<pills.count)]
     while lo <= hi {
         let mid = (lo + hi) / 2
-        let (assignment, rowsUsed) = greedyPack(
+        let (assignment, overflowed) = greedyPack(
             pills: pills, cap: mid, focused: focused,
             claudeAlert: claudeAlert, claudeActive: claudeActive,
             row0Width: row0W, fullRowWidth: fullRowW, maxRows: FIT_MAX_ROWS)
-        if rowsUsed <= FIT_MAX_ROWS {
+        if !overflowed {
             bestCap = mid; bestAssignment = assignment; lo = mid + 1
         } else {
             hi = mid - 1
@@ -819,6 +823,40 @@ class HubBarWindow: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
     }
 
+    // Analytic cluster width estimate used by decideFit before the view is built.
+    // Measures actual text widths for the clock/volume/battery labels + known fixed widths.
+    func analyticalClusterWidth(state: HubBarState) -> CGFloat {
+        var w: CGFloat = 8 + 8  // leading cluster gap + trailing inset
+
+        // Service pill (30px) — always present but usually hidden; reserve space anyway
+        if state.serviceMode { w += 30 + 6 }
+
+        // App icon group
+        if !state.apps.isEmpty {
+            let iconCount = state.apps.count
+            // 14px inset each side + appIconSize per icon + appGroupGap between
+            w += 14 * 2 + CGFloat(iconCount) * (appIconSize + 4) + CGFloat(max(0, iconCount - 1)) * appGroupGap + 6
+        }
+
+        // Layout mode icon (only visible in manual)
+        if state.layoutMode == .manual { w += 20 + 6 }
+
+        // Spacer
+        w += 4 + 6
+
+        // Volume: icon + "100%" label
+        w += cachedTextWidth("\u{F057E}", font: nerdFont16) + 4 + cachedTextWidth("100%", font: monoFont12) + 6
+
+        // Battery: icon + "100%" label
+        w += cachedTextWidth("\u{F0079}", font: nerdFont16) + 4 + cachedTextWidth("100%", font: monoFont12) + 6
+
+        // Clock pill: 10+6+dot(6)+6+label+10 = ~32 + label
+        let clockLabel = "Mon 22 Jun  00:00"
+        w += 10 + 6 + 6 + 6 + cachedTextWidth(clockLabel, font: monoFont12) + 10
+
+        return ceil(w)
+    }
+
     func buildContents(state: HubBarState, lastRows: Int = 1) {
         let cv = contentView!
         cv.subviews.forEach { $0.removeFromSuperview() }
@@ -832,12 +870,11 @@ class HubBarWindow: NSWindow {
         let isFullscreen = topY >= sf.maxY
 
         // ── Determine fit decision ──────────────────────────────────────────
-        // Build cluster first (off-screen) to measure its width.
-        let clusterView = buildCluster(state: state)
-        clusterView.translatesAutoresizingMaskIntoConstraints = false
-        // Force layout to measure
-        clusterView.layoutSubtreeIfNeeded()
-        let clusterW = clusterView.fittingSize.width + 8  // +8 for right margin
+        // Measure cluster width analytically before building the view.
+        // fittingSize on an unparented view returns 0, so we compute it from
+        // the known widget widths: clock pill ~110, volume ~55, battery ~50,
+        // app icons, mode icon, service pill, spacing.
+        let clusterW = analyticalClusterWidth(state: state)
 
         let monitorWs = state.monitorWorkspaces[monitorIndex]
         let pills = state.visiblePillInfos(monitorWs: monitorWs)
@@ -899,6 +936,10 @@ class HubBarWindow: NSWindow {
             bg.topAnchor.constraint(equalTo: cv.topAnchor),
             bg.bottomAnchor.constraint(equalTo: cv.bottomAnchor),
         ])
+
+        // ── Build cluster view (now that we know the layout) ────────────────
+        let clusterView = buildCluster(state: state)
+        clusterView.translatesAutoresizingMaskIntoConstraints = false
 
         // ── Build layout ────────────────────────────────────────────────────
         buildRowLayout(cv: cv, state: state, fit: fit,
@@ -1745,10 +1786,8 @@ class HubBarController: NSObject {
                                                      row0Width: row0W, fullRowWidth: fullW, maxRows: rows)
                         newFit = FitDecision(rows: rows, rowAssignment: asgn, effectiveCap: state.labelMaxLen)
                     } else {
-                        // Approximate cluster width (16px per app icon + overhead)
-                        let approxClusterW = CGFloat(200 + state.apps.count * 30)
                         newFit = decideFit(
-                            pills: pills, screenW: sf.width, clusterW: approxClusterW,
+                            pills: pills, screenW: sf.width, clusterW: w.analyticalClusterWidth(state: state),
                             notchMinX: notch?.minX, notchMaxX: notch?.maxX,
                             isFullscreen: isFullscreen, focused: state.focused,
                             claudeAlert: state.claudeAlert, claudeActive: state.claudeActive,
