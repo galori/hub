@@ -234,9 +234,10 @@ struct HubBarState {
             if FileManager.default.fileExists(atPath: "/tmp/hub_claude_active_\(ws)") { s.claudeActive.insert(ws) }
         }
         if !s.focused.isEmpty {
+            // Clear the "done" alert dot when switching to a workspace — it's a notification.
+            // Do NOT clear the "working" active dot — Claude is still running in that workspace.
             try? FileManager.default.removeItem(atPath: "/tmp/hub_claude_alert_\(s.focused)")
-            try? FileManager.default.removeItem(atPath: "/tmp/hub_claude_active_\(s.focused)")
-            s.claudeAlert.remove(s.focused); s.claudeActive.remove(s.focused)
+            s.claudeAlert.remove(s.focused)
         }
         return s
     }
