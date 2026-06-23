@@ -1131,12 +1131,14 @@ class HubBarWindow: NSWindow {
             let hasActive = state.claudeActive.contains(ws)
             let showDot   = hasAlert || hasActive
             let dotColor: UInt32 = hasActive ? DOT_BLUE : DOT_ORANGE
+            // On the focused (teal) pill the blue dot blends in — use white instead.
+            let focusedDotColor: UInt32 = hasActive ? 0xFFFFFFFF : DOT_ORANGE
 
             let (idxStr, nameStr) = state.spansFor(ws: ws, cap: cap)
 
             if isFocused {
                 pill.apply(bg: ACCENT, idxColor: PILL_IDX_ACT, nameColor: PILL_NAME_ACT,
-                           idx: idxStr, name: nameStr, showDot: showDot, dotColor: dotColor,
+                           idx: idxStr, name: nameStr, showDot: showDot, dotColor: focusedDotColor,
                            glowColor: ACCENT, glowRadius: 8)
                 pill.isHidden = false
             } else if isActive {
