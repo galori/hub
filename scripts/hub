@@ -2647,12 +2647,21 @@ cmd_label_length() {
         done < "$labels_file"
     fi
 
-    # Seed from auto_label_cap when transitioning from auto mode on relative adjustments.
+    # Seed from auto_label_cap (and sync hub_bar_tall from rendered height) when
+    # transitioning from auto mode on relative adjustments.
     _seed_from_auto_cap() {
         local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
         if [[ "$mode" == "auto" ]]; then
             local auto_cap; auto_cap=$(cat "$HOME/.config/hub/auto_label_cap" 2>/dev/null || echo "")
             [[ "$auto_cap" =~ ^-?[0-9]+$ ]] && current=$auto_cap
+            # Sync hub_bar_tall to match current rendered row count so manual mode
+            # starts at the same height auto was showing (not some stale state).
+            local bar_h; bar_h=$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || echo "$HUB_BAR_HEIGHT_NORMAL")
+            if [[ "$bar_h" =~ ^[0-9]+$ ]] && (( bar_h <= HUB_BAR_HEIGHT_NORMAL )); then
+                rm -f "$HOME/.config/hub/hub_bar_tall"
+            else
+                touch "$HOME/.config/hub/hub_bar_tall"
+            fi
         fi
     }
 
@@ -2774,10 +2783,16 @@ cmd_layout_mode() {
             hub_bar_refresh
             ;;
         manual)
-            # Seed label_maxlen from auto_label_cap before switching
+            # Seed label_maxlen and hub_bar_tall from current auto state
             local auto_cap; auto_cap=$(cat "$HOME/.config/hub/auto_label_cap" 2>/dev/null || echo "")
             if [[ "$auto_cap" =~ ^-?[0-9]+$ ]]; then
                 echo "$auto_cap" > "$HOME/.config/hub/label_maxlen"
+            fi
+            local bar_h; bar_h=$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || echo "$HUB_BAR_HEIGHT_NORMAL")
+            if [[ "$bar_h" =~ ^[0-9]+$ ]] && (( bar_h <= HUB_BAR_HEIGHT_NORMAL )); then
+                rm -f "$HOME/.config/hub/hub_bar_tall"
+            else
+                touch "$HOME/.config/hub/hub_bar_tall"
             fi
             echo "manual" > "$layout_mode_file"
             hub_bar_refresh
