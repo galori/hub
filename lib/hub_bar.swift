@@ -864,7 +864,7 @@ class HubBarWindow: NSWindow {
                 notchMinX: notch?.minX, notchMaxX: notch?.maxX,
                 isFullscreen: isFullscreen, focused: state.focused,
                 claudeAlert: state.claudeAlert, claudeActive: state.claudeActive,
-                userPrefCap: state.labelMaxLen, lastRows: lastRows)
+                userPrefCap: -1, lastRows: lastRows)
         }
 
         lastFitRows = fit.rows
@@ -1752,7 +1752,7 @@ class HubBarController: NSObject {
                             notchMinX: notch?.minX, notchMaxX: notch?.maxX,
                             isFullscreen: isFullscreen, focused: state.focused,
                             claudeAlert: state.claudeAlert, claudeActive: state.claudeActive,
-                            userPrefCap: state.labelMaxLen, lastRows: w.lastFitRows)
+                            userPrefCap: -1, lastRows: w.lastFitRows)
                     }
 
                     let rowsChanged = newFit.rows != w.lastFitRows
