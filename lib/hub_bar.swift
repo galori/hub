@@ -864,9 +864,9 @@ class HubBarWindow: NSWindow {
         let topY = HubBarWindow.barTopY(sf: sf, vf: vf)
         let r = NSRect(x: sf.minX, y: topY - barHeightNormal, width: sf.width, height: barHeightNormal)
         super.init(contentRect: r, styleMask: .borderless, backing: .buffered, defer: false)
-        // .statusBar (25) floats above all app windows but below macOS pull-down menus.
-        // CGShieldingWindowLevel would cover menus, which we never want.
-        level = .statusBar
+        // .mainMenu (24) floats above all app windows; notification banners use a higher level
+        // so they render on top of the Hub Bar rather than being clipped by it.
+        level = .mainMenu
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
