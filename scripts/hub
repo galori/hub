@@ -753,7 +753,9 @@ cmd_install() {
         fi
     fi
     local bar_h=$HUB_BAR_HEIGHT_NORMAL
-    [[ -f "$HOME/.config/hub/hub_bar_tall" ]] && bar_h=$HUB_BAR_HEIGHT_TALL
+    # If rows are pinned to 2, start with tall height; otherwise normal.
+    local rows_pin_val; rows_pin_val=$(cat "$HOME/.config/hub/rows_pin" 2>/dev/null || echo "")
+    [[ "$rows_pin_val" == "2" ]] && bar_h=$HUB_BAR_HEIGHT_TALL
     local outer_top=$((bar_h + HUB_BAR_GAP))
     sed -e "s|__HUB_SCRIPT__|$REPO_DIR/scripts/hub|g" \
         -e "s|__HUB_OUTER_TOP__|$outer_top|g" \
@@ -2632,11 +2634,13 @@ cmd_repo_prefix() {
 
 cmd_label_length() {
     local direction="${1:-}"
-    local maxlen_file="$HOME/.config/hub/label_maxlen"
-    local layout_mode_file="$HOME/.config/hub/layout_mode"
-    # -1 = unlimited, 0 = code only, N>0 = max N chars of name
-    local current=-1
-    [[ -f "$maxlen_file" ]] && current=$(cat "$maxlen_file" 2>/dev/null || echo -1)
+    local cap_pin_file="$HOME/.config/hub/label_cap_pin"
+    # current: nil (unset) = no pin, -1 = unlimited pinned, 0 = code-only, N>0 = char cap
+    local current=-2  # sentinel: -2 means "no pin set"
+    if [[ -f "$cap_pin_file" ]]; then
+        local raw; raw=$(cat "$cap_pin_file" 2>/dev/null || echo "")
+        [[ "$raw" =~ ^-?[0-9]+$ ]] && current="$raw"
+    fi
 
     # Find longest label to cap the max
     local longest=0
@@ -2647,40 +2651,27 @@ cmd_label_length() {
         done < "$labels_file"
     fi
 
-    # Seed from auto_label_cap (and sync hub_bar_tall from rendered height) when
-    # transitioning from auto mode on relative adjustments.
-    _seed_from_auto_cap() {
-        local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
-        if [[ "$mode" == "auto" ]]; then
-            local auto_cap; auto_cap=$(cat "$HOME/.config/hub/auto_label_cap" 2>/dev/null || echo "")
-            [[ "$auto_cap" =~ ^-?[0-9]+$ ]] && current=$auto_cap
-            # Sync hub_bar_tall to match current rendered row count so manual mode
-            # starts at the same height auto was showing (not some stale state).
-            local bar_h; bar_h=$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || echo "$HUB_BAR_HEIGHT_NORMAL")
-            if [[ "$bar_h" =~ ^[0-9]+$ ]] && (( bar_h <= HUB_BAR_HEIGHT_NORMAL )); then
-                rm -f "$HOME/.config/hub/hub_bar_tall"
-            else
-                touch "$HOME/.config/hub/hub_bar_tall"
-            fi
-        fi
-    }
-
     case "$direction" in
         +|up|grow)
-            _seed_from_auto_cap
-            if [[ "$current" -lt 0 ]]; then
+            # If no pin yet, read current rendered label cap from the bar's fit decision.
+            # The bar writes hub_bar_height; derive a starting cap from the rendered effective cap
+            # by reading the Swift-written label_cap_pin if it exists, else treat as unlimited.
+            if [[ "$current" -eq -2 ]]; then
+                current=-1  # no pin → treat as unlimited, pressing grow does nothing
+            elif [[ "$current" -lt 0 ]]; then
                 current=-1  # already unlimited, stay unlimited
             else
                 current=$(( current + 2 ))
             fi
             ;;
         -|down|shrink)
-            _seed_from_auto_cap
-            if [[ "$current" -lt 0 ]]; then
+            if [[ "$current" -eq -2 ]] || [[ "$current" -lt 0 ]]; then
                 # First shrink from unlimited: start at longest - 2
                 if [[ "$longest" -gt 0 ]]; then
                     current=$(( longest - 2 ))
                     (( current < 0 )) && current=0
+                else
+                    current=8
                 fi
             else
                 current=$(( current - 2 ))
@@ -2690,84 +2681,101 @@ cmd_label_length() {
         min)
             current=0
             ;;
-        max)
-            current=-1
+        max|auto)
+            # Clear the label cap pin → auto picks it
+            rm -f "$cap_pin_file"
+            hub_bar_refresh
+            return 0
             ;;
         "")
-            # No argument: display current label length and mode
-            local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
-            echo -e "${bold}Label length:${reset}  (layout mode: ${blue}$mode${reset})"
-            if [[ "$current" -lt 0 ]]; then
-                echo -e "  unlimited  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
+            # No argument: display current label cap pin status
+            local pin_status
+            if [[ "$current" -eq -2 ]]; then
+                pin_status="auto (no pin)"
+            elif [[ "$current" -lt 0 ]]; then
+                pin_status="unlimited (pinned)"
             elif [[ "$current" -eq 0 ]]; then
-                echo -e "  workspace number only  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
+                pin_status="code-only (pinned)"
             else
-                echo -e "  $current chars  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
+                pin_status="${current} chars (pinned)"
             fi
-            echo -e "  ${yellow}Usage: hub label-length [+|-|grow|shrink|min|max|<number>]${reset}"
+            echo -e "${bold}Label length pin:${reset} $pin_status"
+            echo -e "  ${yellow}Usage: hub label-length [+|-|grow|shrink|min|max|auto|<number>]${reset}"
+            echo -e "  ${yellow}max/auto = clear pin (auto-fit labels)${reset}"
             return 0
             ;;
         *)
             if [[ "$direction" =~ ^[0-9]+$ ]]; then
                 current="$direction"
             else
-                fail "Usage: hub label-length [+|-|grow|shrink|min|max|<number>]"
+                fail "Usage: hub label-length [+|-|grow|shrink|min|max|auto|<number>]"
                 return 1
             fi
             ;;
     esac
 
-    # Clamp: -1 = unlimited, 0 = code only, positive = capped at longest
+    # Clamp: if at or beyond longest, snap to unlimited (-1)
     if [[ "$current" -gt 0 ]]; then
         if [[ "$longest" -gt 0 ]] && (( current >= longest )); then
             current=-1
         fi
     fi
-    echo "$current" > "$maxlen_file"
-    # Any explicit label adjustment enters manual mode
-    echo "manual" > "$layout_mode_file"
+    # Write pin file (-1 = unlimited pinned, 0 = code-only, N = char cap)
+    echo "$current" > "$cap_pin_file"
     hub_bar_refresh
 }
 
 cmd_hub_bar_height() {
     local action="${1:-}"
-    local state_file="$HOME/.config/hub/hub_bar_tall"
-    local layout_mode_file="$HOME/.config/hub/layout_mode"
-    local is_tall=false
-    [[ -f "$state_file" ]] && is_tall=true
+    local rows_pin_file="$HOME/.config/hub/rows_pin"
+    local is_pinned=false
+    local current_rows=0  # 0 = no pin
+    if [[ -f "$rows_pin_file" ]]; then
+        local raw; raw=$(cat "$rows_pin_file" 2>/dev/null || echo "")
+        if [[ "$raw" =~ ^[12]$ ]]; then
+            is_pinned=true
+            current_rows="$raw"
+        fi
+    fi
 
     case "$action" in
         tall)
-            touch "$state_file"
-            # Enter manual mode — seed from current auto height if coming from auto
-            local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
-            echo "manual" > "$layout_mode_file"
+            echo "2" > "$rows_pin_file"
             hub_bar_refresh
             ;;
         normal)
-            rm -f "$state_file"
-            echo "manual" > "$layout_mode_file"
+            echo "1" > "$rows_pin_file"
             hub_bar_refresh
             ;;
         toggle)
-            if $is_tall; then
+            if $is_pinned && [[ "$current_rows" -eq 2 ]]; then
                 cmd_hub_bar_height normal
             else
                 cmd_hub_bar_height tall
             fi
             ;;
+        auto)
+            # Clear the row pin → auto picks row count
+            rm -f "$rows_pin_file"
+            hub_bar_refresh
+            ;;
         "")
-            local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
-            echo -e "${bold}Bar height:${reset}  (layout mode: ${blue}$mode${reset})"
-            if $is_tall; then
-                echo -e "  tall (manual)"
+            local pin_status
+            if $is_pinned; then
+                if [[ "$current_rows" -eq 2 ]]; then
+                    pin_status="2 rows (pinned)"
+                else
+                    pin_status="1 row (pinned)"
+                fi
             else
-                echo -e "  normal (manual)"
+                pin_status="auto (no pin)"
             fi
-            echo -e "  ${yellow}Usage: hub bar-height [tall|normal|toggle]${reset}"
+            echo -e "${bold}Bar height pin:${reset} $pin_status"
+            echo -e "  ${yellow}Usage: hub bar-height [tall|normal|toggle|auto]${reset}"
+            echo -e "  ${yellow}auto = clear pin (auto-fit rows)${reset}"
             ;;
         *)
-            fail "Usage: hub bar-height [tall|normal|toggle]"
+            fail "Usage: hub bar-height [tall|normal|toggle|auto]"
             return 1
             ;;
     esac
@@ -2775,35 +2783,35 @@ cmd_hub_bar_height() {
 
 cmd_layout_mode() {
     local action="${1:-}"
-    local layout_mode_file="$HOME/.config/hub/layout_mode"
+    local cap_pin_file="$HOME/.config/hub/label_cap_pin"
+    local rows_pin_file="$HOME/.config/hub/rows_pin"
 
     case "$action" in
         auto)
-            echo "auto" > "$layout_mode_file"
-            hub_bar_refresh
-            ;;
-        manual)
-            # Seed label_maxlen and hub_bar_tall from current auto state
-            local auto_cap; auto_cap=$(cat "$HOME/.config/hub/auto_label_cap" 2>/dev/null || echo "")
-            if [[ "$auto_cap" =~ ^-?[0-9]+$ ]]; then
-                echo "$auto_cap" > "$HOME/.config/hub/label_maxlen"
-            fi
-            local bar_h; bar_h=$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || echo "$HUB_BAR_HEIGHT_NORMAL")
-            if [[ "$bar_h" =~ ^[0-9]+$ ]] && (( bar_h <= HUB_BAR_HEIGHT_NORMAL )); then
-                rm -f "$HOME/.config/hub/hub_bar_tall"
-            else
-                touch "$HOME/.config/hub/hub_bar_tall"
-            fi
-            echo "manual" > "$layout_mode_file"
+            # Unpin all axes → fully auto-fit
+            rm -f "$cap_pin_file" "$rows_pin_file"
             hub_bar_refresh
             ;;
         "")
-            local mode; mode=$(cat "$layout_mode_file" 2>/dev/null || echo auto)
-            echo -e "${bold}Layout mode:${reset} $mode"
-            echo -e "  ${yellow}Usage: hub layout-mode [auto|manual]${reset}"
+            local cap_pin rows_pin
+            [[ -f "$cap_pin_file" ]] && cap_pin=$(cat "$cap_pin_file" 2>/dev/null)
+            [[ -f "$rows_pin_file" ]] && rows_pin=$(cat "$rows_pin_file" 2>/dev/null)
+            echo -e "${bold}Layout pins:${reset}"
+            if [[ -n "$cap_pin" ]]; then
+                echo -e "  label cap: ${cap_pin} (pinned)"
+            else
+                echo -e "  label cap: auto (no pin)"
+            fi
+            if [[ -n "$rows_pin" ]]; then
+                echo -e "  rows:      ${rows_pin} (pinned)"
+            else
+                echo -e "  rows:      auto (no pin)"
+            fi
+            echo -e "  ${yellow}Usage: hub layout-mode [auto]${reset}"
+            echo -e "  ${yellow}auto = unpin all (fully auto-fit)${reset}"
             ;;
         *)
-            fail "Usage: hub layout-mode [auto|manual]"
+            fail "Usage: hub layout-mode [auto]"
             return 1
             ;;
     esac
