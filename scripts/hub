@@ -3044,7 +3044,11 @@ cmd_down() {
 
     # Stop AeroSpace
     if pgrep -q AeroSpace; then
-        aerospace enable off
+        # aerospace enable off can hang if AeroSpace is in a broken state; use a timeout
+        # and fall back to a direct kill so hub down never freezes.
+        if ! timeout 3 aerospace enable off 2>/dev/null; then
+            killall AeroSpace 2>/dev/null || true
+        fi
         success "AeroSpace disabled"
     else
         warn "AeroSpace was not running"
