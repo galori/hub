@@ -48,26 +48,10 @@ persistent-workspaces = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B",
                          "R", "S", "T", "U", "V", "W", "X", "Y", "Z"]
 
 
-# iTerm, Safari, Zed — tile normally; stop so the float-all rule below doesn't apply
+# hub: auto-arrange tiling whenever any new window is detected
 [[on-window-detected]]
-if.app-id = 'com.googlecode.iterm2'
-check-further-callbacks = false
+check-further-callbacks = true
 run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WORKSPACE_ID']
-
-[[on-window-detected]]
-if.app-id = 'com.apple.Safari'
-check-further-callbacks = false
-run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WORKSPACE_ID']
-
-[[on-window-detected]]
-if.app-id = 'dev.zed.Zed'
-check-further-callbacks = false
-run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WORKSPACE_ID']
-
-# Everything else floats by default; nudge it below the Hub Bar if needed.
-[[on-window-detected]]
-run = ['layout floating',
-       'exec-and-forget __HUB_SCRIPT__ nudge-float-window $AEROSPACE_WINDOW_ID']
 
 # See https://nikitabobko.github.io/AeroSpace/guide#key-mapping
 [key-mapping]
