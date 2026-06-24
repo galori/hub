@@ -193,16 +193,13 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     ctrl-alt-3 = 'exec-and-forget __HUB_SCRIPT__ open 3'
     ctrl-alt-4 = 'exec-and-forget __HUB_SCRIPT__ open 4'
     ctrl-alt-5 = 'exec-and-forget __HUB_SCRIPT__ open 5'
-    # hub: shrink/grow workspace label length
-    ctrl-alt-minus = 'exec-and-forget __HUB_SCRIPT__ label-length shrink'
-    ctrl-alt-equal = 'exec-and-forget __HUB_SCRIPT__ label-length grow'
-    ctrl-alt-shift-minus = 'exec-and-forget __HUB_SCRIPT__ label-length min'
-    ctrl-alt-shift-equal = 'exec-and-forget __HUB_SCRIPT__ label-length max'
-    # hub: toggle Hub Bar height (notch avoidance) / reload Hub Bar
-    ctrl-alt-shift-b = 'exec-and-forget __HUB_SCRIPT__ bar-height toggle'
+    # hub: toggle Hub Bar layout (shrink pills to one row / expand bar height)
+    ctrl-alt-shift-b = 'exec-and-forget __HUB_SCRIPT__ bar-layout toggle'
+    # hub: show/hide the launch bar and the widgets cluster
+    ctrl-alt-shift-l = 'exec-and-forget __HUB_SCRIPT__ bar-launcher toggle'
+    ctrl-alt-shift-w = 'exec-and-forget __HUB_SCRIPT__ bar-widgets toggle'
+    # hub: reload Hub Bar
     ctrl-alt-b = 'exec-and-forget __HUB_SCRIPT__ bar-reload'
-    # hub: return Hub Bar to auto-fit layout mode
-    ctrl-alt-shift-a = 'exec-and-forget __HUB_SCRIPT__ layout-mode auto'
     # hub: toggle repo name prefix on workspace labels
     ctrl-alt-p = 'exec-and-forget __HUB_SCRIPT__ repo-prefix toggle'
 

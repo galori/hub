@@ -135,11 +135,13 @@ struct HubBarState {
     var serviceMode: Bool = false
     var claudeAlert: Set<String> = []
     var claudeActive: Set<String> = []
-    // Pin model: nil = auto (no pin), non-nil = pinned value.
-    // labelCapPin: -1 = unlimited labels pinned; 0 = code-only; N>0 = char cap.
-    // rowsPin: 1 or 2 = locked row count.
-    var labelCapPin: Int? = nil
-    var rowsPin: Int? = nil
+    // Layout mode: shrink (default) = one row, binary-search label cap to fit.
+    //              expand           = full labels, bar grows 1..FIT_MAX_ROWS rows.
+    enum LayoutMode: String { case shrink, expand }
+    var layoutMode: LayoutMode = .shrink
+    // Visibility toggles (default hidden — "on" in the state file enables).
+    var showLauncher: Bool = false
+    var showWidgets: Bool = false
 
     static func snapshot() -> HubBarState {
         var s = HubBarState()
@@ -192,38 +194,18 @@ struct HubBarState {
             s.repoPrefix = v.trimmingCharacters(in: .whitespacesAndNewlines) == "on"
         }
 
-        // Pin model: label_cap_pin and rows_pin.
-        // One-time migration from old manual-mode state files (label_maxlen / hub_bar_tall /
-        // layout_mode). If the new pin files don't exist yet but the old files indicate manual
-        // mode, create the pin files and remove the old ones.
-        let capPinFile   = hub + "/label_cap_pin"
-        let rowsPinFile  = hub + "/rows_pin"
-        let legacyMode   = hub + "/layout_mode"
-        let legacyLen    = hub + "/label_maxlen"
-        let legacyTall   = hub + "/hub_bar_tall"
-        let fm = FileManager.default
-        if !fm.fileExists(atPath: capPinFile) && !fm.fileExists(atPath: rowsPinFile) {
-            // Migrate from old layout_mode=manual if present
-            if let modeVal = try? String(contentsOfFile: legacyMode, encoding: .utf8),
-               modeVal.trimmingCharacters(in: .whitespacesAndNewlines) == "manual" {
-                // Migrate label cap
-                if let lenVal = try? String(contentsOfFile: legacyLen, encoding: .utf8),
-                   let n = Int(lenVal.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                    try? "\(n)".write(toFile: capPinFile, atomically: true, encoding: .utf8)
-                }
-                // Migrate row pin
-                let rows = fm.fileExists(atPath: legacyTall) ? 2 : 1
-                try? "\(rows)".write(toFile: rowsPinFile, atomically: true, encoding: .utf8)
-                // Remove old files
-                try? fm.removeItem(atPath: legacyMode)
-                try? fm.removeItem(atPath: legacyLen)
-                try? fm.removeItem(atPath: legacyTall)
-            }
+        // Layout mode: shrink (default) | expand
+        if let v = try? String(contentsOfFile: hub + "/layout_mode", encoding: .utf8),
+           let m = LayoutMode(rawValue: v.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            s.layoutMode = m
         }
-        if let v = try? String(contentsOfFile: capPinFile, encoding: .utf8),
-           let n = Int(v.trimmingCharacters(in: .whitespacesAndNewlines)) { s.labelCapPin = n }
-        if let v = try? String(contentsOfFile: rowsPinFile, encoding: .utf8),
-           let n = Int(v.trimmingCharacters(in: .whitespacesAndNewlines)) { s.rowsPin = n }
+        // Visibility toggles (absent or "off" = hidden; "on" = visible)
+        func readOn(_ name: String) -> Bool {
+            (try? String(contentsOfFile: hub + "/" + name, encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines) == "on"
+        }
+        s.showLauncher = readOn("show_launcher")
+        s.showWidgets  = readOn("show_widgets")
 
         // service mode
         s.serviceMode = FileManager.default.fileExists(atPath: "/tmp/hub_service_mode")
@@ -245,20 +227,9 @@ struct HubBarState {
     // Returns (idx, name) spans for display, using the given effective cap.
     func spansFor(ws: String, cap: Int) -> (idx: String, name: String) {
         guard let info = wsInfo[ws], !info.name.isEmpty else { return (ws, "") }
-        var name = info.name
-        if repoPrefix, !info.repo.isEmpty, name != info.repo { name = "\(info.repo):\(name)" }
-        if cap == 0 { return (ws, "") }
-        if cap > 0, name.count > cap, ws != focused {
-            return (ws, String(name.prefix(cap)) + "…")
-        }
-        return (ws, name)
-    }
-
-    // Kept for backward compat
-    func labelFor(ws: String) -> String {
-        let cap = labelCapPin ?? -1
-        let (idx, name) = spansFor(ws: ws, cap: cap)
-        return name.isEmpty ? idx : "\(idx) \(name)"
+        var full = info.name
+        if repoPrefix, !info.repo.isEmpty, full != info.repo { full = "\(info.repo):\(full)" }
+        return (ws, cappedName(full: full, cap: cap, isFocused: ws == focused))
     }
 
     func wsColor(ws: String) -> UInt32 {
@@ -299,6 +270,14 @@ func cachedTextWidth(_ s: String, font: NSFont) -> CGFloat {
     return w
 }
 
+// Apply a label cap to a workspace name.
+// cap == -1 → full name; cap == 0 → empty; cap > 0 → truncate non-focused names.
+func cappedName(full: String, cap: Int, isFocused: Bool) -> String {
+    if cap == 0 { return "" }
+    if cap > 0, !isFocused, full.count > cap { return String(full.prefix(cap)) + "…" }
+    return full
+}
+
 // Analytic pill width for a given (idx, name) pair — mirrors WorkspacePill layout constants.
 // showDot adds 4(spacing)+6(dot) to the inner stack.
 func analyticalPillWidth(idx: String, name: String, showDot: Bool) -> CGFloat {
@@ -321,14 +300,7 @@ func stripWidth(pills: [(ws: String, fullName: String, isFocused: Bool)],
     for (i, p) in pills.enumerated() {
         if i > 0 { total += pillGap }
         let effCap = (cap == -1 || p.isFocused) ? -1 : cap
-        let name: String
-        if effCap == 0 {
-            name = ""
-        } else if effCap > 0, p.fullName.count > effCap {
-            name = String(p.fullName.prefix(effCap)) + "…"
-        } else {
-            name = p.fullName
-        }
+        let name = cappedName(full: p.fullName, cap: effCap, isFocused: p.isFocused)
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
         total += analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
     }
@@ -346,7 +318,6 @@ struct FitDecision {
 }
 
 let FIT_MAX_ROWS = 4
-let FIT_HYSTERESIS: CGFloat = 24  // px slack before dropping a row
 
 // Greedy packing of pills into rows given row widths.
 // Row 0 may have restricted capacity (notch / cluster); rows 1+ are full-width.
@@ -364,10 +335,7 @@ private func greedyPack(pills: [(ws: String, fullName: String, isFocused: Bool)]
 
     for (i, p) in pills.enumerated() {
         let effCap = (cap == -1 || p.isFocused) ? -1 : cap
-        let name: String
-        if effCap == 0 { name = "" }
-        else if effCap > 0, p.fullName.count > effCap { name = String(p.fullName.prefix(effCap)) + "…" }
-        else { name = p.fullName }
+        let name = cappedName(full: p.fullName, cap: effCap, isFocused: p.isFocused)
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
         let pw = analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
         let gap: CGFloat = rows[r].isEmpty ? 0 : pillGap
@@ -394,20 +362,17 @@ private func greedyPack(pills: [(ws: String, fullName: String, isFocused: Bool)]
     return (Array(usedRows), overflowed)
 }
 
-// Pure fit decision: given pill data, screen geometry, and preferences — returns layout.
-// `lastRows` is the only retained state (hysteresis). Pass 1 on first call.
-// Pin semantics:
-//   labelCapPin = nil  → auto picks the cap (may shrink labels to fit)
-//   labelCapPin = n    → cap is fixed; bar grows rows to honor it; never shrinks labels
-//   rowsPin = nil      → auto picks 1..FIT_MAX_ROWS
-//   rowsPin = n        → rows locked to n; bar truncates (per-pill ellipsis) to fit, never adds rows
-//   both set           → fixed rows + fixed cap; single pack, accept ellipsis
+// Pure fit decision: given pill data, screen geometry, and layout mode — returns layout.
+// `lastRows` is the only retained state (hysteresis for expand mode). Pass 1 on first call.
+// Modes:
+//   .shrink (default) — always 1 row; binary-search the largest label cap that fits.
+//   .expand           — full labels (-1); grow 1..FIT_MAX_ROWS until pills fit (with hysteresis).
 func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
                screenW: CGFloat, clusterW: CGFloat,
                notchMinX: CGFloat?,
                isFullscreen: Bool, focused: String,
                claudeAlert: Set<String>, claudeActive: Set<String>,
-               labelCapPin: Int?, rowsPin: Int?,
+               mode: HubBarState.LayoutMode,
                lastRows: Int) -> FitDecision {
 
     let leadingInset: CGFloat = 8
@@ -419,82 +384,62 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
     // The right-of-notch sliver is intentionally left empty on row 0.
     let row0RightEdge: CGFloat
     if isFullscreen, let nMin = notchMinX {
-        // Row 0 ends at the notch; left segment only.
         row0RightEdge = nMin - 2  // 2px clearance from notch edge
     } else {
-        // No notch: row 0 ends at the cluster.
         row0RightEdge = screenW - clusterW - clusterGap - trailingInset
     }
     let row0W = row0RightEdge - leadingInset
     let fullRowW = screenW - leadingInset - trailingInset
 
-    let cap = labelCapPin ?? -1  // -1 = unlimited (auto will shrink if needed)
-    let maxRows = rowsPin ?? FIT_MAX_ROWS
+    switch mode {
+    case .shrink:
+        // Always 1 row. Binary-search the largest cap (0..60) that packs everything into row 0.
+        let maxCap = 60
+        var lo = 0, hi = maxCap
+        var bestCap = 0
+        var bestAssignment: [[Int]] = [Array(0..<pills.count)]
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            let (assignment, overflowed) = greedyPack(
+                pills: pills, cap: mid, focused: focused,
+                claudeAlert: claudeAlert, claudeActive: claudeActive,
+                row0Width: row0W, fullRowWidth: fullRowW, maxRows: 1)
+            if !overflowed { bestCap = mid; bestAssignment = assignment; lo = mid + 1 }
+            else { hi = mid - 1 }
+        }
+        return FitDecision(rows: 1, rowAssignment: bestAssignment, effectiveCap: bestCap)
 
-    // If rows are pinned: single pack at fixed rows + fixed cap, no growth.
-    if rowsPin != nil {
-        let (asgn, _) = greedyPack(
-            pills: pills, cap: cap, focused: focused,
-            claudeAlert: claudeAlert, claudeActive: claudeActive,
-            row0Width: row0W, fullRowWidth: fullRowW, maxRows: maxRows)
-        return FitDecision(rows: maxRows, rowAssignment: asgn, effectiveCap: cap)
-    }
-
-    // Try 1..maxRows at the given cap (or unlimited when label cap is also unpinned)
-    for r in 1...maxRows {
-        let (_, overflowed) = greedyPack(
-            pills: pills, cap: cap, focused: focused,
-            claudeAlert: claudeAlert, claudeActive: claudeActive,
-            row0Width: row0W, fullRowWidth: fullRowW, maxRows: r)
-
-        if !overflowed {
-            // Fits in r rows. Apply hysteresis: only reduce rows if we previously needed more.
-            let effectiveRows: Int
-            if r < lastRows {
-                let (_, stillOverflows) = greedyPack(
-                    pills: pills, cap: cap, focused: focused,
-                    claudeAlert: claudeAlert, claudeActive: claudeActive,
-                    row0Width: row0W, fullRowWidth: fullRowW, maxRows: lastRows - 1)
-                // Only shrink rows if content fits comfortably with one fewer row
-                effectiveRows = stillOverflows ? lastRows : r
-            } else {
-                effectiveRows = r
-            }
-            let (finalAssignment, _) = greedyPack(
+    case .expand:
+        // Full labels (cap = -1). Grow rows 1..FIT_MAX_ROWS until it fits; apply hysteresis.
+        let cap = -1
+        for r in 1...FIT_MAX_ROWS {
+            let (_, overflowed) = greedyPack(
                 pills: pills, cap: cap, focused: focused,
                 claudeAlert: claudeAlert, claudeActive: claudeActive,
-                row0Width: row0W, fullRowWidth: fullRowW, maxRows: effectiveRows)
-            return FitDecision(rows: effectiveRows, rowAssignment: finalAssignment, effectiveCap: cap)
+                row0Width: row0W, fullRowWidth: fullRowW, maxRows: r)
+            if !overflowed {
+                let effectiveRows: Int
+                if r < lastRows {
+                    let (_, stillOverflows) = greedyPack(
+                        pills: pills, cap: cap, focused: focused,
+                        claudeAlert: claudeAlert, claudeActive: claudeActive,
+                        row0Width: row0W, fullRowWidth: fullRowW, maxRows: lastRows - 1)
+                    effectiveRows = stillOverflows ? lastRows : r
+                } else { effectiveRows = r }
+                let (finalAssignment, _) = greedyPack(
+                    pills: pills, cap: cap, focused: focused,
+                    claudeAlert: claudeAlert, claudeActive: claudeActive,
+                    row0Width: row0W, fullRowWidth: fullRowW, maxRows: effectiveRows)
+                return FitDecision(rows: effectiveRows, rowAssignment: finalAssignment, effectiveCap: cap)
+            }
         }
-    }
-
-    // Exceeds maxRows at full cap and label cap is NOT pinned — shrink labels by binary search.
-    // If label cap IS pinned, the user asked for those labels; honor them at maxRows with overflow
-    // parked in the last row (they'll be ellipsized by per-pill max-width constraint).
-    if labelCapPin != nil {
+        // Still overflows at FIT_MAX_ROWS: park overflow in the last row (ellipsized by per-pill maxwidth).
         let (asgn, _) = greedyPack(
             pills: pills, cap: cap, focused: focused,
             claudeAlert: claudeAlert, claudeActive: claudeActive,
-            row0Width: row0W, fullRowWidth: fullRowW, maxRows: maxRows)
-        return FitDecision(rows: maxRows, rowAssignment: asgn, effectiveCap: cap)
-    }
-    let maxCap = 60
-    var lo = 0, hi = maxCap
-    var bestCap = 0
-    var bestAssignment: [[Int]] = [Array(0..<pills.count)]
-    while lo <= hi {
-        let mid = (lo + hi) / 2
-        let (assignment, overflowed) = greedyPack(
-            pills: pills, cap: mid, focused: focused,
-            claudeAlert: claudeAlert, claudeActive: claudeActive,
             row0Width: row0W, fullRowWidth: fullRowW, maxRows: FIT_MAX_ROWS)
-        if !overflowed {
-            bestCap = mid; bestAssignment = assignment; lo = mid + 1
-        } else {
-            hi = mid - 1
-        }
+        return FitDecision(rows: FIT_MAX_ROWS, rowAssignment: asgn, effectiveCap: cap)
     }
-    return FitDecision(rows: FIT_MAX_ROWS, rowAssignment: bestAssignment, effectiveCap: bestCap)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -830,7 +775,6 @@ class HubBarWindow: NSWindow {
     var volLabel:   NSTextField?
     var volIcon:    NSTextField?
     var serviceModeLabel: NSView?
-    var layoutModeIcon: NSTextField?
 
     // Last fit decision, for applyRefresh change-detection
     var lastFitRows: Int = 0
@@ -876,35 +820,37 @@ class HubBarWindow: NSWindow {
     }
 
     // Analytic cluster width estimate used by decideFit before the view is built.
-    // Measures actual text widths for the clock/volume/battery labels + known fixed widths.
+    // Must mirror buildCluster exactly — every gate here must match a gate there.
     func analyticalClusterWidth(state: HubBarState) -> CGFloat {
         var w: CGFloat = 8 + 8  // leading cluster gap + trailing inset
 
-        // Service pill (30px) — always present but usually hidden; reserve space anyway
+        // Service pill (30px) — independent of show_launcher/show_widgets
         if state.serviceMode { w += 30 + 6 }
 
-        // App icon group
-        if !state.apps.isEmpty {
+        // App icon group — only when showLauncher is on and apps are configured
+        if state.showLauncher && !state.apps.isEmpty {
             let iconCount = state.apps.count
             // 14px inset each side + appIconSize per icon + appGroupGap between
             w += 14 * 2 + CGFloat(iconCount) * (appIconSize + 4) + CGFloat(max(0, iconCount - 1)) * appGroupGap + 6
         }
 
-        // Pin indicator icon (only visible when any axis is pinned)
-        if state.labelCapPin != nil || state.rowsPin != nil { w += 20 + 6 }
+        // Layout mode icon — only visible in expand mode
+        if state.layoutMode == .expand { w += 20 + 6 }
 
-        // Spacer
-        w += 4 + 6
+        // Spacer + volume + battery + clock — only when showWidgets is on
+        if state.showWidgets {
+            w += 4 + 6  // spacer
 
-        // Volume: icon + "100%" label
-        w += cachedTextWidth("\u{F057E}", font: nerdFont16) + 4 + cachedTextWidth("100%", font: monoFont12) + 6
+            // Volume: icon + "100%" label
+            w += cachedTextWidth("\u{F057E}", font: nerdFont16) + 4 + cachedTextWidth("100%", font: monoFont12) + 6
 
-        // Battery: icon + "100%" label
-        w += cachedTextWidth("\u{F0079}", font: nerdFont16) + 4 + cachedTextWidth("100%", font: monoFont12) + 6
+            // Battery: icon + "100%" label
+            w += cachedTextWidth("\u{F0079}", font: nerdFont16) + 4 + cachedTextWidth("100%", font: monoFont12) + 6
 
-        // Clock pill: 10+6+dot(6)+6+label+10 = ~32 + label
-        let clockLabel = "Mon 22 Jun  00:00"
-        w += 10 + 6 + 6 + 6 + cachedTextWidth(clockLabel, font: monoFont12) + 10
+            // Clock pill: 10+6+dot(6)+6+label+10 = ~32 + label
+            let clockLabel = "Mon 22 Jun  00:00"
+            w += 10 + 6 + 6 + 6 + cachedTextWidth(clockLabel, font: monoFont12) + 10
+        }
 
         return ceil(w)
     }
@@ -914,7 +860,7 @@ class HubBarWindow: NSWindow {
         cv.subviews.forEach { $0.removeFromSuperview() }
         wsPills.removeAll(); appSlots.removeAll(); wsWinSlots.removeAll(); volPopup = nil
         clockLabel = nil; battLabel = nil; battIcon = nil; volLabel = nil; volIcon = nil
-        serviceModeLabel = nil; layoutModeIcon = nil
+        serviceModeLabel = nil
 
         let sf = barScreen.frame
         let vf = barScreen.visibleFrame
@@ -937,7 +883,7 @@ class HubBarWindow: NSWindow {
             notchMinX: notch?.minX,
             isFullscreen: isFullscreen, focused: state.focused,
             claudeAlert: state.claudeAlert, claudeActive: state.claudeActive,
-            labelCapPin: state.labelCapPin, rowsPin: state.rowsPin,
+            mode: state.layoutMode,
             lastRows: lastRows)
 
         lastFitRows = fit.rows
@@ -1094,13 +1040,6 @@ class HubBarWindow: NSWindow {
         return stack
     }
 
-    private func truncatedName(_ p: (ws: String, fullName: String, isFocused: Bool), cap: Int) -> String {
-        if p.fullName.isEmpty { return "" }
-        if cap == 0 { return "" }
-        if cap > 0, !p.isFocused, p.fullName.count > cap { return String(p.fullName.prefix(cap)) + "…" }
-        return p.fullName
-    }
-
     private func populateStack(_ stack: NSStackView,
                                 pills: [(ws: String, fullName: String, isFocused: Bool)],
                                 state: HubBarState, fit: FitDecision) {
@@ -1187,79 +1126,73 @@ class HubBarWindow: NSWindow {
         serviceModeLabel = pill
         stack.addArrangedSubview(pill)
 
-        // App icon group
-        if !state.apps.isEmpty {
+        // App icon group — only when showLauncher is on and apps are configured
+        if state.showLauncher && !state.apps.isEmpty {
             let group = buildAppIconGroup(state: state)
             group.translatesAutoresizingMaskIntoConstraints = false
             stack.addArrangedSubview(group)
         }
 
-        // Layout mode indicator (auto/manual)
-        let modeIcon = buildLayoutModeIcon(state: state)
-        modeIcon.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(modeIcon)
+        // Layout mode icon — only in expand mode; click returns to shrink
+        if state.layoutMode == .expand {
+            let modeIcon = buildLayoutModeIcon(state: state)
+            modeIcon.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(modeIcon)
+        }
 
-        // Spacer
-        stack.addArrangedSubview(makeHSpacer(4))
-
-        // Volume (bare icon+pct)
-        buildVolume(into: stack)
-
-        // Battery (bare icon+pct)
-        buildBattery(into: stack)
-
-        // Clock (accent-soft pill)
-        buildClock(into: stack)
+        // Spacer + volume + battery + clock — only when showWidgets is on
+        if state.showWidgets {
+            stack.addArrangedSubview(makeHSpacer(4))
+            buildVolume(into: stack)
+            buildBattery(into: stack)
+            buildClock(into: stack)
+        }
 
         return cluster
     }
 
-    // ── Layout mode icon ─────────────────────────────────────────────────────
+    // ── Click-wrap helper ────────────────────────────────────────────────────
+    // Wraps a content view with an invisible HubBarClickView overlay of the same size.
+    // Used by buildLayoutModeIcon, buildVolume, buildBattery.
 
-    func buildLayoutModeIcon(state: HubBarState) -> NSView {
-        let isPinned = state.labelCapPin != nil || state.rowsPin != nil
-        // nf-fa-lock (U+F023) = label pinned, nf-cod-list_ordered (U+EBC6) = rows pinned,
-        // nf-fa-lock (U+F023) = both. Shown only when any axis is pinned; click unpins all.
-        let glyph: String
-        if state.labelCapPin != nil && state.rowsPin != nil {
-            glyph = "\u{F023}\u{EBC6}"  // lock + rows badge
-        } else if state.rowsPin != nil {
-            glyph = "\u{EBC6}"          // rows-only pin (nf-cod-list_ordered)
-        } else {
-            glyph = "\u{F023}"          // label-only pin (nf-fa-lock)
-        }
-        let icon = NSTextField(labelWithString: glyph)
-        icon.font = nerdFont13
-        icon.textColor = NSColor(argb: C_ORANGE)
-        icon.isEditable = false; icon.isBordered = false; icon.backgroundColor = .clear
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        layoutModeIcon = icon
-
-        let click = HubBarClickView(frame: .zero)
-        click.translatesAutoresizingMaskIntoConstraints = false
-        click.onPress = {
-            guard let hub = hubScriptPath() else { return }
-            // "layout-mode auto" = unpin all
-            Process.launchedProcess(launchPath: "/bin/sh",
-                arguments: ["-c", "'\(hub)' layout-mode auto >/dev/null 2>&1 &"])
-        }
-
+    @discardableResult
+    func wrapWithClick(content: NSView, click: HubBarClickView) -> NSView {
         let wrap = NSView()
         wrap.translatesAutoresizingMaskIntoConstraints = false
-        wrap.addSubview(icon); wrap.addSubview(click)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        click.translatesAutoresizingMaskIntoConstraints = false
+        wrap.addSubview(content); wrap.addSubview(click)
         NSLayoutConstraint.activate([
-            icon.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
-            icon.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
-            icon.topAnchor.constraint(equalTo: wrap.topAnchor),
-            icon.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
+            content.topAnchor.constraint(equalTo: wrap.topAnchor),
+            content.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
             click.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
             click.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
             click.topAnchor.constraint(equalTo: wrap.topAnchor),
             click.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
         ])
-        // Visible only when at least one axis is pinned.
-        wrap.isHidden = !isPinned
         return wrap
+    }
+
+    // ── Layout mode icon ─────────────────────────────────────────────────────
+    // Only rendered in expand mode. Shows nf-fa-compress (⇔ compact) glyph in orange;
+    // clicking it returns the bar to shrink mode.
+
+    func buildLayoutModeIcon(state: HubBarState) -> NSView {
+        // nf-fa-compress U+F066: "click to compact/shrink back"
+        let icon = NSTextField(labelWithString: "\u{F066}")
+        icon.font = nerdFont13
+        icon.textColor = NSColor(argb: C_ORANGE)
+        icon.isEditable = false; icon.isBordered = false; icon.backgroundColor = .clear
+
+        let click = HubBarClickView(frame: .zero)
+        click.onPress = {
+            guard let hub = hubScriptPath() else { return }
+            Process.launchedProcess(launchPath: "/bin/sh",
+                arguments: ["-c", "'\(hub)' bar-layout shrink >/dev/null 2>&1 &"])
+        }
+        return wrapWithClick(content: icon, click: click)
     }
 
     // ── App icon group ───────────────────────────────────────────────────────
@@ -1374,23 +1307,8 @@ class HubBarWindow: NSWindow {
         let (ws, ic, lbl) = makeBareIconLabel(icon: "󰕾", iconColor: C_BLUE)
         volIcon = ic; volLabel = lbl
         let click = HubBarClickView(frame: .zero)
-        click.translatesAutoresizingMaskIntoConstraints = false
         click.onPress = { [weak self] in self?.toggleVolumePopup() }
-        let wrap = NSView()
-        wrap.translatesAutoresizingMaskIntoConstraints = false
-        ws.translatesAutoresizingMaskIntoConstraints = false
-        wrap.addSubview(ws); wrap.addSubview(click)
-        NSLayoutConstraint.activate([
-            ws.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
-            ws.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
-            ws.topAnchor.constraint(equalTo: wrap.topAnchor),
-            ws.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
-            click.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
-            click.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
-            click.topAnchor.constraint(equalTo: wrap.topAnchor),
-            click.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
-        ])
-        stack.addArrangedSubview(wrap)
+        stack.addArrangedSubview(wrapWithClick(content: ws, click: click))
         updateVolume()
 
         var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
@@ -1404,23 +1322,8 @@ class HubBarWindow: NSWindow {
         let (ws, ic, lbl) = makeBareIconLabel(icon: "󰁹", iconColor: C_GREEN)
         battIcon = ic; battLabel = lbl
         let click = HubBarClickView(frame: .zero)
-        click.translatesAutoresizingMaskIntoConstraints = false
         click.onPress = { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.battery")!) }
-        let wrap = NSView()
-        wrap.translatesAutoresizingMaskIntoConstraints = false
-        ws.translatesAutoresizingMaskIntoConstraints = false
-        wrap.addSubview(ws); wrap.addSubview(click)
-        NSLayoutConstraint.activate([
-            ws.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
-            ws.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
-            ws.topAnchor.constraint(equalTo: wrap.topAnchor),
-            ws.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
-            click.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
-            click.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
-            click.topAnchor.constraint(equalTo: wrap.topAnchor),
-            click.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
-        ])
-        stack.addArrangedSubview(wrap)
+        stack.addArrangedSubview(wrapWithClick(content: ws, click: click))
         updateBattery()
     }
 
@@ -1554,13 +1457,8 @@ class HubBarWindow: NSWindow {
 
     func applyRefresh(state: HubBarState, newRows: Int, newCap: Int) {
         applyWorkspaceState(state: state, cap: newCap)
-        updateClock(); updateBattery(); updateVolume()
+        updateClock(); updateBattery(); updateVolume()   // safe no-ops if widgets hidden
         serviceModeLabel?.isHidden = !state.serviceMode
-        // Update pin indicator visibility: shown when any axis is pinned.
-        if let icon = layoutModeIcon?.superview {
-            let isPinned = state.labelCapPin != nil || state.rowsPin != nil
-            icon.isHidden = !isPinned
-        }
     }
 
     // ── Volume popup (kept from original) ───────────────────────────────────
@@ -1773,15 +1671,17 @@ class HubBarController: NSObject {
                         notchMinX: notch?.minX,
                         isFullscreen: isFullscreen, focused: state.focused,
                         claudeAlert: state.claudeAlert, claudeActive: state.claudeActive,
-                        labelCapPin: state.labelCapPin, rowsPin: state.rowsPin,
+                        mode: state.layoutMode,
                         lastRows: w.lastFitRows)
 
                     let rowsChanged = newFit.rows != w.lastFitRows
                     let capChanged  = newFit.effectiveCap != w.lastFitCap
-                    let pinChanged  = state.labelCapPin != prevState.labelCapPin
-                                   || state.rowsPin != prevState.rowsPin
+                    let modeChanged = state.layoutMode != prevState.layoutMode
+                    let visChanged  = state.showLauncher != prevState.showLauncher
+                                   || state.showWidgets  != prevState.showWidgets
+                    let appsChanged = state.showLauncher && state.apps.count != prevState.apps.count
 
-                    if rowsChanged || capChanged || pinChanged {
+                    if rowsChanged || capChanged || modeChanged || visChanged || appsChanged {
                         w.buildContents(state: state, lastRows: w.lastFitRows)
                         w.orderFrontRegardless()
                     } else {
