@@ -1681,8 +1681,10 @@ class HubBarController: NSObject {
                     let visChanged  = state.showLauncher != prevState.showLauncher
                                    || state.showWidgets  != prevState.showWidgets
                     let appsChanged = state.showLauncher && state.apps.count != prevState.apps.count
+                    // Detect new workspaces whose pill view hasn't been created yet
+                    let newPillMissing = pills.contains { w.wsPills[$0.ws] == nil }
 
-                    if rowsChanged || capChanged || modeChanged || visChanged || appsChanged {
+                    if rowsChanged || capChanged || modeChanged || visChanged || appsChanged || newPillMissing {
                         w.buildContents(state: state, lastRows: w.lastFitRows)
                         w.orderFrontRegardless()
                     } else {
