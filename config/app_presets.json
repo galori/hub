@@ -13,7 +13,7 @@
   },
   "com.mitchellh.ghostty": {
     "name": "Ghostty",
-    "launch": "open -na Ghostty --args --window-inherit-working-directory=false --working-directory={path}",
+    "launch": "open -na Ghostty.app --args --working-directory=\"{path}\" --quit-after-last-window-closed=false -e zsh -lc '{prompt_cmd}; exec zsh -il'",
     "prompt_launch": "open -na Ghostty --args --window-inherit-working-directory=false --working-directory={path} -e {prompt_cmd}",
     "description": "Opens a new Ghostty window in the workspace path"
   },
