@@ -1311,7 +1311,9 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
             let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { errLabel.stringValue = "Name cannot be empty"; return }
             let existing = listWorktrees(root)
-            if let match = existing.first(where: { lastPathComponent($0.path) == name }) {
+            if let match = existing.first(where: {
+                lastPathComponent($0.path) == name || $0.branch == name
+            }) {
                 let color = readWorktreeColor(match.path)
                 showNamingWorkspace(path: match.path, repoRoot: root, color: color, back: back)
                 return
