@@ -543,13 +543,14 @@ class WorkspacePill: NSView {
         idxField.lineBreakMode = .byClipping; idxField.setContentCompressionResistancePriority(.required, for: .horizontal)
         idxField.setContentHuggingPriority(.required, for: .horizontal)
 
-        // name field — truncates with ellipsis at a max width so labels never slide under cluster
+        // name field — width is governed by the layout cap (shrink binary-search / expand wrapping)
+        // and visually contained by the row-0 clipView. No hard per-pill cap, so labels use all
+        // available room and analyticalPillWidth (which measures full text) matches what renders.
         nameField.isEditable = false; nameField.isBordered = false; nameField.backgroundColor = .clear
         nameField.font = monoFont13
         nameField.lineBreakMode = .byTruncatingTail
         nameField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         nameField.setContentHuggingPriority(.required, for: .horizontal)
-        nameField.widthAnchor.constraint(lessThanOrEqualToConstant: 160).isActive = true
 
         // dot
         dotView.wantsLayer = true
