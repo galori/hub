@@ -308,6 +308,19 @@ struct FitDecision {
     // The remainder go into the RIGHT segment (right of notch).
     // nil = no notch / not fullscreen → single continuous row, unchanged behaviour.
     var row0Split: Int? = nil
+    // Post-layout left-segment relaxation (fullscreen+notch+shrink only): the global
+    // effectiveCap is chosen so BOTH segments fit, but the left segment usually has slack
+    // before the notch. leftCap (> effectiveCap) is applied to the workspaces in leftWsIDs
+    // so their labels grow to fill that space. nil = no relaxation (left uses effectiveCap).
+    var leftCap: Int? = nil
+    var leftWsIDs: Set<String> = []
+
+    // Per-workspace label cap: left-segment pills use the relaxed leftCap; all others use
+    // the global effectiveCap.
+    func capFor(_ ws: String) -> Int {
+        if let lc = leftCap, leftWsIDs.contains(ws) { return lc }
+        return effectiveCap
+    }
 }
 
 let FIT_MAX_ROWS = 4
@@ -489,8 +502,31 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
             }
             if fits { bestCap = mid; lo = mid + 1 } else { hi = mid - 1 }
         }
-        return FitDecision(rows: 1, rowAssignment: [allIndices], effectiveCap: bestCap,
-                           row0Split: makeSplit([allIndices], cap: bestCap))
+        let split = makeSplit([allIndices], cap: bestCap)
+        var fit = FitDecision(rows: 1, rowAssignment: [allIndices], effectiveCap: bestCap,
+                              row0Split: split)
+
+        // Post-layout left relaxation: the global bestCap is constrained by the tighter of the
+        // two segments (usually the right). The left segment normally has slack before the
+        // notch, so grow ONLY the left-segment labels to fill it — purely additive, the split
+        // and right segment are untouched. Skipped when labels are already unlimited (bestCap<0)
+        // or there's nothing on the left.
+        if hasNotchSplit, let split = split, split > 0, bestCap >= 0 {
+            let leftPills = Array(pills[0..<min(split, pills.count)])
+            var bestLeftCap = bestCap
+            var llo = bestCap + 1, lhi = maxCap
+            while llo <= lhi {
+                let mid = (llo + lhi) / 2
+                let w = stripWidth(pills: leftPills, cap: mid, focused: focused,
+                                   claudeAlert: claudeAlert, claudeActive: claudeActive)
+                if w <= leftSegW { bestLeftCap = mid; llo = mid + 1 } else { lhi = mid - 1 }
+            }
+            if bestLeftCap > bestCap {
+                fit.leftCap = bestLeftCap
+                fit.leftWsIDs = Set(leftPills.map { $0.ws })
+            }
+        }
+        return fit
 
     case .expand:
         // Full labels (cap = -1). Grow rows 1..FIT_MAX_ROWS until it fits; apply hysteresis.
@@ -1183,12 +1219,12 @@ class HubBarWindow: NSWindow {
             }()
             stack.addArrangedSubview(pill)
         }
-        applyWorkspaceState(state: state, cap: fit.effectiveCap)
+        applyWorkspaceState(state: state, fit: fit)
     }
 
     // ── Workspace strip ──────────────────────────────────────────────────────
 
-    func applyWorkspaceState(state: HubBarState, cap: Int) {
+    func applyWorkspaceState(state: HubBarState, fit: FitDecision) {
         for ws in ALL_WS {
             guard let pill = wsPills[ws] else { continue }
             let isActive  = state.active.contains(ws) || ws == state.focused
@@ -1203,7 +1239,8 @@ class HubBarWindow: NSWindow {
             // On the focused (teal) pill the blue dot blends in — use white instead.
             let focusedDotColor: UInt32 = hasActive ? 0xFFFFFFFF : DOT_ORANGE
 
-            let (idxStr, nameStr) = state.spansFor(ws: ws, cap: cap)
+            // Left-segment pills may use a relaxed cap (capFor); everyone else uses effectiveCap.
+            let (idxStr, nameStr) = state.spansFor(ws: ws, cap: fit.capFor(ws))
 
             if isFocused {
                 pill.apply(bg: ACCENT, idxColor: PILL_IDX_ACT, nameColor: PILL_NAME_ACT,
@@ -1247,8 +1284,8 @@ class HubBarWindow: NSWindow {
         return pill
     }
 
-    func applyRefresh(state: HubBarState, newRows: Int, newCap: Int) {
-        applyWorkspaceState(state: state, cap: newCap)
+    func applyRefresh(state: HubBarState, fit: FitDecision) {
+        applyWorkspaceState(state: state, fit: fit)
         serviceModeLabel?.isHidden = !state.serviceMode
     }
 
@@ -1886,7 +1923,7 @@ class HubBarController: NSObject {
                         w.buildContents(state: state, lastRows: w.lastFitRows)
                         w.orderFrontRegardless()
                     } else {
-                        w.applyRefresh(state: state, newRows: newFit.rows, newCap: newFit.effectiveCap)
+                        w.applyRefresh(state: state, fit: newFit)
                     }
                 }
             }
