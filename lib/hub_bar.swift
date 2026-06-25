@@ -986,7 +986,15 @@ class HubBarWindow: NSWindow {
         if isPrimary {
             let menuInset = topY >= sf.maxY ? 0 : Int(sf.maxY - vf.maxY)
             let home = NSHomeDirectory()
-            try? "\(Int(barH))".write(toFile: home + "/.config/hub/hub_bar_height", atomically: true, encoding: .utf8)
+            // hub_bar_height drives AeroSpace's outer.top, which AeroSpace measures DOWN from
+            // visibleFrame.maxY. The bar bottom sits at (topY - barH). In fullscreen the bar
+            // top is at sf.maxY — above vf.maxY by (topY - vf.maxY) — so the bar bottom is only
+            // (barH - that offset) below vf.maxY. Subtracting the offset keeps the visible gap
+            // constant in both modes; in normal mode topY == vf.maxY so the offset is 0.
+            let vfDrop = Int(topY - vf.maxY)
+            try? "\(Int(barH) - vfDrop)".write(toFile: home + "/.config/hub/hub_bar_height", atomically: true, encoding: .utf8)
+            // hub_bar_outer_top is the distance from the ABSOLUTE screen top to the bar bottom
+            // (consumed by float_nudge, which works in top-left origin coords) — unchanged.
             try? "\(Int(barH) + menuInset)".write(toFile: home + "/.config/hub/hub_bar_outer_top", atomically: true, encoding: .utf8)
             if let hub = hubScriptPath() {
                 Process.launchedProcess(launchPath: "/bin/sh",
