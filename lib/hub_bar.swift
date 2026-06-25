@@ -910,16 +910,43 @@ class HubBarWindow: NSWindow {
     var lastFitRows: Int = 0
     var lastFitCap: Int = -2  // sentinel "unknown"
 
+    static let normalWindowLevel = NSWindow.Level(rawValue: 20)
+    static let fullscreenWindowLevel = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
+
+    static func isHubFullscreen() -> Bool {
+        FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.config/hub/fullscreen")
+    }
+
+    static func menuBarRevealInset(screen: NSScreen, sf: NSRect, vf: NSRect) -> CGFloat {
+        let visibleInset = sf.maxY - vf.maxY
+        if visibleInset > 1 { return visibleInset }
+
+        if #available(macOS 12.0, *) {
+            if let left = screen.auxiliaryTopLeftArea, left.height > 1 { return left.height }
+            if let right = screen.auxiliaryTopRightArea, right.height > 1 { return right.height }
+        }
+
+        let statusBarInset = NSStatusBar.system.thickness
+        return statusBarInset > 1 ? statusBarInset : 24
+    }
+
     // Bar top anchor in screen coords.
     // - Normal mode: align to visibleFrame.maxY (below persistent menu bar).
     // - Hub fullscreen + menu bar hidden: align to absolute screen top (sf.maxY).
-    // - Hub fullscreen + transient menu bar revealed (cursor at top): align to visibleFrame.maxY
-    //   so the bar drops below the menu bar while it is visible.
-    static func barTopY(sf: NSRect, vf: NSRect, menuBarRevealedInFullscreen: Bool) -> CGFloat {
-        let home = NSHomeDirectory()
-        let isFullscreen = FileManager.default.fileExists(atPath: home + "/.config/hub/fullscreen")
-        if !isFullscreen { return vf.maxY }
-        return menuBarRevealedInFullscreen ? vf.maxY : sf.maxY
+    // - Hub fullscreen + transient menu bar revealed (cursor at top): subtract a measured
+    //   menu-bar inset. visibleFrame often still equals frame while auto-hide is active.
+    static func barTopY(screen: NSScreen, menuBarRevealedInFullscreen: Bool) -> CGFloat {
+        let sf = screen.frame
+        let vf = screen.visibleFrame
+        if !isHubFullscreen() { return vf.maxY }
+        if !menuBarRevealedInFullscreen { return sf.maxY }
+        return sf.maxY - menuBarRevealInset(screen: screen, sf: sf, vf: vf)
+    }
+
+    func applyWindowLevel(isFullscreen: Bool) {
+        level = (isFullscreen && !menuBarRevealedInFullscreen)
+            ? HubBarWindow.fullscreenWindowLevel
+            : HubBarWindow.normalWindowLevel
     }
 
     // Notch rect in window-local x coordinates (nil if no notch or not fullscreen)
@@ -938,17 +965,14 @@ class HubBarWindow: NSWindow {
     init(screen: NSScreen) {
         self.barScreen = screen
         let sf = screen.frame
-        let vf = screen.visibleFrame
-        let topY = HubBarWindow.barTopY(sf: sf, vf: vf, menuBarRevealedInFullscreen: false)
-        let isFullscreen = topY >= sf.maxY
+        let topY = HubBarWindow.barTopY(screen: screen, menuBarRevealedInFullscreen: false)
+        let isFullscreen = HubBarWindow.isHubFullscreen()
         let r = NSRect(x: sf.minX, y: topY - barHeightNormal, width: sf.width, height: barHeightNormal)
         super.init(contentRect: r, styleMask: .borderless, backing: .buffered, defer: false)
         // Normal mode: stay at Dock level 20 — below the macOS menu bar and notification
         // banners (level 21). In fullscreen the menu bar is auto-hidden and the bar owns the
         // notch row, so raise to shielding+1 so macOS doesn't clamp it below the top 32pt strip.
-        level = isFullscreen
-            ? NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
-            : NSWindow.Level(rawValue: 20)
+        applyWindowLevel(isFullscreen: isFullscreen)
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
@@ -966,10 +990,11 @@ class HubBarWindow: NSWindow {
 
         let sf = barScreen.frame
         let vf = barScreen.visibleFrame
-        let topY = HubBarWindow.barTopY(sf: sf, vf: vf, menuBarRevealedInFullscreen: menuBarRevealedInFullscreen)
+        let topY = HubBarWindow.barTopY(screen: barScreen, menuBarRevealedInFullscreen: menuBarRevealedInFullscreen)
         // Keep fullscreen-specific layout (e.g. notch splitting) active even while the bar is
         // temporarily dropped below the revealed macOS menu bar.
-        let isFullscreen = FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.config/hub/fullscreen")
+        let isFullscreen = HubBarWindow.isHubFullscreen()
+        applyWindowLevel(isFullscreen: isFullscreen)
 
         let monitorWs = state.monitorWorkspaces[monitorIndex]
         let pills = state.visiblePillInfos(monitorWs: monitorWs)
@@ -1814,7 +1839,15 @@ class HubBarController: NSObject {
     var menuBarRevealTimer: Timer?
     var pulseBright = true; var lastState = HubBarState()
 
-    func start() { writePIDFile(); buildWindows(); installSignalSource(); installClusterTriggers(); startTimers(); installMenuBarRevealMonitor() }
+    func start() {
+        removeTransientBarHeightOverride(sync: false)
+        writePIDFile()
+        buildWindows()
+        installSignalSource()
+        installClusterTriggers()
+        startTimers()
+        installMenuBarRevealMonitor()
+    }
 
     func installClusterTriggers() {
         // Both-shift trigger: hold left-shift (keycode 56) AND right-shift (keycode 60) simultaneously.
@@ -1847,6 +1880,42 @@ class HubBarController: NSObject {
         }
         RunLoop.main.add(menuBarRevealTimer!, forMode: .common)
         updateMenuBarRevealState()
+    }
+
+    private func transientBarHeightPath() -> String {
+        NSHomeDirectory() + "/.config/hub/hub_bar_height_transient"
+    }
+
+    private func runBarSync() {
+        guard let hub = hubScriptPath() else { return }
+        Process.launchedProcess(launchPath: "/bin/sh",
+            arguments: ["-c", "'\(hub)' bar-sync >/dev/null 2>&1 &"])
+    }
+
+    private func removeTransientBarHeightOverride(sync: Bool) {
+        let path = transientBarHeightPath()
+        let existed = FileManager.default.fileExists(atPath: path)
+        try? FileManager.default.removeItem(atPath: path)
+        if existed && sync { runBarSync() }
+    }
+
+    private func updateTransientBarHeightOverride() {
+        let shouldOverride = HubBarWindow.isHubFullscreen()
+            && windows.contains { $0.menuBarRevealedInFullscreen }
+        guard shouldOverride else {
+            removeTransientBarHeightOverride(sync: true)
+            return
+        }
+
+        let rows = windows.map { max(1, $0.lastFitRows) }.max() ?? 1
+        let height = Int(barHeightNormal * CGFloat(rows))
+        let path = transientBarHeightPath()
+        let current = (try? String(contentsOfFile: path, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard current != "\(height)" else { return }
+
+        try? "\(height)".write(toFile: path, atomically: true, encoding: .utf8)
+        runBarSync()
     }
 
     // Returns display IDs of screens where a native macOS full-screen app covers the entire frame.
@@ -1891,16 +1960,25 @@ class HubBarController: NSObject {
 
     // In hub fullscreen mode, macOS reveals the menu bar when the cursor touches the top edge.
     // We can't reliably subscribe to a dedicated "menu bar revealed" event, so detect this
-    // interaction directly from mouse position and temporarily drop the bar below visibleFrame.
+    // interaction directly from mouse position and temporarily drop the bar below the real menu
+    // bar strip. NSScreen.contains excludes the max edge, so use explicit inclusive bounds here.
     private func updateMenuBarRevealState() {
-        let hubFullscreen = FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.config/hub/fullscreen")
+        let hubFullscreen = HubBarWindow.isHubFullscreen()
         let mouse = NSEvent.mouseLocation
-        let edgeTolerance: CGFloat = 1.0
+        let enterTopZone: CGFloat = 6.0
 
+        var changed = false
         for w in windows {
             let sf = w.barScreen.frame
-            let mouseOnScreen = sf.contains(mouse)
-            let atTopEdge = mouseOnScreen && mouse.y >= (sf.maxY - edgeTolerance)
+            let vf = w.barScreen.visibleFrame
+            let mouseOnScreenX = mouse.x >= sf.minX && mouse.x <= sf.maxX
+            let mouseOnScreenY = mouse.y >= sf.minY && mouse.y <= sf.maxY + 1
+            let topDistance = sf.maxY - mouse.y
+            let mouseOnScreen = mouseOnScreenX && mouseOnScreenY
+            let revealInset = HubBarWindow.menuBarRevealInset(screen: w.barScreen, sf: sf, vf: vf)
+            let exitTopZone = max(enterTopZone, revealInset + 8)
+            let topZone = w.menuBarRevealedInFullscreen ? exitTopZone : enterTopZone
+            let atTopEdge = mouseOnScreen && topDistance >= -1 && topDistance <= topZone
             let shouldReveal = hubFullscreen && atTopEdge
             if shouldReveal == w.menuBarRevealedInFullscreen { continue }
 
@@ -1908,7 +1986,9 @@ class HubBarController: NSObject {
             // Transient visual shift only: don't rewrite hub_bar_height / bar-sync while hovering.
             w.buildContents(state: lastState, lastRows: max(1, w.lastFitRows), writeBarMetrics: false)
             w.orderFrontRegardless()
+            changed = true
         }
+        if changed { updateTransientBarHeightOverride() }
     }
 
     func buildWindows() {
@@ -1955,10 +2035,7 @@ class HubBarController: NSObject {
                 for w in self.windows {
                     // Re-run the fit decision with the new state to detect if rows/cap changed.
                     let sf = w.barScreen.frame
-                    let vf = w.barScreen.visibleFrame
-                    let topY = HubBarWindow.barTopY(sf: sf, vf: vf,
-                                                     menuBarRevealedInFullscreen: w.menuBarRevealedInFullscreen)
-                    let isFullscreen = FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.config/hub/fullscreen")
+                    let isFullscreen = HubBarWindow.isHubFullscreen()
                     let notch = w.notchRange(isFullscreen: isFullscreen)
                     let monitorWs = state.monitorWorkspaces[w.monitorIndex]
                     let pills = state.visiblePillInfos(monitorWs: monitorWs)
@@ -1983,8 +2060,12 @@ class HubBarController: NSObject {
                     }
 
                     if rowsChanged || capChanged || modeChanged || newPillMissing {
-                        w.buildContents(state: state, lastRows: w.lastFitRows)
+                        w.buildContents(state: state, lastRows: w.lastFitRows,
+                                        writeBarMetrics: !w.menuBarRevealedInFullscreen)
                         w.orderFrontRegardless()
+                        if w.menuBarRevealedInFullscreen {
+                            self.updateTransientBarHeightOverride()
+                        }
                     } else {
                         w.applyRefresh(state: state, fit: newFit)
                     }
@@ -2039,6 +2120,10 @@ class HubBarController: NSObject {
 // ──────────────────────────────────────────────────────────────────────────────
 // MARK: – Entry point
 // ──────────────────────────────────────────────────────────────────────────────
+
+// hub_bar_restart sends SIGUSR1 immediately after launch. Ignore it before the
+// app publishes its PID so an early refresh cannot terminate a fresh process.
+signal(SIGUSR1, SIG_IGN)
 
 let pidFile = NSHomeDirectory() + "/.config/hub/hub_bar.pid"
 if let existing = try? String(contentsOfFile: pidFile, encoding: .utf8),

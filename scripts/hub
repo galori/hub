@@ -13,6 +13,7 @@ AEROSPACE_CONFIG="$HOME/.aerospace.toml"
 HUB_BAR_SRC="$LIB_DIR/hub_bar.swift"
 HUB_BAR_BIN="$HOME/.config/hub/hub_bar"
 HUB_BAR_PIDFILE="$HOME/.config/hub/hub_bar.pid"
+HUB_BAR_LAUNCH_LABEL="sh.hub.hub_bar"
 DIALOG_SRC="$LIB_DIR/new_workspace_dialog.swift"
 DIALOG_BIN="$HOME/.config/hub/new_workspace_dialog"
 CONFIRM_SRC="$LIB_DIR/confirm_dialog.swift"
@@ -2664,10 +2665,12 @@ cmd_bar_layout() {
 
 cmd_hub_bar_sync() {
     # Read hub_bar_height written by hub_bar.swift: actual rendered bar height in px.
+    # A transient override is written while the auto-hidden menu bar is revealed and the
+    # Hub Bar has dropped below it; during that moment windows need to clear the full bar.
     # AeroSpace outer.top is measured from visibleFrame.maxY (below the menu bar), so
     # it needs only barHeight + gap — NOT barHeight + menuBarInset + gap.
     local outer_top
-    outer_top=$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null)
+    outer_top=$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null)
     if [[ ! "$outer_top" =~ ^[0-9]+$ ]]; then
         outer_top=$HUB_BAR_HEIGHT_NORMAL
     fi
@@ -2754,6 +2757,7 @@ hub_bar_refresh() {
 
 hub_bar_down() {
     local _running=false
+    launchctl remove "$HUB_BAR_LAUNCH_LABEL" 2>/dev/null || true
     if [[ -f "$HUB_BAR_PIDFILE" ]]; then
         local _pid
         _pid="$(cat "$HUB_BAR_PIDFILE" 2>/dev/null || true)"
@@ -2765,6 +2769,7 @@ hub_bar_down() {
         fi
         rm -f "$HUB_BAR_PIDFILE"
     fi
+    rm -f "$HOME/.config/hub/hub_bar_height_transient"
     # Fallback: kill any stray process
     pkill -f "hub_bar" 2>/dev/null || true
     $_running
@@ -2773,8 +2778,14 @@ hub_bar_down() {
 hub_bar_restart() {
     hub_bar_down 2>/dev/null || true
     if [[ -x "$HUB_BAR_BIN" ]]; then
-        "$HUB_BAR_BIN" &>/dev/null &
-        disown
+        if launchctl submit -l "$HUB_BAR_LAUNCH_LABEL" -o /dev/null -e /dev/null -- "$HUB_BAR_BIN" 2>/dev/null; then
+            sleep 0.25
+        else
+            # Fallback for environments where launchctl submit is unavailable.
+            nohup "$HUB_BAR_BIN" >/dev/null 2>&1 &
+            disown
+            sleep 0.15
+        fi
         hub_bar_refresh
     fi
 }
