@@ -1455,11 +1455,10 @@ class ClusterOverlayWindow: NSWindow {
     var wsWinSlots: [WsWinSlotView] = []
 
     init(barWindow: HubBarWindow, state: HubBarState) {
-        let overlayW: CGFloat = 360, overlayH: CGFloat = 52
+        let overlayH: CGFloat = 52
         let barFrame = barWindow.frame
-        let popX = barFrame.maxX - overlayW - 8
-        let popY = barFrame.minY - overlayH - 4
-        super.init(contentRect: NSRect(x: popX, y: popY, width: overlayW, height: overlayH),
+        // Start with a generous placeholder width; we resize to fit after content is built.
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 600, height: overlayH),
                    styleMask: .borderless, backing: .buffered, defer: false)
         level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
         backgroundColor = .clear
@@ -1470,6 +1469,15 @@ class ClusterOverlayWindow: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
 
         buildContent(state: state)
+
+        // Resize to natural content width now that labels are populated.
+        contentView?.layoutSubtreeIfNeeded()
+        let naturalW = contentView?.fittingSize.width ?? 400
+        let overlayW = naturalW
+        let popX = barFrame.maxX - overlayW - 8
+        let popY = barFrame.minY - overlayH - 4
+        setFrame(NSRect(x: popX, y: popY, width: overlayW, height: overlayH), display: false)
+
         installTrackingArea()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -1489,9 +1497,14 @@ class ClusterOverlayWindow: NSWindow {
         stack.alignment = .centerY
         stack.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(stack)
+        // The trailing constraint drives fittingSize: cv must be wide enough to hold
+        // the stack + 30pt clearance for the ✕ button.
+        let trailingConstraint = cv.trailingAnchor.constraint(greaterThanOrEqualTo: stack.trailingAnchor, constant: 30)
+        trailingConstraint.priority = .required
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 10),
             stack.centerYAnchor.constraint(equalTo: cv.centerYAnchor),
+            trailingConstraint,
         ])
 
         // Layout mode icon (expand → shows compress icon to return to shrink)
