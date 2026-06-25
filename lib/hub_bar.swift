@@ -315,6 +315,10 @@ struct FitDecision {
     var rows: Int           // 1..maxRows
     var rowAssignment: [[Int]]  // indices into `pills` for each row
     var effectiveCap: Int   // label cap (-1 unlimited, 0 code-only, N>0 truncated)
+    // Notch split for row 0: count of pills that go into the LEFT segment.
+    // The remainder go into the RIGHT segment (right of notch).
+    // nil = no notch / not fullscreen → single continuous row, unchanged behaviour.
+    var row0Split: Int? = nil
 }
 
 let FIT_MAX_ROWS = 4
@@ -362,14 +366,42 @@ private func greedyPack(pills: [(ws: String, fullName: String, isFocused: Bool)]
     return (Array(usedRows), overflowed)
 }
 
+// Assigns row-0 pills to left/right notch segments using a greedy left-fill strategy.
+// A pill is wholly in one segment — never straddles the notch. Returns the left-segment count.
+private func splitRow0AroundNotch(
+    row0Indices: [Int],
+    pills: [(ws: String, fullName: String, isFocused: Bool)],
+    cap: Int,
+    claudeAlert: Set<String>, claudeActive: Set<String>,
+    leftSegW: CGFloat) -> Int {
+    var used: CGFloat = 0
+    var leftCount = 0
+    for idx in row0Indices {
+        let p = pills[idx]
+        let effCap = (cap == -1 || p.isFocused) ? -1 : cap
+        let name = cappedName(full: p.fullName, cap: effCap, isFocused: p.isFocused)
+        let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
+        let pw = analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
+        let gap: CGFloat = leftCount == 0 ? 0 : pillGap
+        if used + gap + pw <= leftSegW {
+            used += gap + pw
+            leftCount += 1
+        } else {
+            break  // first pill that doesn't fit left → rest go right
+        }
+    }
+    return leftCount
+}
+
 // Pure fit decision: given pill data, screen geometry, and layout mode — returns layout.
 // `lastRows` is the only retained state (hysteresis for expand mode). Pass 1 on first call.
 // Modes:
 //   .shrink (default) — always 1 row; binary-search the largest label cap that fits.
 //   .expand           — full labels (-1); grow 1..FIT_MAX_ROWS until pills fit (with hysteresis).
+// In fullscreen+notch, row 0 is split around the notch: row0Split gives the left-segment count.
 func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
-               screenW: CGFloat, clusterW: CGFloat,
-               notchMinX: CGFloat?,
+               screenW: CGFloat,
+               notchMinX: CGFloat?, notchMaxX: CGFloat?,
                isFullscreen: Bool, focused: String,
                claudeAlert: Set<String>, claudeActive: Set<String>,
                mode: HubBarState.LayoutMode,
@@ -377,19 +409,32 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
 
     let leadingInset: CGFloat = 8
     let trailingInset: CGFloat = 8
-    let clusterGap: CGFloat = 4
 
-    // Row 0 right edge: notch is a HARD WALL — pills never straddle it.
-    // If fullscreen+notch, row 0 ends at the notch; overflow drops to a full-width row below.
-    // The right-of-notch sliver is intentionally left empty on row 0.
-    let row0RightEdge: CGFloat
-    if isFullscreen, let nMin = notchMinX {
-        row0RightEdge = nMin - 2  // 2px clearance from notch edge
+    // When fullscreen+notch, pills use BOTH sides of the notch (left segment + right segment).
+    // The combined total drives the cap binary-search → one global cap → balanced truncation.
+    // Rendering splits pills into two clip-view stacks via row0Split.
+    let leftSegW: CGFloat
+    let rightSegW: CGFloat
+    let row0W: CGFloat
+    if isFullscreen, let nMin = notchMinX, let nMax = notchMaxX {
+        leftSegW = (nMin - 2) - leadingInset
+        rightSegW = max(0, (screenW - trailingInset) - (nMax + 2))
+        row0W = leftSegW + rightSegW
     } else {
-        row0RightEdge = screenW - clusterW - clusterGap - trailingInset
+        leftSegW = screenW - leadingInset - trailingInset
+        rightSegW = 0
+        row0W = screenW - leadingInset - trailingInset
     }
-    let row0W = row0RightEdge - leadingInset
     let fullRowW = screenW - leadingInset - trailingInset
+
+    let hasNotchSplit = isFullscreen && notchMinX != nil && notchMaxX != nil
+
+    func makeSplit(_ assignment: [[Int]], cap: Int) -> Int? {
+        guard hasNotchSplit, let row0 = assignment.first else { return nil }
+        return splitRow0AroundNotch(row0Indices: row0, pills: pills, cap: cap,
+                                    claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                    leftSegW: leftSegW)
+    }
 
     switch mode {
     case .shrink:
@@ -407,7 +452,8 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
             if !overflowed { bestCap = mid; bestAssignment = assignment; lo = mid + 1 }
             else { hi = mid - 1 }
         }
-        return FitDecision(rows: 1, rowAssignment: bestAssignment, effectiveCap: bestCap)
+        return FitDecision(rows: 1, rowAssignment: bestAssignment, effectiveCap: bestCap,
+                           row0Split: makeSplit(bestAssignment, cap: bestCap))
 
     case .expand:
         // Full labels (cap = -1). Grow rows 1..FIT_MAX_ROWS until it fits; apply hysteresis.
@@ -430,7 +476,9 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
                     pills: pills, cap: cap, focused: focused,
                     claudeAlert: claudeAlert, claudeActive: claudeActive,
                     row0Width: row0W, fullRowWidth: fullRowW, maxRows: effectiveRows)
-                return FitDecision(rows: effectiveRows, rowAssignment: finalAssignment, effectiveCap: cap)
+                return FitDecision(rows: effectiveRows, rowAssignment: finalAssignment,
+                                   effectiveCap: cap,
+                                   row0Split: makeSplit(finalAssignment, cap: cap))
             }
         }
         // Still overflows at FIT_MAX_ROWS: park overflow in the last row (ellipsized by per-pill maxwidth).
@@ -438,7 +486,8 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
             pills: pills, cap: cap, focused: focused,
             claudeAlert: claudeAlert, claudeActive: claudeActive,
             row0Width: row0W, fullRowWidth: fullRowW, maxRows: FIT_MAX_ROWS)
-        return FitDecision(rows: FIT_MAX_ROWS, rowAssignment: asgn, effectiveCap: cap)
+        return FitDecision(rows: FIT_MAX_ROWS, rowAssignment: asgn, effectiveCap: cap,
+                           row0Split: makeSplit(asgn, cap: cap))
     }
 }
 
@@ -769,13 +818,17 @@ class HubBarWindow: NSWindow {
     var wsWinSlots: [WsWinSlotView] = []
     var volPopup: VolumePopupWindow?
 
-    // Widget label refs for updates
+    // Widget label refs for updates (cluster overlay)
     var clockLabel: NSTextField?
     var battLabel:  NSTextField?
     var battIcon:   NSTextField?
     var volLabel:   NSTextField?
     var volIcon:    NSTextField?
     var serviceModeLabel: NSView?
+
+    // Cluster overlay (app icons + clock/battery/volume) — shown on demand
+    var clusterOverlay: ClusterOverlayWindow?
+    var clusterHideTimer: Timer?
 
     // Last fit decision, for applyRefresh change-detection
     var lastFitRows: Int = 0
@@ -807,53 +860,21 @@ class HubBarWindow: NSWindow {
         let sf = screen.frame
         let vf = screen.visibleFrame
         let topY = HubBarWindow.barTopY(sf: sf, vf: vf)
+        let isFullscreen = topY >= sf.maxY
         let r = NSRect(x: sf.minX, y: topY - barHeightNormal, width: sf.width, height: barHeightNormal)
         super.init(contentRect: r, styleMask: .borderless, backing: .buffered, defer: false)
-        // Level 20 = Dock level. Notification banners (level 21) render above this, so they're
-        // never obscured by the Hub Bar. Normal app windows are at level 0 so the bar still floats above them.
-        level = NSWindow.Level(rawValue: 20)
+        // Normal mode: stay at Dock level 20 — below the macOS menu bar and notification
+        // banners (level 21). In fullscreen the menu bar is auto-hidden and the bar owns the
+        // notch row, so raise to shielding+1 so macOS doesn't clamp it below the top 32pt strip.
+        level = isFullscreen
+            ? NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
+            : NSWindow.Level(rawValue: 20)
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
         ignoresMouseEvents = false
         isReleasedWhenClosed = false  // ARC owns lifetime; prevent double-free on close()
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-    }
-
-    // Analytic cluster width estimate used by decideFit before the view is built.
-    // Must mirror buildCluster exactly — every gate here must match a gate there.
-    func analyticalClusterWidth(state: HubBarState) -> CGFloat {
-        var w: CGFloat = 8 + 8  // leading cluster gap + trailing inset
-
-        // Service pill (30px) — independent of show_launcher/show_widgets
-        if state.serviceMode { w += 30 + 6 }
-
-        // App icon group — only when showLauncher is on and apps are configured
-        if state.showLauncher && !state.apps.isEmpty {
-            let iconCount = state.apps.count
-            // 14px inset each side + appIconSize per icon + appGroupGap between
-            w += 14 * 2 + CGFloat(iconCount) * (appIconSize + 4) + CGFloat(max(0, iconCount - 1)) * appGroupGap + 6
-        }
-
-        // Layout mode icon — only visible in expand mode
-        if state.layoutMode == .expand { w += 20 + 6 }
-
-        // Spacer + volume + battery + clock — only when showWidgets is on
-        if state.showWidgets {
-            w += 4 + 6  // spacer
-
-            // Volume: icon + "100%" label
-            w += cachedTextWidth("\u{F057E}", font: nerdFont16) + 4 + cachedTextWidth("100%", font: monoFont12) + 6
-
-            // Battery: icon + "100%" label
-            w += cachedTextWidth("\u{F0079}", font: nerdFont16) + 4 + cachedTextWidth("100%", font: monoFont12) + 6
-
-            // Clock pill: 10+6+dot(6)+6+label+10 = ~32 + label
-            let clockLabel = "Mon 22 Jun  00:00"
-            w += 10 + 6 + 6 + 6 + cachedTextWidth(clockLabel, font: monoFont12) + 10
-        }
-
-        return ceil(w)
     }
 
     func buildContents(state: HubBarState, lastRows: Int = 1) {
@@ -868,20 +889,13 @@ class HubBarWindow: NSWindow {
         let topY = HubBarWindow.barTopY(sf: sf, vf: vf)
         let isFullscreen = topY >= sf.maxY
 
-        // ── Determine fit decision ──────────────────────────────────────────
-        // Measure cluster width analytically before building the view.
-        // fittingSize on an unparented view returns 0, so we compute it from
-        // the known widget widths: clock pill ~110, volume ~55, battery ~50,
-        // app icons, mode icon, service pill, spacing.
-        let clusterW = analyticalClusterWidth(state: state)
-
         let monitorWs = state.monitorWorkspaces[monitorIndex]
         let pills = state.visiblePillInfos(monitorWs: monitorWs)
 
         let notch = notchRange(isFullscreen: isFullscreen)
         let fit = decideFit(
-            pills: pills, screenW: sf.width, clusterW: clusterW,
-            notchMinX: notch?.minX,
+            pills: pills, screenW: sf.width,
+            notchMinX: notch?.minX, notchMaxX: notch?.maxX,
             isFullscreen: isFullscreen, focused: state.focused,
             claudeAlert: state.claudeAlert, claudeActive: state.claudeActive,
             mode: state.layoutMode,
@@ -907,7 +921,7 @@ class HubBarWindow: NSWindow {
             }
         }
 
-        // ── Background ─────────────────────────────────────────────────────
+        // ── Background (full-width; single continuous panel — notch is opaque black hardware) ──
         let bg = HubBarBackgroundView(frame: cv.bounds)
         bg.translatesAutoresizingMaskIntoConstraints = false
         cv.addSubview(bg)
@@ -918,34 +932,35 @@ class HubBarWindow: NSWindow {
             bg.bottomAnchor.constraint(equalTo: cv.bottomAnchor),
         ])
 
-        // ── Build cluster view (now that we know the layout) ────────────────
-        let clusterView = buildCluster(state: state)
-        clusterView.translatesAutoresizingMaskIntoConstraints = false
-
         // ── Build layout ────────────────────────────────────────────────────
         buildRowLayout(cv: cv, state: state, fit: fit,
-                       clusterView: clusterView,
                        notch: notch, isFullscreen: isFullscreen, pills: pills)
     }
 
     // ── Multi-row layout ─────────────────────────────────────────────────────
 
     func buildRowLayout(cv: NSView, state: HubBarState, fit: FitDecision,
-                        clusterView: NSView, notch: (minX: CGFloat, maxX: CGFloat)?,
+                        notch: (minX: CGFloat, maxX: CGFloat)?,
                         isFullscreen: Bool, pills: [(ws: String, fullName: String, isFocused: Bool)]) {
         let rows = fit.rows
         let rowH = barHeightNormal
 
-        // Add the already-built cluster to top row, right-aligned
-        cv.addSubview(clusterView)
-        NSLayoutConstraint.activate([
-            clusterView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8),
-            clusterView.centerYAnchor.constraint(equalTo: cv.topAnchor, constant: rowH / 2),
-        ])
-
-        // Notch is a hard wall: row 0 ends at notchMinX (left segment only).
-        // Pills never straddle the notch; the right-of-notch sliver is dead space on row 0.
-        let notchWallX: CGFloat? = isFullscreen ? notch?.minX : nil
+        // Service-mode pill: stays inline as a safety indicator (always visible).
+        // Pinned to the right edge of row 0 — only built/shown when serviceMode is active.
+        var servicePillTrailingX: CGFloat? = nil
+        if state.serviceMode {
+            let pill = makeServicePill()
+            pill.translatesAutoresizingMaskIntoConstraints = false
+            pill.isHidden = false
+            serviceModeLabel = pill
+            cv.addSubview(pill)
+            NSLayoutConstraint.activate([
+                pill.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8),
+                pill.centerYAnchor.constraint(equalTo: cv.topAnchor, constant: rowH / 2),
+            ])
+            // 30px pill + 8px trailing + 4px gap before pills
+            servicePillTrailingX = 30 + 8 + 4
+        }
 
         // Build one pill stack per row
         for r in 0..<rows {
@@ -970,40 +985,58 @@ class HubBarWindow: NSWindow {
             let rowCenterY = rowH * CGFloat(r) + rowH / 2
 
             if r == 0 {
-                // Top row: pills end at the notch (if present) or the cluster left edge.
-                buildTopRowPills(cv: cv, state: state, fit: fit,
-                                 pills: rowPills, centerY: rowCenterY,
-                                 clusterView: clusterView, notchWallX: notchWallX)
+                if let split = fit.row0Split, let notchCoords = notch {
+                    // Fullscreen+notch: two clip-view stacks around the notch gap.
+                    buildTopRowPillsSplit(cv: cv, state: state, fit: fit,
+                                         pills: rowPills, split: split,
+                                         notch: notchCoords,
+                                         servicePillTrailingX: servicePillTrailingX)
+                } else {
+                    // Normal / non-notch: single full-width pill stack.
+                    buildTopRowPillsSingle(cv: cv, state: state, fit: fit,
+                                           pills: rowPills,
+                                           servicePillTrailingX: servicePillTrailingX)
+                }
             } else {
-                // Full-width rows below the notch — no cluster, full width.
+                // Full-width rows below row 0 — no notch constraint.
                 buildFullRow(cv: cv, state: state, fit: fit,
                              pills: rowPills, centerY: rowCenterY)
             }
         }
+
+        // Hot right-edge zone: hover into the rightmost 8px of the bar to reveal the cluster overlay.
+        // Uses a hover-only NSView (hitTest returns nil so clicks pass through to pills/service pill).
+        let hotEdge = HotEdgeView()
+        hotEdge.translatesAutoresizingMaskIntoConstraints = false
+        hotEdge.onEnter = { [weak self] in self?.showClusterOverlay() }
+        hotEdge.onExit  = { [weak self] in self?.scheduleHideClusterOverlay() }
+        cv.addSubview(hotEdge)
+        NSLayoutConstraint.activate([
+            hotEdge.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
+            hotEdge.topAnchor.constraint(equalTo: cv.topAnchor),
+            hotEdge.bottomAnchor.constraint(equalTo: cv.topAnchor, constant: rowH),
+            hotEdge.widthAnchor.constraint(equalToConstant: 8),
+        ])
     }
 
-    // Top row: pills in a clip view that stops at the notch wall (fullscreen) or the cluster.
-    // One unified function — no split packer, no right-of-notch stack.
-    private func buildTopRowPills(cv: NSView, state: HubBarState, fit: FitDecision,
-                                  pills: [(ws: String, fullName: String, isFocused: Bool)],
-                                  centerY: CGFloat, clusterView: NSView,
-                                  notchWallX: CGFloat?) {
+    // Single pill stack for row 0 (no notch split — normal mode or non-notched screen).
+    private func buildTopRowPillsSingle(cv: NSView, state: HubBarState, fit: FitDecision,
+                                        pills: [(ws: String, fullName: String, isFocused: Bool)],
+                                        servicePillTrailingX: CGFloat?) {
         let clipView = NSView()
         clipView.wantsLayer = true; clipView.layer?.masksToBounds = true
         clipView.translatesAutoresizingMaskIntoConstraints = false
-        cv.addSubview(clipView)  // added BEFORE cluster so cluster paints on top
+        cv.addSubview(clipView)
 
-        // Right edge: notch wall if present (leaves dead space right of notch on row 0),
-        // otherwise the cluster left edge (safety net clip).
         NSLayoutConstraint.activate([
             clipView.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
             clipView.topAnchor.constraint(equalTo: cv.topAnchor),
             clipView.heightAnchor.constraint(equalToConstant: barHeightNormal),
         ])
-        if let wall = notchWallX {
-            clipView.trailingAnchor.constraint(equalTo: cv.leadingAnchor, constant: wall - 2).isActive = true
+        if let svcRightInset = servicePillTrailingX {
+            clipView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -svcRightInset).isActive = true
         } else {
-            clipView.trailingAnchor.constraint(equalTo: clusterView.leadingAnchor, constant: -4).isActive = true
+            clipView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8).isActive = true
         }
 
         let stack = makeRowStack()
@@ -1014,6 +1047,65 @@ class HubBarWindow: NSWindow {
             stack.heightAnchor.constraint(equalToConstant: pillH),
         ])
         populateStack(stack, pills: pills, state: state, fit: fit)
+    }
+
+    // Two pill stacks for row 0 in fullscreen+notch: left segment (before notch) and
+    // right segment (after notch). Pills never straddle the notch.
+    private func buildTopRowPillsSplit(cv: NSView, state: HubBarState, fit: FitDecision,
+                                       pills: [(ws: String, fullName: String, isFocused: Bool)],
+                                       split: Int,
+                                       notch: (minX: CGFloat, maxX: CGFloat),
+                                       servicePillTrailingX: CGFloat?) {
+        let leftPills  = Array(pills[0..<min(split, pills.count)])
+        let rightPills = Array(pills[min(split, pills.count)...])
+
+        // Left clip-view: from leading edge to left side of notch
+        let leftClip = NSView()
+        leftClip.wantsLayer = true; leftClip.layer?.masksToBounds = true
+        leftClip.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(leftClip)
+        NSLayoutConstraint.activate([
+            leftClip.leadingAnchor.constraint(equalTo: cv.leadingAnchor),
+            leftClip.topAnchor.constraint(equalTo: cv.topAnchor),
+            leftClip.heightAnchor.constraint(equalToConstant: barHeightNormal),
+            leftClip.trailingAnchor.constraint(equalTo: cv.leadingAnchor, constant: notch.minX - 2),
+        ])
+        if !leftPills.isEmpty {
+            let stack = makeRowStack()
+            leftClip.addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.leadingAnchor.constraint(equalTo: leftClip.leadingAnchor, constant: 8),
+                stack.centerYAnchor.constraint(equalTo: leftClip.centerYAnchor),
+                stack.heightAnchor.constraint(equalToConstant: pillH),
+            ])
+            populateStack(stack, pills: leftPills, state: state, fit: fit)
+        }
+
+        // Right clip-view: from right side of notch to trailing edge
+        if !rightPills.isEmpty {
+            let rightClip = NSView()
+            rightClip.wantsLayer = true; rightClip.layer?.masksToBounds = true
+            rightClip.translatesAutoresizingMaskIntoConstraints = false
+            cv.addSubview(rightClip)
+            NSLayoutConstraint.activate([
+                rightClip.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: notch.maxX + 2),
+                rightClip.topAnchor.constraint(equalTo: cv.topAnchor),
+                rightClip.heightAnchor.constraint(equalToConstant: barHeightNormal),
+            ])
+            if let svcRightInset = servicePillTrailingX {
+                rightClip.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -svcRightInset).isActive = true
+            } else {
+                rightClip.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -8).isActive = true
+            }
+            let stack = makeRowStack()
+            rightClip.addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.leadingAnchor.constraint(equalTo: rightClip.leadingAnchor, constant: 4),
+                stack.centerYAnchor.constraint(equalTo: rightClip.centerYAnchor),
+                stack.heightAnchor.constraint(equalToConstant: pillH),
+            ])
+            populateStack(stack, pills: rightPills, state: state, fit: fit)
+        }
     }
 
     // Full-width row (rows 1+)
@@ -1097,278 +1189,6 @@ class HubBarWindow: NSWindow {
         }
     }
 
-    // ── Cluster (right-side widgets) ─────────────────────────────────────────
-
-    func buildCluster(state: HubBarState) -> NSView {
-        // The cluster is an opaque view so it occludes pills sliding under it.
-        let cluster = NSView()
-        cluster.wantsLayer = true
-        cluster.layer?.backgroundColor = NSColor(argb: CLUSTER_BG).cgColor
-        cluster.setContentHuggingPriority(.required, for: .horizontal)
-        cluster.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        let stack = NSStackView()
-        stack.orientation = .horizontal
-        stack.spacing = 6
-        stack.alignment = .centerY
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        cluster.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: cluster.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: cluster.trailingAnchor),
-            stack.centerYAnchor.constraint(equalTo: cluster.centerYAnchor),
-            cluster.heightAnchor.constraint(equalToConstant: pillH + 4),
-        ])
-
-        // Service mode indicator — always built so applyRefresh can show/hide it
-        let pill = makeServicePill()
-        pill.translatesAutoresizingMaskIntoConstraints = false
-        pill.isHidden = !state.serviceMode
-        serviceModeLabel = pill
-        stack.addArrangedSubview(pill)
-
-        // App icon group — only when showLauncher is on and apps are configured
-        if state.showLauncher && !state.apps.isEmpty {
-            let group = buildAppIconGroup(state: state)
-            group.translatesAutoresizingMaskIntoConstraints = false
-            stack.addArrangedSubview(group)
-        }
-
-        // Layout mode icon — only in expand mode; click returns to shrink
-        if state.layoutMode == .expand {
-            let modeIcon = buildLayoutModeIcon(state: state)
-            modeIcon.translatesAutoresizingMaskIntoConstraints = false
-            stack.addArrangedSubview(modeIcon)
-        }
-
-        // Spacer + volume + battery + clock — only when showWidgets is on
-        if state.showWidgets {
-            stack.addArrangedSubview(makeHSpacer(4))
-            buildVolume(into: stack)
-            buildBattery(into: stack)
-            buildClock(into: stack)
-        }
-
-        return cluster
-    }
-
-    // ── Click-wrap helper ────────────────────────────────────────────────────
-    // Wraps a content view with an invisible HubBarClickView overlay of the same size.
-    // Used by buildLayoutModeIcon, buildVolume, buildBattery.
-
-    @discardableResult
-    func wrapWithClick(content: NSView, click: HubBarClickView) -> NSView {
-        let wrap = NSView()
-        wrap.translatesAutoresizingMaskIntoConstraints = false
-        content.translatesAutoresizingMaskIntoConstraints = false
-        click.translatesAutoresizingMaskIntoConstraints = false
-        wrap.addSubview(content); wrap.addSubview(click)
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
-            content.topAnchor.constraint(equalTo: wrap.topAnchor),
-            content.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
-            click.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
-            click.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
-            click.topAnchor.constraint(equalTo: wrap.topAnchor),
-            click.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
-        ])
-        return wrap
-    }
-
-    // ── Layout mode icon ─────────────────────────────────────────────────────
-    // Only rendered in expand mode. Shows nf-fa-compress (⇔ compact) glyph in orange;
-    // clicking it returns the bar to shrink mode.
-
-    func buildLayoutModeIcon(state: HubBarState) -> NSView {
-        // nf-fa-compress U+F066: "click to compact/shrink back"
-        let icon = NSTextField(labelWithString: "\u{F066}")
-        icon.font = nerdFont13
-        icon.textColor = NSColor(argb: C_ORANGE)
-        icon.isEditable = false; icon.isBordered = false; icon.backgroundColor = .clear
-
-        let click = HubBarClickView(frame: .zero)
-        click.onPress = {
-            guard let hub = hubScriptPath() else { return }
-            Process.launchedProcess(launchPath: "/bin/sh",
-                arguments: ["-c", "'\(hub)' bar-layout shrink >/dev/null 2>&1 &"])
-        }
-        return wrapWithClick(content: icon, click: click)
-    }
-
-    // ── App icon group ───────────────────────────────────────────────────────
-
-    func buildAppIconGroup(state: HubBarState) -> NSView {
-        let group = NSView()
-        group.wantsLayer = true
-        group.layer?.backgroundColor = NSColor(argb: APPGRP_BG).cgColor
-        group.layer?.cornerRadius = APPGRP_RADIUS
-        group.layer?.masksToBounds = true
-        group.layer?.borderWidth = 1
-        group.layer?.borderColor = NSColor(argb: APPGRP_BORDER).cgColor
-        group.setContentHuggingPriority(.required, for: .horizontal)
-
-        let inner = NSStackView()
-        inner.orientation = .horizontal
-        inner.spacing = appGroupGap
-        inner.alignment = .centerY
-        inner.translatesAutoresizingMaskIntoConstraints = false
-        group.addSubview(inner)
-        NSLayoutConstraint.activate([
-            inner.centerYAnchor.constraint(equalTo: group.centerYAnchor),
-            inner.leadingAnchor.constraint(equalTo: group.leadingAnchor, constant: 14),
-            inner.trailingAnchor.constraint(equalTo: group.trailingAnchor, constant: -14),
-            group.heightAnchor.constraint(equalToConstant: pillH + 8),
-        ])
-
-        let hub = hubScriptPath() ?? ""
-        let launcherNames = Set(state.apps.compactMap { $0["name"] })
-
-        // Configured app slots
-        for (i, app) in state.apps.enumerated() {
-            let slot = i + 1
-            let sv = AppSlotView(slot: slot)
-            sv.translatesAutoresizingMaskIntoConstraints = false
-            sv.widthAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
-            sv.heightAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
-
-            if let bid = app["bundle_id"] ?? app["bundleID"], !bid.isEmpty {
-                sv.setIcon(bundleID: bid)
-            } else if let name = app["name"], !name.isEmpty {
-                if let running = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == name }),
-                   let url = running.bundleURL {
-                    sv.imageView.image = NSWorkspace.shared.icon(forFile: url.path)
-                } else { sv.setIconByName(name) }
-            }
-
-            let appName = app["name"] ?? ""
-            sv.dotView.isHidden = !state.currentWindows.contains { $0.app == appName }
-            sv.onPress = { [weak sv] in
-                guard !hub.isEmpty else { return }
-                let mods = NSEvent.modifierFlags
-                let force = mods.contains(.shift) ? " --force" : ""
-                Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", "'\(hub)' open \(slot)\(force)"])
-                sv?.layer?.backgroundColor = NSColor(argb: CLICK_BG).withAlphaComponent(0.3).cgColor
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { sv?.layer?.backgroundColor = nil }
-            }
-            appSlots.append(sv)
-            inner.addArrangedSubview(sv)
-        }
-
-        // Extra workspace windows not in the launcher
-        var seen = Set<String>()
-        var extraApps: [(app: String, ids: [Int])] = []
-        for win in state.currentWindows {
-            let app = win.app
-            if isSystemProc(app) || launcherNames.contains(app) { continue }
-            if seen.contains(app) {
-                if let idx = extraApps.firstIndex(where: { $0.app == app }) {
-                    extraApps[idx].ids.append(win.id)
-                }
-                continue
-            }
-            seen.insert(app)
-            if extraApps.count < 5 { extraApps.append((app: app, ids: [win.id])) }
-        }
-        for entry in extraApps {
-            let slot = WsWinSlotView()
-            slot.translatesAutoresizingMaskIntoConstraints = false
-            slot.widthAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
-            slot.heightAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
-            slot.windowIDs = entry.ids
-            let appPath = "/Applications/\(entry.app).app"
-            if FileManager.default.fileExists(atPath: appPath) {
-                slot.imageView.image = NSWorkspace.shared.icon(forFile: appPath)
-            } else if let running = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == entry.app }),
-                      let url = running.bundleURL {
-                slot.imageView.image = NSWorkspace.shared.icon(forFile: url.path)
-            }
-            wsWinSlots.append(slot)
-            inner.addArrangedSubview(slot)
-        }
-        return group
-    }
-
-    // ── Bare widget helpers ──────────────────────────────────────────────────
-
-    func makeBareIconLabel(icon: String, iconColor: UInt32) -> (stack: NSStackView, iconField: NSTextField, label: NSTextField) {
-        let stack = NSStackView()
-        stack.orientation = .horizontal; stack.spacing = 4; stack.alignment = .centerY
-        let ic = NSTextField(labelWithString: icon)
-        ic.font = nerdFont16; ic.textColor = NSColor(argb: iconColor)
-        ic.isEditable = false; ic.isBordered = false; ic.backgroundColor = .clear
-        let lbl = NSTextField(labelWithString: "")
-        lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFC9CDD6)
-        lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
-        stack.addArrangedSubview(ic); stack.addArrangedSubview(lbl)
-        return (stack, ic, lbl)
-    }
-
-    func buildVolume(into stack: NSStackView) {
-        let (ws, ic, lbl) = makeBareIconLabel(icon: "󰕾", iconColor: C_BLUE)
-        volIcon = ic; volLabel = lbl
-        let click = HubBarClickView(frame: .zero)
-        click.onPress = { [weak self] in self?.toggleVolumePopup() }
-        stack.addArrangedSubview(wrapWithClick(content: ws, click: click))
-        updateVolume()
-
-        var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &addr, DispatchQueue.main) { [weak self] _, _ in
-            self?.updateVolume()
-        }
-    }
-
-    func buildBattery(into stack: NSStackView) {
-        let (ws, ic, lbl) = makeBareIconLabel(icon: "󰁹", iconColor: C_GREEN)
-        battIcon = ic; battLabel = lbl
-        let click = HubBarClickView(frame: .zero)
-        click.onPress = { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.battery")!) }
-        stack.addArrangedSubview(wrapWithClick(content: ws, click: click))
-        updateBattery()
-    }
-
-    func buildClock(into stack: NSStackView) {
-        // Accent-soft pill: teal dot + monospace time
-        let pill = NSView()
-        pill.wantsLayer = true
-        pill.layer?.backgroundColor = NSColor(argb: ACCENT_SOFT).cgColor
-        pill.layer?.cornerRadius = 8
-        pill.layer?.masksToBounds = true
-
-        let inner = NSStackView()
-        inner.orientation = .horizontal; inner.spacing = 6; inner.alignment = .centerY
-        inner.translatesAutoresizingMaskIntoConstraints = false
-
-        let dot = NSView()
-        dot.wantsLayer = true; dot.layer?.cornerRadius = 3
-        dot.layer?.backgroundColor = NSColor(argb: ACCENT).cgColor
-        dot.translatesAutoresizingMaskIntoConstraints = false
-        dot.widthAnchor.constraint(equalToConstant: 6).isActive = true
-        dot.heightAnchor.constraint(equalToConstant: 6).isActive = true
-
-        let lbl = NSTextField(labelWithString: "")
-        lbl.font = monoFont12
-        lbl.textColor = NSColor(argb: 0xFFE8EAF0)
-        lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
-        clockLabel = lbl
-
-        inner.addArrangedSubview(dot)
-        inner.addArrangedSubview(lbl)
-
-        pill.addSubview(inner)
-        NSLayoutConstraint.activate([
-            inner.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 10),
-            inner.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -10),
-            inner.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
-            pill.heightAnchor.constraint(equalToConstant: pillH),
-        ])
-
-        pill.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(pill)
-        updateClock()
-    }
-
     func makeServicePill() -> NSView {
         let pill = NSView()
         pill.wantsLayer = true
@@ -1390,75 +1210,8 @@ class HubBarWindow: NSWindow {
         return pill
     }
 
-    func makeHSpacer(_ width: CGFloat) -> NSView {
-        let v = NSView(); v.translatesAutoresizingMaskIntoConstraints = false
-        v.widthAnchor.constraint(equalToConstant: width).isActive = true
-        return v
-    }
-
-    // ── Periodic update methods ──────────────────────────────────────────────
-
-    func updateClock() {
-        let fmt = DateFormatter(); fmt.dateFormat = "EEE dd MMM  HH:mm"
-        clockLabel?.stringValue = fmt.string(from: Date())
-    }
-
-    func updateBattery() {
-        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef],
-              let src = list.first,
-              let desc = IOPSGetPowerSourceDescription(info, src)?.takeUnretainedValue() as? [String: Any]
-        else { return }
-        let pct = desc[kIOPSCurrentCapacityKey] as? Int ?? 0
-        let charging = (desc[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
-        let (icon, color): (String, UInt32) = {
-            if charging { return ("󰂄", C_BLUE) }
-            switch pct {
-            case 90...100: return ("󰁹", C_GREEN)
-            case 70...89:  return ("󰂀", C_GREEN)
-            case 50...69:  return ("󰁾", C_GREEN)
-            case 30...49:  return ("󰁼", C_ORANGE)
-            case 10...29:  return ("󰁺", C_RED)
-            default:       return ("󰂃", C_RED)
-            }
-        }()
-        battIcon?.stringValue = icon; battIcon?.textColor = NSColor(argb: color)
-        battLabel?.stringValue = "\(pct)%"
-    }
-
-    func updateVolume() {
-        var deviceID = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID)
-        var muted: UInt32 = 0
-        size = UInt32(MemoryLayout<UInt32>.size)
-        var muteAddr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
-            mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
-        AudioObjectGetPropertyData(deviceID, &muteAddr, 0, nil, &size, &muted)
-        var vol: Float32 = 0
-        size = UInt32(MemoryLayout<Float32>.size)
-        var volAddr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar,
-            mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
-        AudioObjectGetPropertyData(deviceID, &volAddr, 0, nil, &size, &vol)
-        let pct = Int(vol * 100)
-        if muted != 0 {
-            volIcon?.stringValue = "󰖁"
-        } else {
-            switch pct {
-            case 60...100: volIcon?.stringValue = "󰕾"
-            case 30...59:  volIcon?.stringValue = "󰖀"
-            case 1...29:   volIcon?.stringValue = "󰕿"
-            default:       volIcon?.stringValue = "󰖁"
-            }
-        }
-        volLabel?.stringValue = "\(pct)%"
-    }
-
     func applyRefresh(state: HubBarState, newRows: Int, newCap: Int) {
         applyWorkspaceState(state: state, cap: newCap)
-        updateClock(); updateBattery(); updateVolume()   // safe no-ops if widgets hidden
         serviceModeLabel?.isHidden = !state.serviceMode
     }
 
@@ -1517,7 +1270,7 @@ class HubBarWindow: NSWindow {
         AudioObjectGetPropertyData(deviceID, &volAddr, 0, nil, &sz, &vol)
         slider.doubleValue = Double(vol)
 
-        let target = VolumeSliderTarget(deviceID: deviceID) { [weak self] in self?.updateVolume() }
+        let target = VolumeSliderTarget(deviceID: deviceID) { [weak self] in self?.clusterOverlay?.updateVolume() }
         slider.target = target; slider.action = #selector(VolumeSliderTarget.sliderChanged(_:))
         objc_setAssociatedObject(popup, "sliderTarget", target, .OBJC_ASSOCIATION_RETAIN)
 
@@ -1530,7 +1283,7 @@ class HubBarWindow: NSWindow {
             AudioObjectGetPropertyData(deviceID, &mutAddr, 0, nil, &mutSz, &mut)
             mut = mut == 0 ? 1 : 0
             AudioObjectSetPropertyData(deviceID, &mutAddr, 0, nil, mutSz, &mut)
-            self?.updateVolume()
+            self?.clusterOverlay?.updateVolume()
         }
         cv.addSubview(muteBtn)
         NSLayoutConstraint.activate([
@@ -1540,6 +1293,394 @@ class HubBarWindow: NSWindow {
             muteBtn.bottomAnchor.constraint(equalTo: cv.bottomAnchor),
         ])
         popup.orderFrontRegardless(); popup.installDismissMonitor(); volPopup = popup
+    }
+
+    // ── Cluster overlay ──────────────────────────────────────────────────────
+
+    func showClusterOverlay() {
+        clusterHideTimer?.invalidate(); clusterHideTimer = nil
+        if let ov = clusterOverlay, ov.isVisible { return }
+        clusterOverlay?.close(); clusterOverlay = nil
+
+        guard let ctrl = (NSApp.delegate as? AppDelegate)?.controller else { return }
+        let state = ctrl.lastState
+        let ov = ClusterOverlayWindow(barWindow: self, state: state)
+        ov.onMouseEnteredOverlay = { [weak self] in
+            self?.clusterHideTimer?.invalidate(); self?.clusterHideTimer = nil
+        }
+        ov.onMouseExitedOverlay = { [weak self] in
+            self?.scheduleHideClusterOverlay()
+        }
+        ov.dismissAction = { [weak self] in
+            self?.clusterOverlay = nil
+        }
+        clusterOverlay = ov
+        ov.orderFrontRegardless()
+        ov.installDismissMonitor()
+    }
+
+    func scheduleHideClusterOverlay() {
+        clusterHideTimer?.invalidate()
+        clusterHideTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { [weak self] _ in
+            self?.hideClusterOverlay()
+        }
+    }
+
+    func hideClusterOverlay() {
+        clusterHideTimer?.invalidate(); clusterHideTimer = nil
+        clusterOverlay?.dismiss()
+        clusterOverlay = nil
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MARK: – HotEdgeView (hover-only; hitTest returns nil so clicks pass through)
+// ──────────────────────────────────────────────────────────────────────────────
+
+class HotEdgeView: NSView {
+    var onEnter: (() -> Void)?
+    var onExit:  (() -> Void)?
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }  // clicks pass through
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil))
+    }
+    override func mouseEntered(with event: NSEvent) { onEnter?() }
+    override func mouseExited(with event: NSEvent)  { onExit?() }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MARK: – ClusterOverlayWindow (app launcher + widgets, shown on demand)
+// ──────────────────────────────────────────────────────────────────────────────
+
+class ClusterOverlayWindow: NSWindow {
+    var globalMouseMonitor: Any?
+    var dismissAction: (() -> Void)?
+    var onMouseEnteredOverlay: (() -> Void)?
+    var onMouseExitedOverlay:  (() -> Void)?
+
+    // Widget refs for periodic updates
+    var clockLabel: NSTextField?
+    var battLabel:  NSTextField?
+    var battIcon:   NSTextField?
+    var volLabel:   NSTextField?
+    var volIcon:    NSTextField?
+    var appSlots:   [AppSlotView]   = []
+    var wsWinSlots: [WsWinSlotView] = []
+
+    init(barWindow: HubBarWindow, state: HubBarState) {
+        let overlayW: CGFloat = 360, overlayH: CGFloat = 52
+        let barFrame = barWindow.frame
+        let popX = barFrame.maxX - overlayW - 8
+        let popY = barFrame.minY - overlayH - 4
+        super.init(contentRect: NSRect(x: popX, y: popY, width: overlayW, height: overlayH),
+                   styleMask: .borderless, backing: .buffered, defer: false)
+        level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
+        backgroundColor = .clear
+        isOpaque = false
+        hasShadow = true
+        ignoresMouseEvents = false
+        isReleasedWhenClosed = false
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+
+        buildContent(state: state)
+        installTrackingArea()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func buildContent(state: HubBarState) {
+        let cv = contentView!
+        cv.wantsLayer = true
+        cv.layer?.cornerRadius = cornerRadius
+        cv.layer?.masksToBounds = true
+        cv.layer?.backgroundColor = NSColor(argb: ITEM_BG).cgColor
+        cv.layer?.borderWidth = 1
+        cv.layer?.borderColor = NSColor(argb: ITEM_BG2).cgColor
+
+        let stack = NSStackView()
+        stack.orientation = .horizontal
+        stack.spacing = 6
+        stack.alignment = .centerY
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        cv.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 10),
+            stack.centerYAnchor.constraint(equalTo: cv.centerYAnchor),
+        ])
+
+        // Layout mode icon (expand → shows compress icon to return to shrink)
+        if state.layoutMode == .expand {
+            let icon = NSTextField(labelWithString: "\u{F066}")
+            icon.font = nerdFont13; icon.textColor = NSColor(argb: C_ORANGE)
+            icon.isEditable = false; icon.isBordered = false; icon.backgroundColor = .clear
+            let click = HubBarClickView(frame: .zero)
+            click.onPress = { [weak self] in
+                guard let hub = hubScriptPath() else { return }
+                Process.launchedProcess(launchPath: "/bin/sh",
+                    arguments: ["-c", "'\(hub)' bar-layout shrink >/dev/null 2>&1 &"])
+                self?.dismiss()
+            }
+            let wrap = NSView()
+            wrap.translatesAutoresizingMaskIntoConstraints = false
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            click.translatesAutoresizingMaskIntoConstraints = false
+            wrap.addSubview(icon); wrap.addSubview(click)
+            NSLayoutConstraint.activate([
+                icon.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
+                icon.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
+                icon.topAnchor.constraint(equalTo: wrap.topAnchor),
+                icon.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
+                click.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
+                click.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
+                click.topAnchor.constraint(equalTo: wrap.topAnchor),
+                click.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
+            ])
+            stack.addArrangedSubview(wrap)
+        }
+
+        // App icon group — when show_launcher is on and apps are configured
+        if state.showLauncher && !state.apps.isEmpty {
+            let group = buildAppIconGroup(state: state)
+            group.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(group)
+        }
+
+        // Volume + battery + clock — when show_widgets is on
+        if state.showWidgets {
+            stack.addArrangedSubview(makeHSpacer(4))
+            buildVolumeInto(stack)
+            buildBatteryInto(stack)
+            buildClockInto(stack)
+        }
+
+        // ✕ dismiss button (AGENTS.md "Dismissable HUDs" pattern — uses Theme.makeDismissButton)
+        let xBtn = Theme.makeDismissButton(onPress: { [weak self] in self?.dismiss() })
+        cv.addSubview(xBtn)
+        NSLayoutConstraint.activate([
+            xBtn.topAnchor.constraint(equalTo: cv.topAnchor, constant: 4),
+            xBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -4),
+            xBtn.widthAnchor.constraint(equalToConstant: 18),
+            xBtn.heightAnchor.constraint(equalToConstant: 18),
+        ])
+
+        updateVolume(); updateBattery(); updateClock()
+    }
+
+    private func buildAppIconGroup(state: HubBarState) -> NSView {
+        let group = NSView()
+        group.wantsLayer = true
+        group.layer?.backgroundColor = NSColor(argb: APPGRP_BG).cgColor
+        group.layer?.cornerRadius = APPGRP_RADIUS
+        group.layer?.masksToBounds = true
+        group.layer?.borderWidth = 1
+        group.layer?.borderColor = NSColor(argb: APPGRP_BORDER).cgColor
+        group.setContentHuggingPriority(.required, for: .horizontal)
+
+        let inner = NSStackView()
+        inner.orientation = .horizontal; inner.spacing = appGroupGap; inner.alignment = .centerY
+        inner.translatesAutoresizingMaskIntoConstraints = false
+        group.addSubview(inner)
+        NSLayoutConstraint.activate([
+            inner.centerYAnchor.constraint(equalTo: group.centerYAnchor),
+            inner.leadingAnchor.constraint(equalTo: group.leadingAnchor, constant: 14),
+            inner.trailingAnchor.constraint(equalTo: group.trailingAnchor, constant: -14),
+            group.heightAnchor.constraint(equalToConstant: pillH + 8),
+        ])
+
+        let hub = hubScriptPath() ?? ""
+        let launcherNames = Set(state.apps.compactMap { $0["name"] })
+        for (i, app) in state.apps.enumerated() {
+            let slot = i + 1
+            let sv = AppSlotView(slot: slot)
+            sv.translatesAutoresizingMaskIntoConstraints = false
+            sv.widthAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
+            sv.heightAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
+            if let bid = app["bundle_id"] ?? app["bundleID"], !bid.isEmpty {
+                sv.setIcon(bundleID: bid)
+            } else if let name = app["name"], !name.isEmpty {
+                if let running = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == name }),
+                   let url = running.bundleURL {
+                    sv.imageView.image = NSWorkspace.shared.icon(forFile: url.path)
+                } else { sv.setIconByName(name) }
+            }
+            let appName = app["name"] ?? ""
+            sv.dotView.isHidden = !state.currentWindows.contains { $0.app == appName }
+            sv.onPress = { [weak sv] in
+                guard !hub.isEmpty else { return }
+                let mods = NSEvent.modifierFlags
+                let force = mods.contains(.shift) ? " --force" : ""
+                Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", "'\(hub)' open \(slot)\(force)"])
+                sv?.layer?.backgroundColor = NSColor(argb: CLICK_BG).withAlphaComponent(0.3).cgColor
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { sv?.layer?.backgroundColor = nil }
+            }
+            appSlots.append(sv)
+            inner.addArrangedSubview(sv)
+        }
+
+        var seen = Set<String>()
+        var extraApps: [(app: String, ids: [Int])] = []
+        for win in state.currentWindows {
+            let app = win.app
+            if isSystemProc(app) || launcherNames.contains(app) { continue }
+            if seen.contains(app) {
+                if let idx = extraApps.firstIndex(where: { $0.app == app }) { extraApps[idx].ids.append(win.id) }
+                continue
+            }
+            seen.insert(app)
+            if extraApps.count < 5 { extraApps.append((app: app, ids: [win.id])) }
+        }
+        for entry in extraApps {
+            let slot = WsWinSlotView()
+            slot.translatesAutoresizingMaskIntoConstraints = false
+            slot.widthAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
+            slot.heightAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
+            slot.windowIDs = entry.ids
+            let appPath = "/Applications/\(entry.app).app"
+            if FileManager.default.fileExists(atPath: appPath) {
+                slot.imageView.image = NSWorkspace.shared.icon(forFile: appPath)
+            } else if let running = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == entry.app }),
+                      let url = running.bundleURL {
+                slot.imageView.image = NSWorkspace.shared.icon(forFile: url.path)
+            }
+            wsWinSlots.append(slot)
+            inner.addArrangedSubview(slot)
+        }
+        return group
+    }
+
+    private func makeHSpacer(_ w: CGFloat) -> NSView {
+        let v = NSView(); v.translatesAutoresizingMaskIntoConstraints = false
+        v.widthAnchor.constraint(equalToConstant: w).isActive = true; return v
+    }
+
+    private func buildVolumeInto(_ stack: NSStackView) {
+        let s = NSStackView(); s.orientation = .horizontal; s.spacing = 4; s.alignment = .centerY
+        let ic = NSTextField(labelWithString: "󰕾")
+        ic.font = nerdFont16; ic.textColor = NSColor(argb: C_BLUE)
+        ic.isEditable = false; ic.isBordered = false; ic.backgroundColor = .clear
+        let lbl = NSTextField(labelWithString: "")
+        lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFC9CDD6)
+        lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
+        s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
+        volIcon = ic; volLabel = lbl
+        stack.addArrangedSubview(s)
+    }
+
+    private func buildBatteryInto(_ stack: NSStackView) {
+        let s = NSStackView(); s.orientation = .horizontal; s.spacing = 4; s.alignment = .centerY
+        let ic = NSTextField(labelWithString: "󰁹")
+        ic.font = nerdFont16; ic.textColor = NSColor(argb: C_GREEN)
+        ic.isEditable = false; ic.isBordered = false; ic.backgroundColor = .clear
+        let lbl = NSTextField(labelWithString: "")
+        lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFC9CDD6)
+        lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
+        s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
+        battIcon = ic; battLabel = lbl
+        stack.addArrangedSubview(s)
+    }
+
+    private func buildClockInto(_ stack: NSStackView) {
+        let pill = NSView()
+        pill.wantsLayer = true
+        pill.layer?.backgroundColor = NSColor(argb: ACCENT_SOFT).cgColor
+        pill.layer?.cornerRadius = 8
+        pill.layer?.masksToBounds = true
+        let inner = NSStackView()
+        inner.orientation = .horizontal; inner.spacing = 6; inner.alignment = .centerY
+        inner.translatesAutoresizingMaskIntoConstraints = false
+        let dot = NSView()
+        dot.wantsLayer = true; dot.layer?.cornerRadius = 3
+        dot.layer?.backgroundColor = NSColor(argb: ACCENT).cgColor
+        dot.translatesAutoresizingMaskIntoConstraints = false
+        dot.widthAnchor.constraint(equalToConstant: 6).isActive = true
+        dot.heightAnchor.constraint(equalToConstant: 6).isActive = true
+        let lbl = NSTextField(labelWithString: "")
+        lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFE8EAF0)
+        lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
+        clockLabel = lbl
+        inner.addArrangedSubview(dot); inner.addArrangedSubview(lbl)
+        pill.addSubview(inner)
+        NSLayoutConstraint.activate([
+            inner.leadingAnchor.constraint(equalTo: pill.leadingAnchor, constant: 10),
+            inner.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -10),
+            inner.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            pill.heightAnchor.constraint(equalToConstant: pillH),
+        ])
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(pill)
+    }
+
+    func updateClock() {
+        let fmt = DateFormatter(); fmt.dateFormat = "EEE dd MMM  HH:mm"
+        clockLabel?.stringValue = fmt.string(from: Date())
+    }
+    func updateBattery() {
+        guard let info = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
+              let list = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef],
+              let src = list.first,
+              let desc = IOPSGetPowerSourceDescription(info, src)?.takeUnretainedValue() as? [String: Any]
+        else { return }
+        let pct = desc[kIOPSCurrentCapacityKey] as? Int ?? 0
+        let charging = (desc[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
+        let (icon, color): (String, UInt32) = {
+            if charging { return ("󰂄", C_BLUE) }
+            switch pct {
+            case 90...100: return ("󰁹", C_GREEN); case 70...89: return ("󰂀", C_GREEN)
+            case 50...69:  return ("󰁾", C_GREEN); case 30...49: return ("󰁼", C_ORANGE)
+            case 10...29:  return ("󰁺", C_RED);   default:      return ("󰂃", C_RED)
+            }
+        }()
+        battIcon?.stringValue = icon; battIcon?.textColor = NSColor(argb: color)
+        battLabel?.stringValue = "\(pct)%"
+    }
+    func updateVolume() {
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID)
+        var muted: UInt32 = 0; size = UInt32(MemoryLayout<UInt32>.size)
+        var muteAddr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
+        AudioObjectGetPropertyData(deviceID, &muteAddr, 0, nil, &size, &muted)
+        var vol: Float32 = 0; size = UInt32(MemoryLayout<Float32>.size)
+        var volAddr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar,
+            mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
+        AudioObjectGetPropertyData(deviceID, &volAddr, 0, nil, &size, &vol)
+        let pct = Int(vol * 100)
+        if muted != 0 { volIcon?.stringValue = "󰖁" } else {
+            switch pct {
+            case 60...100: volIcon?.stringValue = "󰕾"
+            case 30...59:  volIcon?.stringValue = "󰖀"
+            case 1...29:   volIcon?.stringValue = "󰕿"
+            default:       volIcon?.stringValue = "󰖁"
+            }
+        }
+        volLabel?.stringValue = "\(pct)%"
+    }
+
+    private func installTrackingArea() {
+        guard let cv = contentView else { return }
+        let track = NSTrackingArea(rect: cv.bounds,
+            options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        cv.addTrackingArea(track)
+    }
+    override func mouseEntered(with event: NSEvent) { onMouseEnteredOverlay?() }
+    override func mouseExited(with event: NSEvent)  { onMouseExitedOverlay?() }
+
+    func installDismissMonitor() {
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.dismiss()
+        }
+    }
+    func dismiss() {
+        if let m = globalMouseMonitor { NSEvent.removeMonitor(m); globalMouseMonitor = nil }
+        dismissAction?()
+        orderOut(nil)
     }
 }
 
@@ -1569,7 +1710,26 @@ class HubBarController: NSObject {
     var clockTimer: Timer?; var batteryTimer: Timer?; var pulseTimer: Timer?
     var pulseBright = true; var lastState = HubBarState()
 
-    func start() { writePIDFile(); buildWindows(); installSignalSource(); startTimers() }
+    func start() { writePIDFile(); buildWindows(); installSignalSource(); installClusterTriggers(); startTimers() }
+
+    func installClusterTriggers() {
+        // Both-shift trigger: hold left-shift (keycode 56) AND right-shift (keycode 60) simultaneously.
+        // Uses device-independent NX flag masks to detect left/right shift separately.
+        // NX_DEVICELSHIFTKEYMASK = 0x0002, NX_DEVICERSHIFTKEYMASK = 0x0004
+        // Note: global flagsChanged monitors may require Input Monitoring permission on some
+        // OS versions. If this fails silently, the hot-right-edge trigger still works.
+        NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] ev in
+            let raw = ev.modifierFlags.rawValue
+            let bothShift = (raw & 0x0002 != 0) && (raw & 0x0004 != 0)
+            guard let self = self else { return }
+            let primaryWindow = self.windows.first
+            if bothShift {
+                primaryWindow?.showClusterOverlay()
+            } else if primaryWindow?.clusterOverlay?.isVisible == true {
+                primaryWindow?.scheduleHideClusterOverlay()
+            }
+        }
+    }
 
     func writePIDFile() {
         let path = NSHomeDirectory() + "/.config/hub/hub_bar.pid"
@@ -1668,23 +1828,25 @@ class HubBarController: NSObject {
                     let pills = state.visiblePillInfos(monitorWs: monitorWs)
 
                     let newFit = decideFit(
-                        pills: pills, screenW: sf.width, clusterW: w.analyticalClusterWidth(state: state),
-                        notchMinX: notch?.minX,
+                        pills: pills, screenW: sf.width,
+                        notchMinX: notch?.minX, notchMaxX: notch?.maxX,
                         isFullscreen: isFullscreen, focused: state.focused,
                         claudeAlert: state.claudeAlert, claudeActive: state.claudeActive,
                         mode: state.layoutMode,
                         lastRows: w.lastFitRows)
 
-                    let rowsChanged = newFit.rows != w.lastFitRows
-                    let capChanged  = newFit.effectiveCap != w.lastFitCap
-                    let modeChanged = state.layoutMode != prevState.layoutMode
-                    let visChanged  = state.showLauncher != prevState.showLauncher
-                                   || state.showWidgets  != prevState.showWidgets
-                    let appsChanged = state.showLauncher && state.apps.count != prevState.apps.count
+                    let rowsChanged    = newFit.rows != w.lastFitRows
+                    let capChanged     = newFit.effectiveCap != w.lastFitCap
+                    let modeChanged    = state.layoutMode != prevState.layoutMode
                     // Detect new workspaces whose pill view hasn't been created yet
                     let newPillMissing = pills.contains { w.wsPills[$0.ws] == nil }
 
-                    if rowsChanged || capChanged || modeChanged || visChanged || appsChanged || newPillMissing {
+                    if ProcessInfo.processInfo.environment["HUB_BAR_DEBUG"] != nil {
+                        let missingWs = pills.filter { w.wsPills[$0.ws] == nil }.map { $0.ws }
+                        fputs("[DEBUG refresh] rowsChanged=\(rowsChanged) capChanged=\(capChanged) modeChanged=\(modeChanged) newPillMissing=\(newPillMissing) missingWs=\(missingWs) newCap=\(newFit.effectiveCap) lastCap=\(w.lastFitCap)\n", stderr)
+                    }
+
+                    if rowsChanged || capChanged || modeChanged || newPillMissing {
                         w.buildContents(state: state, lastRows: w.lastFitRows)
                         w.orderFrontRegardless()
                     } else {
@@ -1696,8 +1858,12 @@ class HubBarController: NSObject {
     }
 
     func startTimers() {
-        clockTimer   = Timer.scheduledTimer(withTimeInterval: 10,  repeats: true) { [weak self] _ in self?.windows.forEach { $0.updateClock() } }
-        batteryTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in self?.windows.forEach { $0.updateBattery() } }
+        clockTimer   = Timer.scheduledTimer(withTimeInterval: 10,  repeats: true) { [weak self] _ in
+            self?.windows.forEach { $0.clusterOverlay?.updateClock() }
+        }
+        batteryTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
+            self?.windows.forEach { $0.clusterOverlay?.updateBattery() }
+        }
         pulseTimer   = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             self.pulseBright = !self.pulseBright
@@ -1707,7 +1873,7 @@ class HubBarController: NSObject {
             }
         }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
-            object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.updateBattery() } }
+            object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.clusterOverlay?.updateBattery() } }
         // Show/hide bars when a full-screen transition creates/destroys a space.
         // Delay slightly to let the new Space fully settle before querying window list.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
