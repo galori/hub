@@ -195,9 +195,6 @@ run = ['exec-and-forget __HUB_SCRIPT__ arrange-open-window $AEROSPACE_FOCUSED_WO
     ctrl-alt-5 = 'exec-and-forget __HUB_SCRIPT__ open 5'
     # hub: toggle Hub Bar layout (shrink pills to one row / expand bar height)
     ctrl-alt-shift-b = 'exec-and-forget __HUB_SCRIPT__ bar-layout toggle'
-    # hub: show/hide the launch bar and the widgets cluster
-    ctrl-alt-shift-l = 'exec-and-forget __HUB_SCRIPT__ bar-launcher toggle'
-    ctrl-alt-shift-w = 'exec-and-forget __HUB_SCRIPT__ bar-widgets toggle'
     # hub: reload Hub Bar
     ctrl-alt-b = 'exec-and-forget __HUB_SCRIPT__ bar-reload'
     # hub: toggle repo name prefix on workspace labels

@@ -97,8 +97,6 @@ print_usage() {
     echo "  keys          List all AeroSpace key bindings (main and service mode)"
     echo "  dashboard     Show status and key bindings in a full-screen modal"
     echo "  bar-layout    Pills shrink to fit one row, or expand bar height (shrink/expand/toggle)"
-    echo "  bar-launcher  Show/hide the app launch bar in the Hub Bar (show/hide/toggle)"
-    echo "  bar-widgets   Show/hide volume, battery, and clock (show/hide/toggle)"
     echo "  bar-reload    Restart the Hub Bar (fix rendering inconsistencies)"
     echo "  fullscreen    Hide/show the Dock and menu bar (on/off/toggle)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
@@ -2664,40 +2662,6 @@ cmd_bar_layout() {
     esac
 }
 
-# Shared helper: toggle a simple on/off state file (used by bar-launcher and bar-widgets)
-# Args: <file> <display-label> <cmd-name> <action>
-_bar_toggle_file() {
-    local f="$1" label="$2" cmd="$3" action="${4:-}"
-    local current="off"
-    [[ -f "$f" ]] && current="$(cat "$f" 2>/dev/null || echo off)"
-    [[ "$current" != "on" ]] && current="off"
-
-    case "$action" in
-        show|on)  current="on" ;;
-        hide|off) current="off" ;;
-        toggle)   [[ "$current" == "on" ]] && current="off" || current="on" ;;
-        "")
-            echo -e "${bold}${label}:${reset} $current"
-            echo -e "  ${yellow}Usage: hub ${cmd} [show|hide|toggle]${reset}"
-            return 0
-            ;;
-        *)
-            fail "Usage: hub ${cmd} [show|hide|toggle]"
-            return 1
-            ;;
-    esac
-    echo "$current" > "$f"
-    hub_bar_refresh
-}
-
-cmd_bar_launcher() {
-    _bar_toggle_file "$HOME/.config/hub/show_launcher" "Bar launcher" "bar-launcher" "${1:-}"
-}
-
-cmd_bar_widgets() {
-    _bar_toggle_file "$HOME/.config/hub/show_widgets" "Bar widgets" "bar-widgets" "${1:-}"
-}
-
 cmd_hub_bar_sync() {
     # Read hub_bar_height written by hub_bar.swift: actual rendered bar height in px.
     # AeroSpace outer.top is measured from visibleFrame.maxY (below the menu bar), so
@@ -3256,8 +3220,6 @@ case "$command" in
     keys)         cmd_keys ;;
     dashboard)    cmd_dashboard ;;
     bar-layout)   cmd_bar_layout "$@" ;;
-    bar-launcher) cmd_bar_launcher "$@" ;;
-    bar-widgets)  cmd_bar_widgets "$@" ;;
     bar-sync)     cmd_hub_bar_sync ;;
     bar-reload|bar-restart) hub_bar_restart ;;
     bar-refresh)  hub_bar_refresh ;;

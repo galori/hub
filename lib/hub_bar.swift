@@ -139,9 +139,6 @@ struct HubBarState {
     //              expand           = full labels, bar grows 1..FIT_MAX_ROWS rows.
     enum LayoutMode: String { case shrink, expand }
     var layoutMode: LayoutMode = .shrink
-    // Visibility toggles (default hidden — "on" in the state file enables).
-    var showLauncher: Bool = false
-    var showWidgets: Bool = false
 
     static func snapshot() -> HubBarState {
         var s = HubBarState()
@@ -199,14 +196,6 @@ struct HubBarState {
            let m = LayoutMode(rawValue: v.trimmingCharacters(in: .whitespacesAndNewlines)) {
             s.layoutMode = m
         }
-        // Visibility toggles (absent or "off" = hidden; "on" = visible)
-        func readOn(_ name: String) -> Bool {
-            (try? String(contentsOfFile: hub + "/" + name, encoding: .utf8))?
-                .trimmingCharacters(in: .whitespacesAndNewlines) == "on"
-        }
-        s.showLauncher = readOn("show_launcher")
-        s.showWidgets  = readOn("show_widgets")
-
         // service mode
         s.serviceMode = FileManager.default.fileExists(atPath: "/tmp/hub_service_mode")
 
@@ -393,6 +382,39 @@ private func splitRow0AroundNotch(
     return leftCount
 }
 
+// Feasibility check for a notch split at a given cap: greedily fill the left segment, then
+// verify the REMAINING pills fit the right segment. Returns the left-segment count if both
+// segments fit, or nil if the right segment overflows. Mirrors splitRow0AroundNotch's greedy
+// partition so the shrink binary-search agrees with the renderer.
+private func fitNotchSplit(
+    pills: [(ws: String, fullName: String, isFocused: Bool)],
+    cap: Int,
+    claudeAlert: Set<String>, claudeActive: Set<String>,
+    leftSegW: CGFloat, rightSegW: CGFloat) -> Int? {
+    func pillW(_ p: (ws: String, fullName: String, isFocused: Bool)) -> CGFloat {
+        let name = cappedName(full: p.fullName, cap: cap)
+        let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
+        return analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
+    }
+    // Greedy left-fill (must match splitRow0AroundNotch).
+    var used: CGFloat = 0
+    var leftCount = 0
+    for p in pills {
+        let pw = pillW(p)
+        let gap: CGFloat = leftCount == 0 ? 0 : pillGap
+        if used + gap + pw <= leftSegW { used += gap + pw; leftCount += 1 } else { break }
+    }
+    // Remaining pills must fit the right segment.
+    var rUsed: CGFloat = 0
+    var rCount = 0
+    for p in pills[leftCount...] {
+        let pw = pillW(p)
+        let gap: CGFloat = rCount == 0 ? 0 : pillGap
+        if rUsed + gap + pw <= rightSegW { rUsed += gap + pw; rCount += 1 } else { return nil }
+    }
+    return leftCount
+}
+
 // Pure fit decision: given pill data, screen geometry, and layout mode — returns layout.
 // `lastRows` is the only retained state (hysteresis for expand mode). Pass 1 on first call.
 // Modes:
@@ -438,22 +460,37 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
 
     switch mode {
     case .shrink:
-        // Always 1 row. Binary-search the largest cap (0..60) that packs everything into row 0.
+        // Always 1 row. Binary-search the largest label cap (0..60) that fits.
+        //
+        // In notch mode the pills are split greedily — left segment first, then the rest go
+        // right — so a cap that fits the COMBINED width can still overflow the right segment
+        // (e.g. short labels fill the left, long ones pile into a too-narrow right). The fit
+        // check must therefore validate the actual two-segment partition, not just the sum.
+        //
+        // Floor: cap=0 (index badge only). If even that overflows, the clip-views clip the
+        // excess rather than leaving pills rendered off-screen.
+        let allIndices = Array(0..<pills.count)
         let maxCap = 60
         var lo = 0, hi = maxCap
         var bestCap = 0
-        var bestAssignment: [[Int]] = [Array(0..<pills.count)]
         while lo <= hi {
             let mid = (lo + hi) / 2
-            let (assignment, overflowed) = greedyPack(
-                pills: pills, cap: mid, focused: focused,
-                claudeAlert: claudeAlert, claudeActive: claudeActive,
-                row0Width: row0W, fullRowWidth: fullRowW, maxRows: 1)
-            if !overflowed { bestCap = mid; bestAssignment = assignment; lo = mid + 1 }
-            else { hi = mid - 1 }
+            let fits: Bool
+            if hasNotchSplit {
+                fits = fitNotchSplit(pills: pills, cap: mid,
+                                     claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                     leftSegW: leftSegW, rightSegW: rightSegW) != nil
+            } else {
+                let (_, overflowed) = greedyPack(
+                    pills: pills, cap: mid, focused: focused,
+                    claudeAlert: claudeAlert, claudeActive: claudeActive,
+                    row0Width: row0W, fullRowWidth: fullRowW, maxRows: 1)
+                fits = !overflowed
+            }
+            if fits { bestCap = mid; lo = mid + 1 } else { hi = mid - 1 }
         }
-        return FitDecision(rows: 1, rowAssignment: bestAssignment, effectiveCap: bestCap,
-                           row0Split: makeSplit(bestAssignment, cap: bestCap))
+        return FitDecision(rows: 1, rowAssignment: [allIndices], effectiveCap: bestCap,
+                           row0Split: makeSplit([allIndices], cap: bestCap))
 
     case .expand:
         // Full labels (cap = -1). Grow rows 1..FIT_MAX_ROWS until it fits; apply hysteresis.
@@ -1442,20 +1479,19 @@ class ClusterOverlayWindow: NSWindow {
             stack.addArrangedSubview(wrap)
         }
 
-        // App icon group — when show_launcher is on and apps are configured
-        if state.showLauncher && !state.apps.isEmpty {
+        // App icon group — shown when apps are configured (the overlay is on-demand, so its
+        // sections are always populated; there's no per-section toggle anymore).
+        if !state.apps.isEmpty {
             let group = buildAppIconGroup(state: state)
             group.translatesAutoresizingMaskIntoConstraints = false
             stack.addArrangedSubview(group)
         }
 
-        // Volume + battery + clock — when show_widgets is on
-        if state.showWidgets {
-            stack.addArrangedSubview(makeHSpacer(4))
-            buildVolumeInto(stack)
-            buildBatteryInto(stack)
-            buildClockInto(stack)
-        }
+        // Volume + battery + clock — always present in the overlay.
+        stack.addArrangedSubview(makeHSpacer(4))
+        buildVolumeInto(stack)
+        buildBatteryInto(stack)
+        buildClockInto(stack)
 
         // ✕ dismiss button (AGENTS.md "Dismissable HUDs" pattern — uses Theme.makeDismissButton)
         let xBtn = Theme.makeDismissButton(onPress: { [weak self] in self?.dismiss() })
