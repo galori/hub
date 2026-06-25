@@ -1837,6 +1837,7 @@ class HubBarController: NSObject {
     var windows: [HubBarWindow] = []
     var clockTimer: Timer?; var batteryTimer: Timer?; var pulseTimer: Timer?
     var menuBarRevealTimer: Timer?
+    var menuBarRevealGeneration: Int = 0
     var pulseBright = true; var lastState = HubBarState()
 
     func start() {
@@ -1886,24 +1887,43 @@ class HubBarController: NSObject {
         NSHomeDirectory() + "/.config/hub/hub_bar_height_transient"
     }
 
-    private func runBarSync() {
-        guard let hub = hubScriptPath() else { return }
-        Process.launchedProcess(launchPath: "/bin/sh",
-            arguments: ["-c", "'\(hub)' bar-sync >/dev/null 2>&1 &"])
+    private func runBarSync(completion: (() -> Void)? = nil) {
+        guard let hub = hubScriptPath() else {
+            completion?()
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let process = Process()
+            process.launchPath = "/bin/sh"
+            process.arguments = ["-c", "'\(hub)' bar-sync >/dev/null 2>&1"]
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                // Best-effort sync; still let the UI continue if the helper failed to launch.
+            }
+            if let completion = completion {
+                DispatchQueue.main.async(execute: completion)
+            }
+        }
     }
 
-    private func removeTransientBarHeightOverride(sync: Bool) {
+    private func removeTransientBarHeightOverride(sync: Bool, completion: (() -> Void)? = nil) {
         let path = transientBarHeightPath()
         let existed = FileManager.default.fileExists(atPath: path)
         try? FileManager.default.removeItem(atPath: path)
-        if existed && sync { runBarSync() }
+        if existed && sync {
+            runBarSync(completion: completion)
+        } else {
+            completion?()
+        }
     }
 
-    private func updateTransientBarHeightOverride() {
+    private func updateTransientBarHeightOverride(completion: (() -> Void)? = nil) {
         let shouldOverride = HubBarWindow.isHubFullscreen()
             && windows.contains { $0.menuBarRevealedInFullscreen }
         guard shouldOverride else {
-            removeTransientBarHeightOverride(sync: true)
+            removeTransientBarHeightOverride(sync: true, completion: completion)
             return
         }
 
@@ -1912,10 +1932,25 @@ class HubBarController: NSObject {
         let path = transientBarHeightPath()
         let current = (try? String(contentsOfFile: path, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard current != "\(height)" else { return }
+        guard current != "\(height)" else {
+            completion?()
+            return
+        }
 
         try? "\(height)".write(toFile: path, atomically: true, encoding: .utf8)
-        runBarSync()
+        runBarSync(completion: completion)
+    }
+
+    private func applyMenuBarRevealGeometry(for window: HubBarWindow) {
+        window.buildContents(state: lastState, lastRows: max(1, window.lastFitRows), writeBarMetrics: false)
+        window.orderFrontRegardless()
+    }
+
+    private func applyRevealedMenuBarGeometry(generation: Int) {
+        guard generation == menuBarRevealGeneration else { return }
+        for w in windows where w.menuBarRevealedInFullscreen {
+            applyMenuBarRevealGeometry(for: w)
+        }
     }
 
     // Returns display IDs of screens where a native macOS full-screen app covers the entire frame.
@@ -1967,7 +2002,8 @@ class HubBarController: NSObject {
         let mouse = NSEvent.mouseLocation
         let enterTopZone: CGFloat = 6.0
 
-        var changed = false
+        var revealEntered = false
+        var revealExited = false
         for w in windows {
             let sf = w.barScreen.frame
             let vf = w.barScreen.visibleFrame
@@ -1983,12 +2019,28 @@ class HubBarController: NSObject {
             if shouldReveal == w.menuBarRevealedInFullscreen { continue }
 
             w.menuBarRevealedInFullscreen = shouldReveal
-            // Transient visual shift only: don't rewrite hub_bar_height / bar-sync while hovering.
-            w.buildContents(state: lastState, lastRows: max(1, w.lastFitRows), writeBarMetrics: false)
-            w.orderFrontRegardless()
-            changed = true
+            if shouldReveal {
+                revealEntered = true
+                w.applyWindowLevel(isFullscreen: hubFullscreen)
+            } else {
+                revealExited = true
+                applyMenuBarRevealGeometry(for: w)
+            }
         }
-        if changed { updateTransientBarHeightOverride() }
+
+        if revealEntered || revealExited {
+            menuBarRevealGeneration += 1
+        }
+        let generation = menuBarRevealGeneration
+
+        if revealExited {
+            updateTransientBarHeightOverride()
+        }
+        if revealEntered {
+            updateTransientBarHeightOverride { [weak self] in
+                self?.applyRevealedMenuBarGeometry(generation: generation)
+            }
+        }
     }
 
     func buildWindows() {
