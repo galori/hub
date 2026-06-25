@@ -229,7 +229,7 @@ struct HubBarState {
         guard let info = wsInfo[ws], !info.name.isEmpty else { return (ws, "") }
         var full = info.name
         if repoPrefix, !info.repo.isEmpty, full != info.repo { full = "\(info.repo):\(full)" }
-        return (ws, cappedName(full: full, cap: cap, isFocused: ws == focused))
+        return (ws, cappedName(full: full, cap: cap))
     }
 
     func wsColor(ws: String) -> UInt32 {
@@ -271,10 +271,10 @@ func cachedTextWidth(_ s: String, font: NSFont) -> CGFloat {
 }
 
 // Apply a label cap to a workspace name.
-// cap == -1 → full name; cap == 0 → empty; cap > 0 → truncate non-focused names.
-func cappedName(full: String, cap: Int, isFocused: Bool) -> String {
+// cap == -1 → full name; cap == 0 → empty; cap > 0 → truncate to cap chars.
+func cappedName(full: String, cap: Int) -> String {
     if cap == 0 { return "" }
-    if cap > 0, !isFocused, full.count > cap { return String(full.prefix(cap)) + "…" }
+    if cap > 0, full.count > cap { return String(full.prefix(cap)) + "…" }
     return full
 }
 
@@ -299,8 +299,8 @@ func stripWidth(pills: [(ws: String, fullName: String, isFocused: Bool)],
     var total: CGFloat = 0
     for (i, p) in pills.enumerated() {
         if i > 0 { total += pillGap }
-        let effCap = (cap == -1 || p.isFocused) ? -1 : cap
-        let name = cappedName(full: p.fullName, cap: effCap, isFocused: p.isFocused)
+        let effCap = cap
+        let name = cappedName(full: p.fullName, cap: effCap)
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
         total += analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
     }
@@ -338,8 +338,8 @@ private func greedyPack(pills: [(ws: String, fullName: String, isFocused: Bool)]
     var overflowed = false
 
     for (i, p) in pills.enumerated() {
-        let effCap = (cap == -1 || p.isFocused) ? -1 : cap
-        let name = cappedName(full: p.fullName, cap: effCap, isFocused: p.isFocused)
+        let effCap = cap
+        let name = cappedName(full: p.fullName, cap: effCap)
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
         let pw = analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
         let gap: CGFloat = rows[r].isEmpty ? 0 : pillGap
@@ -378,8 +378,8 @@ private func splitRow0AroundNotch(
     var leftCount = 0
     for idx in row0Indices {
         let p = pills[idx]
-        let effCap = (cap == -1 || p.isFocused) ? -1 : cap
-        let name = cappedName(full: p.fullName, cap: effCap, isFocused: p.isFocused)
+        let effCap = cap
+        let name = cappedName(full: p.fullName, cap: effCap)
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
         let pw = analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
         let gap: CGFloat = leftCount == 0 ? 0 : pillGap
