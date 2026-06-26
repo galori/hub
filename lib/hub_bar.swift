@@ -128,7 +128,15 @@ func cleanupStaleClaudeActiveFlags() {
         let ws = String(name.dropFirst("hub_claude_active_".count))
         if ws.isEmpty { continue }
         let pidPath = "/tmp/hub_claude_pid_\(ws)"
-        guard fm.fileExists(atPath: pidPath) else { continue }
+
+        // Migration/cleanup: active flags created by older hook versions had no pid file.
+        // Treat those as stale to prevent indefinitely blinking blue pills.
+        guard fm.fileExists(atPath: pidPath) else {
+            try? fm.removeItem(at: url)
+            changed = true
+            continue
+        }
+
         let raw = (try? String(contentsOfFile: pidPath, encoding: .utf8)) ?? ""
         let pids = raw
             .split(separator: "\n")
