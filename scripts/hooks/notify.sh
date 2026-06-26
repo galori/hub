@@ -48,24 +48,43 @@ fi
 
 if [ -z "$WS_ID" ] && [ -n "$CWD" ] && [ -f "$WORKSPACES_FILE" ]; then
     _BEST_LEN=0
+    _TIED=false
+    _BEST_ID=""
+    _BEST_NAME=""
     while IFS=$'\t' read -r id name path; do
         [ -z "$path" ] && continue
-        if [[ "$CWD" == "$path"* ]] && [ "${#path}" -gt "$_BEST_LEN" ]; then
-            WS_ID="$id"
-            WS_NAME="$name"
-            _BEST_LEN="${#path}"
+        if [[ "$CWD" == "$path"* ]]; then
+            _LEN="${#path}"
+            if [ "$_LEN" -gt "$_BEST_LEN" ]; then
+                _BEST_LEN="$_LEN"
+                _BEST_ID="$id"
+                _BEST_NAME="$name"
+                _TIED=false
+            elif [ "$_LEN" -eq "$_BEST_LEN" ] && [ -n "$_BEST_ID" ] && [ "$id" != "$_BEST_ID" ]; then
+                _TIED=true
+            fi
         fi
     done < <(jq -r '.[] | [.workspace_id, .name, .path] | @tsv' "$WORKSPACES_FILE" 2>/dev/null)
+    if [ -n "$_BEST_ID" ] && [ "$_TIED" != "true" ]; then
+        WS_ID="$_BEST_ID"
+        WS_NAME="$_BEST_NAME"
+    fi
 fi
 
 HUB_PATH_FILE="$HOME/.config/hub/hub_path"
 HUB_SCRIPT=""
 [ -f "$HUB_PATH_FILE" ] && HUB_SCRIPT="$(cat "$HUB_PATH_FILE" 2>/dev/null || true)"
 
-# --- Amber workspace pill (clear active state, set attention state, refresh Hub Bar) ---
-if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ] && [ -n "$WS_ID" ]; then
-    rm -f "/tmp/hub_claude_active_${WS_ID}"
-    touch "/tmp/hub_claude_alert_${WS_ID}"
+# --- Workspace state on Stop/PermissionRequest ---
+# Always clear any active-state flag for this workspace so blue pulsing never sticks.
+# If color notifications are enabled, set the amber attention state.
+if [ -n "$WS_ID" ]; then
+    rm -f "/tmp/hub_claude_active_${WS_ID}" "/tmp/hub_claude_pid_${WS_ID}"
+    if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ]; then
+        touch "/tmp/hub_claude_alert_${WS_ID}"
+    else
+        rm -f "/tmp/hub_claude_alert_${WS_ID}"
+    fi
     [ -n "$HUB_SCRIPT" ] && "$HUB_SCRIPT" bar-refresh 2>/dev/null &
 fi
 

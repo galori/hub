@@ -116,6 +116,50 @@ func hubScriptPath() -> String? {
     return c.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
+func cleanupStaleClaudeActiveFlags() {
+    let fm = FileManager.default
+    let tmp = URL(fileURLWithPath: "/tmp", isDirectory: true)
+    guard let entries = try? fm.contentsOfDirectory(at: tmp, includingPropertiesForKeys: nil) else { return }
+
+    var changed = false
+    for url in entries {
+        let name = url.lastPathComponent
+        guard name.hasPrefix("hub_claude_active_") else { continue }
+        let ws = String(name.dropFirst("hub_claude_active_".count))
+        if ws.isEmpty { continue }
+        let pidPath = "/tmp/hub_claude_pid_\(ws)"
+        guard fm.fileExists(atPath: pidPath) else { continue }
+        let raw = (try? String(contentsOfFile: pidPath, encoding: .utf8)) ?? ""
+        let pids = raw
+            .split(separator: "\n")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        var hasLive = false
+        for p in pids {
+            if let pid = Int32(p), kill(pid, 0) == 0 {
+                hasLive = true
+                break
+            }
+        }
+        if !hasLive {
+            try? fm.removeItem(at: url)
+            try? fm.removeItem(atPath: pidPath)
+            changed = true
+        }
+    }
+
+    if changed, let hub = hubScriptPath() {
+        DispatchQueue.global(qos: .utility).async {
+            let process = Process()
+            process.launchPath = "/bin/sh"
+            process.arguments = ["-c", "'\(hub)' bar-refresh >/dev/null 2>&1"]
+            try? process.run()
+            process.waitUntilExit()
+        }
+    }
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // MARK: – HubBarState
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1836,6 +1880,7 @@ class VolumeSliderTarget: NSObject {
 class HubBarController: NSObject {
     var windows: [HubBarWindow] = []
     var clockTimer: Timer?; var batteryTimer: Timer?; var pulseTimer: Timer?
+    var staleClaudeTimer: Timer?
     var menuBarRevealTimer: Timer?
     var menuBarRevealGeneration: Int = 0
     var pulseBright = true; var lastState = HubBarState()
@@ -2132,6 +2177,9 @@ class HubBarController: NSObject {
         }
         batteryTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
             self?.windows.forEach { $0.clusterOverlay?.updateBattery() }
+        }
+        staleClaudeTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
+            cleanupStaleClaudeActiveFlags()
         }
         pulseTimer   = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
             guard let self = self else { return }
