@@ -65,6 +65,8 @@ let pillPadH:        CGFloat = 8       // Horizontal padding in pills
 let pillGap:         CGFloat = 4       // Gap between pills
 let appIconSize:     CGFloat = 20      // Application icon size
 let appGroupGap:     CGFloat = 6       // Gap between app icons
+let hoverExpandedSlack: CGFloat = 10    // Extra text room so short names do not re-ellipsize
+let hoverMinGrowth:     CGFloat = 24    // Make short-name hover expansion visually meaningful
 
 // ── Fonts ──
 let monoFont11 = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -372,6 +374,12 @@ func analyticalPillWidth(idx: String, name: String, showDot: Bool) -> CGFloat {
     }
     if showDot { w += 4 + 6 }  // spacing + dot width
     return ceil(w)
+}
+
+func hoverExpandedPillWidth(idx: String, fullName: String, cappedName: String, showDot: Bool) -> CGFloat {
+    let fullWidth = analyticalPillWidth(idx: idx, name: fullName, showDot: showDot)
+    let cappedWidth = analyticalPillWidth(idx: idx, name: cappedName, showDot: showDot)
+    return max(fullWidth + hoverExpandedSlack, cappedWidth + hoverMinGrowth)
 }
 
 // Total strip width for a slice of pills at a given label cap.
@@ -859,6 +867,9 @@ class WorkspacePill: NSView {
         idxField.stringValue = idx
         idxField.textColor = NSColor(argb: idxColor)
         nameField.stringValue = name
+        nameField.invalidateIntrinsicContentSize()
+        innerStack.invalidateIntrinsicContentSize()
+        innerStack.needsLayout = true
         nameField.isHidden = name.isEmpty
         nameField.textColor = NSColor(argb: nameColor)
         dotView.isHidden = !showDot
@@ -1575,8 +1586,18 @@ class HubBarWindow: NSWindow {
 
             var targetWidths: [String: CGFloat] = [:]
             for pill in rowPills {
-                let naturalName = (pill.wsID == hoveredPill?.wsID) ? pill.fullNameText : pill.cappedNameText
-                targetWidths[pill.wsID] = analyticalPillWidth(idx: pill.wsID, name: naturalName, showDot: pill.showDotState)
+                if pill.wsID == hoveredPill?.wsID {
+                    targetWidths[pill.wsID] = hoverExpandedPillWidth(
+                        idx: pill.wsID,
+                        fullName: pill.fullNameText,
+                        cappedName: pill.cappedNameText,
+                        showDot: pill.showDotState)
+                } else {
+                    targetWidths[pill.wsID] = analyticalPillWidth(
+                        idx: pill.wsID,
+                        name: pill.cappedNameText,
+                        showDot: pill.showDotState)
+                }
             }
 
             var total = gapTotal + rowPills.reduce(0) { $0 + (targetWidths[$1.wsID] ?? 0) }
