@@ -65,8 +65,9 @@ let pillPadH:        CGFloat = 8       // Horizontal padding in pills
 let pillGap:         CGFloat = 4       // Gap between pills
 let appIconSize:     CGFloat = 20      // Application icon size
 let appGroupGap:     CGFloat = 6       // Gap between app icons
-let hoverExpandedSlack: CGFloat = 10    // Extra text room so short names do not re-ellipsize
-let hoverMinGrowth:     CGFloat = 24    // Make short-name hover expansion visually meaningful
+let completeNameSlack:  CGFloat = 8     // Prevent AppKit from re-ellipsizing labels that fit by cap
+let hoverExpandedSlack: CGFloat = 4     // Small buffer for the full label during hover expansion
+let shortNameNoTruncateLimit = 4        // Ellipsizing tiny names saves little space and hurts scanability
 
 // ── Fonts ──
 let monoFont11 = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -359,6 +360,7 @@ func cachedTextWidth(_ s: String, font: NSFont) -> CGFloat {
 // cap == -1 → full name; cap == 0 → empty; cap > 0 → truncate to cap chars.
 func cappedName(full: String, cap: Int) -> String {
     if cap == 0 { return "" }
+    if full.count <= shortNameNoTruncateLimit { return full }
     if cap > 0, full.count > cap { return String(full.prefix(cap)) + "…" }
     return full
 }
@@ -376,10 +378,28 @@ func analyticalPillWidth(idx: String, name: String, showDot: Bool) -> CGFloat {
     return ceil(w)
 }
 
+func normalPillWidth(idx: String, fullName: String, displayName: String, showDot: Bool) -> CGFloat {
+    var width = analyticalPillWidth(idx: idx, name: displayName, showDot: showDot)
+    if !displayName.isEmpty, displayName == fullName {
+        width += completeNameSlack
+    }
+    return width
+}
+
+func normalPillWidth(idx: String, fullName: String, cap: Int, showDot: Bool) -> CGFloat {
+    normalPillWidth(
+        idx: idx,
+        fullName: fullName,
+        displayName: cappedName(full: fullName, cap: cap),
+        showDot: showDot)
+}
+
 func hoverExpandedPillWidth(idx: String, fullName: String, cappedName: String, showDot: Bool) -> CGFloat {
-    let fullWidth = analyticalPillWidth(idx: idx, name: fullName, showDot: showDot)
-    let cappedWidth = analyticalPillWidth(idx: idx, name: cappedName, showDot: showDot)
-    return max(fullWidth + hoverExpandedSlack, cappedWidth + hoverMinGrowth)
+    normalPillWidth(
+        idx: idx,
+        fullName: fullName,
+        displayName: fullName,
+        showDot: showDot) + hoverExpandedSlack
 }
 
 // Total strip width for a slice of pills at a given label cap.
@@ -391,9 +411,8 @@ func stripWidth(pills: [(ws: String, fullName: String, isFocused: Bool)],
     for (i, p) in pills.enumerated() {
         if i > 0 { total += pillGap }
         let effCap = cap
-        let name = cappedName(full: p.fullName, cap: effCap)
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
-        total += analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
+        total += normalPillWidth(idx: p.ws, fullName: p.fullName, cap: effCap, showDot: showDot)
     }
     return total
 }
@@ -443,9 +462,8 @@ private func greedyPack(pills: [(ws: String, fullName: String, isFocused: Bool)]
 
     for (i, p) in pills.enumerated() {
         let effCap = cap
-        let name = cappedName(full: p.fullName, cap: effCap)
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
-        let pw = analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
+        let pw = normalPillWidth(idx: p.ws, fullName: p.fullName, cap: effCap, showDot: showDot)
         let gap: CGFloat = rows[r].isEmpty ? 0 : pillGap
 
         if used[r] + gap + pw <= rowWidths[r] {
@@ -483,9 +501,8 @@ private func splitRow0AroundNotch(
     for idx in row0Indices {
         let p = pills[idx]
         let effCap = cap
-        let name = cappedName(full: p.fullName, cap: effCap)
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
-        let pw = analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
+        let pw = normalPillWidth(idx: p.ws, fullName: p.fullName, cap: effCap, showDot: showDot)
         let gap: CGFloat = leftCount == 0 ? 0 : pillGap
         if used + gap + pw <= leftSegW {
             used += gap + pw
@@ -507,9 +524,8 @@ private func fitNotchSplit(
     claudeAlert: Set<String>, claudeActive: Set<String>,
     leftSegW: CGFloat, rightSegW: CGFloat) -> Int? {
     func pillW(_ p: (ws: String, fullName: String, isFocused: Bool)) -> CGFloat {
-        let name = cappedName(full: p.fullName, cap: cap)
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
-        return analyticalPillWidth(idx: p.ws, name: name, showDot: showDot)
+        return normalPillWidth(idx: p.ws, fullName: p.fullName, cap: cap, showDot: showDot)
     }
     // Greedy left-fill (must match splitRow0AroundNotch).
     var used: CGFloat = 0
@@ -776,7 +792,7 @@ class WorkspacePill: NSView {
 
         // name field — width is governed by the layout cap (shrink binary-search / expand wrapping)
         // and visually contained by the row-0 clipView. No hard per-pill cap, so labels use all
-        // available room and analyticalPillWidth (which measures full text) matches what renders.
+        // available room and the analytical width helpers match what renders.
         nameField.isEditable = false; nameField.isBordered = false; nameField.backgroundColor = .clear
         nameField.font = monoFont13
         nameField.lineBreakMode = .byTruncatingTail
@@ -1579,7 +1595,9 @@ class HubBarWindow: NSWindow {
                 .filter { !$0.isHidden }
             guard !rowPills.isEmpty else { continue }
 
-            let hoveredPill = rowPills.first { $0.wsID == expandedWs && !$0.fullNameText.isEmpty }
+            let hoveredPill = rowPills.first {
+                $0.wsID == expandedWs && !$0.fullNameText.isEmpty && $0.canExpandOnHover
+            }
             let leadingInset = max(0, stack.frame.minX)
             let available = max(0, clipView.bounds.width - leadingInset)
             let gapTotal = pillGap * CGFloat(max(0, rowPills.count - 1))
@@ -1593,9 +1611,10 @@ class HubBarWindow: NSWindow {
                         cappedName: pill.cappedNameText,
                         showDot: pill.showDotState)
                 } else {
-                    targetWidths[pill.wsID] = analyticalPillWidth(
+                    targetWidths[pill.wsID] = normalPillWidth(
                         idx: pill.wsID,
-                        name: pill.cappedNameText,
+                        fullName: pill.fullNameText,
+                        displayName: pill.cappedNameText,
                         showDot: pill.showDotState)
                 }
             }
