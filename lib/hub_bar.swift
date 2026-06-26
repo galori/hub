@@ -57,18 +57,18 @@ let SERVICE_BG: UInt32 = 0xFFC91B00
 
 // ── Geometry ──
 let barHeightNormal: CGFloat = 40
-let pillH:           CGFloat = Theme.Metric.pillH
-let pillRadius:      CGFloat = Theme.Radius.pill
-let pillPadH:        CGFloat = Theme.Metric.pillPadH
-let pillGap:         CGFloat = Theme.Metric.pillGap
-let appIconSize:     CGFloat = Theme.Metric.appIconSize
-let appGroupGap:     CGFloat = Theme.Metric.appGroupGap
+let pillH:           CGFloat = 32      // Standard pill height
+let pillRadius:      CGFloat = 16      // Pill corner radius
+let pillPadH:        CGFloat = 8       // Horizontal padding in pills
+let pillGap:         CGFloat = 4       // Gap between pills
+let appIconSize:     CGFloat = 20      // Application icon size
+let appGroupGap:     CGFloat = 6       // Gap between app icons
 
-// ── Fonts (via Theme for consistent fallback chain) ──
-let monoFont11 = Theme.Font.mono(11)
-let monoFont12 = Theme.Font.mono(12)
-let monoFont13 = Theme.Font.mono(13)
-let monoFont16 = Theme.Font.mono(16)
+// ── Fonts ──
+let monoFont11 = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+let monoFont12 = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+let monoFont13 = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+let monoFont16 = NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
 let nerdFont   = monoFont13
 let nerdFont16 = monoFont16
 let nerdFont13 = monoFont13
@@ -95,8 +95,48 @@ var slotColorMap: [String: UInt32] = {
 }()
 
 // ──────────────────────────────────────────────────────────────────────────────
-// MARK: – Aerospace runner
+// MARK: – Window level utilities
 // ──────────────────────────────────────────────────────────────────────────────
+
+/// Returns the window level currently used by macOS notifications
+func notificationWindowLevel() -> NSWindow.Level {
+    let options = CGWindowListOption(arrayLiteral: .excludeDesktopElements, .optionOnScreenOnly)
+    if let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
+        for window in windowList {
+            if let name = window[kCGWindowName as String] as? String,
+               name.contains("Notification") || name.contains("alert"),
+               let level = window[kCGWindowLayer as String] as? Int {
+                return NSWindow.Level(rawValue: level)
+            }
+        }
+    }
+    // Fallback if we can't detect notification windows
+    return NSWindow.Level(rawValue: 25) // kCGUtilityWindowLevel + some buffer
+}
+
+/// Returns true if there are active notification windows on screen
+func hasActiveNotifications() -> Bool {
+    let options = CGWindowListOption(arrayLiteral: .excludeDesktopElements, .optionOnScreenOnly)
+    if let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] {
+        for window in windowList {
+            if let name = window[kCGWindowName as String] as? String,
+               (name.contains("Notification") || name.contains("alert")),
+               let bounds = window[kCGWindowBounds as String] as? [String: CGFloat] {
+                // Check if window is actually visible on screen
+                if let x = bounds["X"], let y = bounds["Y"], let w = bounds["Width"], let h = bounds["Height"], w > 50, h > 20 {
+                    // Check if window intersects with any screen
+                    let windowRect = NSRect(x: x, y: y, width: w, height: h)
+                    for screen in NSScreen.screens {
+                        if windowRect.intersects(screen.frame) {
+                            return true
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false
+}
 
 enum Aerospace {
     static func run(_ args: [String]) -> String {
@@ -684,6 +724,12 @@ class WorkspacePill: NSView {
     var isFocused = false
     var pulseBright = true
     private var baseBG: CGColor = NSColor.clear.cgColor
+    var fullNameText: String = ""
+    var cappedNameText: String = ""
+    var isTruncatedAtCap: Bool = false
+    var showDotState: Bool = false
+    var widthConstraint: NSLayoutConstraint?
+    var onHoverChanged: ((String, Bool) -> Void)?
 
     // Inner rounded-rect view (masked) — holds the visible content
     private let innerView = NSView()
@@ -783,9 +829,11 @@ class WorkspacePill: NSView {
     override func mouseEntered(with event: NSEvent) {
         guard !isFocused else { return }
         innerView.layer?.backgroundColor = NSColor(argb: HOVER_BG).cgColor
+        onHoverChanged?(wsID, true)
     }
     override func mouseExited(with event: NSEvent) {
         innerView.layer?.backgroundColor = baseBG
+        onHoverChanged?(wsID, false)
     }
 
     func apply(bg: UInt32, idxColor: UInt32, nameColor: UInt32,
@@ -939,6 +987,12 @@ class HubBarWindow: NSWindow {
     // Transient state: true while the macOS menu bar is being revealed by cursor-at-top
     // in hub fullscreen mode. When true we drop the bar below the menu-bar strip.
     var menuBarRevealedInFullscreen: Bool = false
+    
+    // Track whether notifications are currently visible
+    private var hasNotifications: Bool = false
+    
+    // Timer for checking notifications
+    private var notificationCheckTimer: Timer?
 
     // Pill views keyed by ws id
     var wsPills: [String: WorkspacePill] = [:]
@@ -961,9 +1015,13 @@ class HubBarWindow: NSWindow {
     // Last fit decision, for applyRefresh change-detection
     var lastFitRows: Int = 0
     var lastFitCap: Int = -2  // sentinel "unknown"
+    var lastFitDecision: FitDecision?
+    var lastRenderedState: HubBarState = HubBarState()
+    private var hoveredTruncatedWsID: String?
+    private var hoverCollapseWorkItem: DispatchWorkItem?
 
     static let normalWindowLevel = NSWindow.Level.floating
-    static let fullscreenWindowLevel = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
+    static let fullscreenWindowLevel = NSWindow.Level.statusBar // 21 — same as macOS notifications; allows notifications to appear above the bar while keeping it pinned at top edge
 
     static func isHubFullscreen() -> Bool {
         FileManager.default.fileExists(atPath: NSHomeDirectory() + "/.config/hub/fullscreen")
@@ -996,8 +1054,12 @@ class HubBarWindow: NSWindow {
     }
 
     func applyWindowLevel(isFullscreen: Bool) {
-        level = (isFullscreen && !menuBarRevealedInFullscreen)
-            ? HubBarWindow.fullscreenWindowLevel
+        // Aggressive solution for notification overlap issue
+        // In fullscreen mode, drop significantly below notifications
+        // kCGNormalWindowLevel = 0, notifications typically use 21+, 
+        // so we use a negative value to ensure we stay below everything
+        level = isFullscreen 
+            ? NSWindow.Level(rawValue: -1)  // Well below normal windows
             : HubBarWindow.normalWindowLevel
     }
 
@@ -1033,7 +1095,42 @@ class HubBarWindow: NSWindow {
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
     }
 
+    // Install timer for checking notifications
+    func installNotificationMonitor() {
+        // Check immediately on start
+        checkForNotifications()
+        
+        // Then check periodically
+        notificationCheckTimer?.invalidate()
+        notificationCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.checkForNotifications()
+        }
+    }
+    
+    // Check for active notifications and update window level accordingly
+    func checkForNotifications() {
+        let newHasNotifications = hasActiveNotifications()
+        
+        if newHasNotifications != hasNotifications {
+            hasNotifications = newHasNotifications
+            
+            // Re-apply window level with the new notification state
+            let isFullscreen = HubBarWindow.isHubFullscreen()
+            applyWindowLevel(isFullscreen: isFullscreen)
+            
+            if hasNotifications {
+                // When notifications appear, trigger a subtle visual feedback
+                let originalAlpha = alphaValue
+                alphaValue = 0.9
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    self.alphaValue = originalAlpha
+                }
+            }
+        }
+    }
+
     func buildContents(state: HubBarState, lastRows: Int = 1, writeBarMetrics: Bool = true) {
+        lastRenderedState = state
         let cv = contentView!
         cv.subviews.forEach { $0.removeFromSuperview() }
         wsPills.removeAll(); appSlots.removeAll(); wsWinSlots.removeAll(); volPopup = nil
@@ -1062,6 +1159,14 @@ class HubBarWindow: NSWindow {
 
         lastFitRows = fit.rows
         lastFitCap  = fit.effectiveCap
+        lastFitDecision = fit
+        if let hovered = hoveredTruncatedWsID {
+            let hoveredPill = pills.first { $0.ws == hovered }
+            let hoveredCap = fit.capFor(hovered)
+            if hoveredPill == nil || hoveredCap < 0 || hoveredPill!.fullName.count <= max(0, hoveredCap) {
+                hoveredTruncatedWsID = nil
+            }
+        }
 
         // ── Resize window to match row count ───────────────────────────────
         let barH = barHeightNormal * CGFloat(fit.rows)
@@ -1308,17 +1413,24 @@ class HubBarWindow: NSWindow {
                 let newPill = WorkspacePill(wsID: p.ws)
                 newPill.translatesAutoresizingMaskIntoConstraints = false
                 newPill.heightAnchor.constraint(equalToConstant: pillH).isActive = true
+                let w = newPill.widthAnchor.constraint(equalToConstant: analyticalPillWidth(idx: p.ws, name: "", showDot: false))
+                w.isActive = true
+                newPill.widthConstraint = w
+                newPill.onHoverChanged = { [weak self] wsID, isHovered in
+                    self?.handlePillHover(wsID: wsID, isHovered: isHovered)
+                }
                 wsPills[p.ws] = newPill
                 return newPill
             }()
             stack.addArrangedSubview(pill)
         }
-        applyWorkspaceState(state: state, fit: fit)
+        applyWorkspaceState(state: state, fit: fit, animateWidths: false)
     }
 
     // ── Workspace strip ──────────────────────────────────────────────────────
 
-    func applyWorkspaceState(state: HubBarState, fit: FitDecision) {
+    func applyWorkspaceState(state: HubBarState, fit: FitDecision, animateWidths: Bool = false) {
+        let hoveredWs = hoveredTruncatedWsID
         for ws in ALL_WS {
             guard let pill = wsPills[ws] else { continue }
             let isActive  = state.active.contains(ws) || ws == state.focused
@@ -1334,27 +1446,39 @@ class HubBarWindow: NSWindow {
             let focusedDotColor: UInt32 = hasActive ? 0xFFFFFFFF : DOT_ORANGE
 
             // Left-segment pills may use a relaxed cap (capFor); everyone else uses effectiveCap.
-            let (idxStr, nameStr) = state.spansFor(ws: ws, cap: fit.capFor(ws))
+            let cap = fit.capFor(ws)
+            let (idxStr, cappedName) = state.spansFor(ws: ws, cap: cap)
+            let fullName = state.spansFor(ws: ws, cap: -1).1
+            let isTruncatedAtCap = cap >= 0 && !fullName.isEmpty && fullName.count > cap
+            let showExpandedName = hoveredWs == ws && isTruncatedAtCap
+            let displayName = showExpandedName ? fullName : cappedName
+
+            pill.fullNameText = fullName
+            pill.cappedNameText = cappedName
+            pill.isTruncatedAtCap = isTruncatedAtCap
+            pill.showDotState = showDot
 
             if isFocused {
                 pill.apply(bg: ACCENT, idxColor: PILL_IDX_ACT, nameColor: PILL_NAME_ACT,
-                           idx: idxStr, name: nameStr, showDot: showDot, dotColor: focusedDotColor,
+                           idx: idxStr, name: displayName, showDot: showDot, dotColor: focusedDotColor,
                            glowColor: ACCENT, glowRadius: 8)
                 pill.isHidden = false
             } else if isActive {
                 pill.apply(bg: PILL_IDLE_BG, idxColor: PILL_IDX_IDLE, nameColor: PILL_NAME_IDLE,
-                           idx: idxStr, name: nameStr, showDot: showDot, dotColor: dotColor,
+                           idx: idxStr, name: displayName, showDot: showDot, dotColor: dotColor,
                            glowColor: showDot ? dotColor : nil, glowRadius: 5)
                 pill.isHidden = false
             } else if isLabeled {
                 pill.apply(bg: PILL_IDLE_BG, idxColor: PILL_IDX_IDLE, nameColor: 0x55FFFFFF,
-                           idx: idxStr, name: nameStr, showDot: showDot, dotColor: dotColor,
+                           idx: idxStr, name: displayName, showDot: showDot, dotColor: dotColor,
                            glowColor: showDot ? dotColor : nil, glowRadius: 5)
                 pill.isHidden = false
             } else {
                 pill.isHidden = true
             }
         }
+
+        layoutWorkspaceWidths(animated: animateWidths)
     }
 
     func makeServicePill() -> NSView {
@@ -1379,8 +1503,107 @@ class HubBarWindow: NSWindow {
     }
 
     func applyRefresh(state: HubBarState, fit: FitDecision) {
+        lastRenderedState = state
+        lastFitDecision = fit
         applyWorkspaceState(state: state, fit: fit)
         serviceModeLabel?.isHidden = !state.serviceMode
+    }
+
+    private func handlePillHover(wsID: String, isHovered: Bool) {
+        hoverCollapseWorkItem?.cancel()
+        if isHovered {
+            hoveredTruncatedWsID = wsID
+            guard let fit = lastFitDecision else { return }
+            applyWorkspaceState(state: lastRenderedState, fit: fit, animateWidths: true)
+            return
+        }
+
+        guard hoveredTruncatedWsID == wsID else { return }
+        let collapse = DispatchWorkItem { [weak self] in
+            guard let self = self, self.hoveredTruncatedWsID == wsID else { return }
+            self.hoveredTruncatedWsID = nil
+            guard let fit = self.lastFitDecision else { return }
+            self.applyWorkspaceState(state: self.lastRenderedState, fit: fit, animateWidths: true)
+        }
+        hoverCollapseWorkItem = collapse
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.045, execute: collapse)
+    }
+
+    private func layoutWorkspaceWidths(animated: Bool) {
+        contentView?.layoutSubtreeIfNeeded()
+        let expandedWs = hoveredTruncatedWsID
+        var stacksByID: [ObjectIdentifier: NSStackView] = [:]
+        for pill in wsPills.values {
+            guard let stack = pill.superview as? NSStackView else { continue }
+            stacksByID[ObjectIdentifier(stack)] = stack
+        }
+
+        for stack in stacksByID.values {
+            guard let clipView = stack.superview else { continue }
+
+            let rowPills = stack.arrangedSubviews
+                .compactMap { $0 as? WorkspacePill }
+                .filter { !$0.isHidden }
+            guard !rowPills.isEmpty else { continue }
+
+            let hoveredPill = rowPills.first { $0.wsID == expandedWs && $0.isTruncatedAtCap }
+            let leadingInset = max(0, stack.frame.minX)
+            let available = max(0, clipView.bounds.width - leadingInset)
+            let gapTotal = pillGap * CGFloat(max(0, rowPills.count - 1))
+
+            var targetWidths: [String: CGFloat] = [:]
+            for pill in rowPills {
+                let naturalName = (pill.wsID == hoveredPill?.wsID) ? pill.fullNameText : pill.cappedNameText
+                targetWidths[pill.wsID] = analyticalPillWidth(idx: pill.wsID, name: naturalName, showDot: pill.showDotState)
+            }
+
+            var total = gapTotal + rowPills.reduce(0) { $0 + (targetWidths[$1.wsID] ?? 0) }
+            let deficit = total - available
+            if deficit > 0.5, hoveredPill != nil {
+                let shrinkable = rowPills
+                    .filter { $0.wsID != hoveredPill!.wsID }
+                    .map { pill -> (pill: WorkspacePill, minWidth: CGFloat, shrinkable: CGFloat) in
+                        let current = targetWidths[pill.wsID] ?? 0
+                        let minW = analyticalPillWidth(idx: pill.wsID, name: "", showDot: pill.showDotState)
+                        return (pill, minW, max(0, current - minW))
+                    }
+
+                let totalShrinkable = shrinkable.reduce(0) { $0 + $1.shrinkable }
+                if totalShrinkable > 0 {
+                    let scale = min(1, deficit / totalShrinkable)
+                    var residual = deficit
+                    for item in shrinkable {
+                        let reduction = item.shrinkable * scale
+                        let current = targetWidths[item.pill.wsID] ?? item.minWidth
+                        let reduced = max(item.minWidth, current - reduction)
+                        targetWidths[item.pill.wsID] = reduced
+                        residual -= (current - reduced)
+                    }
+                    if residual > 0.5 {
+                        for item in shrinkable.sorted(by: { $0.shrinkable > $1.shrinkable }) {
+                            guard residual > 0.5 else { break }
+                            let current = targetWidths[item.pill.wsID] ?? item.minWidth
+                            let extra = min(current - item.minWidth, residual)
+                            if extra > 0 {
+                                targetWidths[item.pill.wsID] = current - extra
+                                residual -= extra
+                            }
+                        }
+                    }
+                }
+            }
+
+            total = gapTotal + rowPills.reduce(0) { $0 + (targetWidths[$1.wsID] ?? 0) }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = animated ? 0.16 : 0
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.20, 0.85, 0.20, 1.0)
+                for pill in rowPills {
+                    guard let target = targetWidths[pill.wsID] else { continue }
+                    pill.widthConstraint?.animator().constant = target
+                }
+                clipView.layoutSubtreeIfNeeded()
+            }
+        }
     }
 
     // ── Volume popup (kept from original) ───────────────────────────────────
@@ -1901,6 +2124,7 @@ class HubBarController: NSObject {
         installClusterTriggers()
         startTimers()
         installMenuBarRevealMonitor()
+        installNotificationMonitor()
     }
 
     func installClusterTriggers() {
@@ -1920,6 +2144,11 @@ class HubBarController: NSObject {
                 primaryWindow?.scheduleHideClusterOverlay()
             }
         }
+
+    }
+
+    func installNotificationMonitor() {
+        windows.forEach { $0.installNotificationMonitor() }
     }
 
     func writePIDFile() {
