@@ -21,12 +21,12 @@ screencapture -x "${FULL_IMG}"
 WIDTH="$(sips -g pixelWidth "${FULL_IMG}" | awk '/pixelWidth:/ {print $2}')"
 HEIGHT="$(sips -g pixelHeight "${FULL_IMG}" | awk '/pixelHeight:/ {print $2}')"
 
-# 5) Crop: remove top 10% and right 30%
-# Keep left 70% width and bottom 90% height, starting at y=10%, x=0.
-CROP_W=$((WIDTH * 70 / 100))
-CROP_H=$((HEIGHT * 90 / 100))
-OFFSET_Y=$((HEIGHT * 10 / 100))
-OFFSET_X=0
+# 5) Crop to only the top-right area:
+# Keep top 10% of height and right 30% of width.
+CROP_W=$((WIDTH * 30 / 100))
+CROP_H=$((HEIGHT * 10 / 100))
+OFFSET_Y=0
+OFFSET_X=$((WIDTH * 70 / 100))
 
 sips --cropOffset "${OFFSET_Y}" "${OFFSET_X}" \
   --cropToHeightWidth "${CROP_H}" "${CROP_W}" \
