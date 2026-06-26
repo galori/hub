@@ -439,8 +439,8 @@ _fullscreen_apply() {
     toggle_menu_bar true
     progress_step "Configuring Dock…"
     defaults write com.apple.dock autohide -bool true
-    defaults write com.apple.dock autohide-delay -float 1000
-    defaults write com.apple.dock autohide-time-modifier -float 0
+    defaults delete com.apple.dock autohide-delay 2>/dev/null || true
+    defaults delete com.apple.dock autohide-time-modifier 2>/dev/null || true
     progress_step "Restarting Dock…"
     killall Dock
     wait_for_menu_bar
