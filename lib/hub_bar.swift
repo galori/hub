@@ -962,7 +962,7 @@ class HubBarWindow: NSWindow {
     var lastFitRows: Int = 0
     var lastFitCap: Int = -2  // sentinel "unknown"
 
-    static let normalWindowLevel = NSWindow.Level(rawValue: 20)
+    static let normalWindowLevel = NSWindow.Level.floating
     static let fullscreenWindowLevel = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 1)
 
     static func isHubFullscreen() -> Bool {
@@ -1021,8 +1021,8 @@ class HubBarWindow: NSWindow {
         let isFullscreen = HubBarWindow.isHubFullscreen()
         let r = NSRect(x: sf.minX, y: topY - barHeightNormal, width: sf.width, height: barHeightNormal)
         super.init(contentRect: r, styleMask: .borderless, backing: .buffered, defer: false)
-        // Normal mode: stay at Dock level 20 — below the macOS menu bar and notification
-        // banners (level 21). In fullscreen the menu bar is auto-hidden and the bar owns the
+        // Normal mode: stay at floating level — above app windows, below macOS system UI.
+        // In fullscreen the menu bar is auto-hidden and the bar owns the
         // notch row, so raise to shielding+1 so macOS doesn't clamp it below the top 32pt strip.
         applyWindowLevel(isFullscreen: isFullscreen)
         backgroundColor = .clear
