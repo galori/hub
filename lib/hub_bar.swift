@@ -33,6 +33,8 @@ let PILL_IDX_IDLE:  UInt32 = 0xFF5A5D68
 let PILL_NAME_IDLE: UInt32 = 0xFFAEB3BF
 let PILL_IDX_ACT:   UInt32 = 0x73000000
 let PILL_NAME_ACT:  UInt32 = 0xFF06201E
+let PILL_HOVER_BG:  UInt32 = 0x1E41D1C4
+let PILL_HOVER_FOCUSED_BG: UInt32 = 0xFF57D9CE
 
 // ── Status dots ──
 let DOT_ORANGE: UInt32 = 0xFFF0883E
@@ -730,6 +732,7 @@ class WorkspacePill: NSView {
     var showDotState: Bool = false
     var widthConstraint: NSLayoutConstraint?
     var onHoverChanged: ((String, Bool) -> Void)?
+    private var isHovered = false
 
     // Inner rounded-rect view (masked) — holds the visible content
     private let innerView = NSView()
@@ -827,13 +830,24 @@ class WorkspacePill: NSView {
         addTrackingArea(trackArea!)
     }
     override func mouseEntered(with event: NSEvent) {
-        guard !isFocused else { return }
-        innerView.layer?.backgroundColor = NSColor(argb: HOVER_BG).cgColor
+        isHovered = true
+        applyHoverBackground()
         onHoverChanged?(wsID, true)
     }
     override func mouseExited(with event: NSEvent) {
-        innerView.layer?.backgroundColor = baseBG
+        isHovered = false
+        applyHoverBackground()
         onHoverChanged?(wsID, false)
+    }
+
+    private func applyHoverBackground() {
+        if isHovered {
+            innerView.layer?.backgroundColor = isFocused
+                ? NSColor(argb: PILL_HOVER_FOCUSED_BG).cgColor
+                : NSColor(argb: PILL_HOVER_BG).cgColor
+        } else {
+            innerView.layer?.backgroundColor = baseBG
+        }
     }
 
     func apply(bg: UInt32, idxColor: UInt32, nameColor: UInt32,
@@ -841,7 +855,7 @@ class WorkspacePill: NSView {
                showDot: Bool, dotColor: UInt32,
                glowColor: UInt32?, glowRadius: CGFloat) {
         baseBG = NSColor(argb: bg).cgColor
-        innerView.layer?.backgroundColor = baseBG
+        applyHoverBackground()
         idxField.stringValue = idx
         idxField.textColor = NSColor(argb: idxColor)
         nameField.stringValue = name
@@ -1521,12 +1535,21 @@ class HubBarWindow: NSWindow {
         guard hoveredTruncatedWsID == wsID else { return }
         let collapse = DispatchWorkItem { [weak self] in
             guard let self = self, self.hoveredTruncatedWsID == wsID else { return }
+            if let pill = self.wsPills[wsID], self.isPointerInsidePill(pill) {
+                return
+            }
             self.hoveredTruncatedWsID = nil
             guard let fit = self.lastFitDecision else { return }
             self.applyWorkspaceState(state: self.lastRenderedState, fit: fit, animateWidths: true)
         }
         hoverCollapseWorkItem = collapse
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.045, execute: collapse)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10, execute: collapse)
+    }
+
+    private func isPointerInsidePill(_ pill: WorkspacePill) -> Bool {
+        let pointInWindow = convertPoint(fromScreen: NSEvent.mouseLocation)
+        let pointInPill = pill.convert(pointInWindow, from: nil)
+        return pill.bounds.contains(pointInPill)
     }
 
     private func layoutWorkspaceWidths(animated: Bool) {
