@@ -728,7 +728,7 @@ class WorkspacePill: NSView {
     private var baseBG: CGColor = NSColor.clear.cgColor
     var fullNameText: String = ""
     var cappedNameText: String = ""
-    var isTruncatedAtCap: Bool = false
+    var canExpandOnHover: Bool = false
     var showDotState: Bool = false
     var widthConstraint: NSLayoutConstraint?
     var onHoverChanged: ((String, Bool) -> Void)?
@@ -1176,8 +1176,7 @@ class HubBarWindow: NSWindow {
         lastFitDecision = fit
         if let hovered = hoveredTruncatedWsID {
             let hoveredPill = pills.first { $0.ws == hovered }
-            let hoveredCap = fit.capFor(hovered)
-            if hoveredPill == nil || hoveredCap < 0 || hoveredPill!.fullName.count <= max(0, hoveredCap) {
+            if hoveredPill == nil || hoveredPill!.fullName.isEmpty {
                 hoveredTruncatedWsID = nil
             }
         }
@@ -1463,13 +1462,13 @@ class HubBarWindow: NSWindow {
             let cap = fit.capFor(ws)
             let (idxStr, cappedName) = state.spansFor(ws: ws, cap: cap)
             let fullName = state.spansFor(ws: ws, cap: -1).1
-            let isTruncatedAtCap = cap >= 0 && !fullName.isEmpty && fullName.count > cap
-            let showExpandedName = hoveredWs == ws && isTruncatedAtCap
+            let canExpandOnHover = !fullName.isEmpty && cappedName != fullName
+            let showExpandedName = hoveredWs == ws && !fullName.isEmpty
             let displayName = showExpandedName ? fullName : cappedName
 
             pill.fullNameText = fullName
             pill.cappedNameText = cappedName
-            pill.isTruncatedAtCap = isTruncatedAtCap
+            pill.canExpandOnHover = canExpandOnHover
             pill.showDotState = showDot
 
             if isFocused {
@@ -1547,7 +1546,7 @@ class HubBarWindow: NSWindow {
     }
 
     private func isPointerInsidePill(_ pill: WorkspacePill) -> Bool {
-        let pointInWindow = convertPoint(fromScreen: NSEvent.mouseLocation)
+        let pointInWindow = mouseLocationOutsideOfEventStream
         let pointInPill = pill.convert(pointInWindow, from: nil)
         return pill.bounds.contains(pointInPill)
     }
@@ -1569,7 +1568,7 @@ class HubBarWindow: NSWindow {
                 .filter { !$0.isHidden }
             guard !rowPills.isEmpty else { continue }
 
-            let hoveredPill = rowPills.first { $0.wsID == expandedWs && $0.isTruncatedAtCap }
+            let hoveredPill = rowPills.first { $0.wsID == expandedWs && !$0.fullNameText.isEmpty }
             let leadingInset = max(0, stack.frame.minX)
             let available = max(0, clipView.bounds.width - leadingInset)
             let gapTotal = pillGap * CGFloat(max(0, rowPills.count - 1))
