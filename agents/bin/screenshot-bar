@@ -6,14 +6,14 @@
 set -euo pipefail
 
 OUT="${1:-/tmp/hub-bar-screenshot.png}"
-BAR_HEIGHT=50
+BAR_HEIGHT=100
 [ -f "$HOME/.config/hub/bar_tall" ] && BAR_HEIGHT=90
 
 # Get primary display width via system_profiler (main display is listed first).
 PRIMARY_WIDTH=""
 if command -v system_profiler &>/dev/null; then
-    PRIMARY_WIDTH=$(system_profiler SPDisplaysDataType 2>/dev/null \
-        | awk '/Main Display: Yes/{found=1} found && /Resolution:/{if(match($0,/[0-9]+/)) print substr($0,RSTART,RLENGTH); exit}')
+    PRIMARY_WIDTH=$(system_profiler SPDisplaysDataType 2>/dev/null |
+        awk '/Main Display: Yes/{found=1} found && /Resolution:/{if(match($0,/[0-9]+/)) print substr($0,RSTART,RLENGTH); exit}')
 fi
 
 # Fall back to trying common widths if system_profiler didn't yield a result.

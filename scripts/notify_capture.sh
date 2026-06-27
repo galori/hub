@@ -29,12 +29,12 @@ OFFSET_Y=0
 OFFSET_X=$((WIDTH * 70 / 100))
 
 sips --cropOffset "${OFFSET_Y}" "${OFFSET_X}" \
-  --cropToHeightWidth "${CROP_H}" "${CROP_W}" \
-  "${FULL_IMG}" --out "${CROPPED_IMG}" >/dev/null
+    --cropToHeightWidth "${CROP_H}" "${CROP_W}" \
+    "${FULL_IMG}" --out "${CROPPED_IMG}" >/dev/null
 
 # Optional: remove full screenshot
 rm -f "${FULL_IMG}"
 
 # 6) Open and print final path
-open "${CROPPED_IMG}"
+# open "${CROPPED_IMG}"
 echo "${CROPPED_IMG}"
