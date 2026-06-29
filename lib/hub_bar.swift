@@ -161,6 +161,28 @@ func hubScriptPath() -> String? {
     return c.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
+func processArgs(pid: pid_t) -> [String] {
+    var size = 0
+    var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+    sysctl(&mib, 3, nil, &size, nil, 0)
+    guard size > 0 else { return [] }
+    var buf = [CChar](repeating: 0, count: size)
+    guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0 else { return [] }
+    // First 4 bytes are argc; skip them, then parse null-terminated strings
+    var idx = 4
+    var args: [String] = []
+    while idx < size {
+        let start = idx
+        while idx < size && buf[idx] != 0 { idx += 1 }
+        if idx > start {
+            let s = String(bytes: buf[start..<idx].map { UInt8(bitPattern: $0) }, encoding: .utf8) ?? ""
+            if !s.isEmpty { args.append(s) }
+        }
+        idx += 1
+    }
+    return args
+}
+
 func cleanupStaleClaudeActiveFlags() {
     let fm = FileManager.default
     let tmp = URL(fileURLWithPath: "/tmp", isDirectory: true)
@@ -190,10 +212,12 @@ func cleanupStaleClaudeActiveFlags() {
 
         var hasLive = false
         for p in pids {
-            if let pid = Int32(p), kill(pid, 0) == 0 {
-                hasLive = true
-                break
-            }
+            guard let pid = Int32(p), kill(pid, 0) == 0 else { continue }
+            // Exclude background spare daemons — they outlive the real session
+            let args = processArgs(pid: pid_t(pid))
+            if args.contains("--bg-spare") { continue }
+            hasLive = true
+            break
         }
         if !hasLive {
             try? fm.removeItem(at: url)

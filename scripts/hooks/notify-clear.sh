@@ -109,6 +109,8 @@ is_live_claude_pid() {
     kill -0 "$pid" 2>/dev/null || return 1
     local cmd
     cmd=$(ps -p "$pid" -o args= 2>/dev/null || true)
+    # Exclude background spare daemons — they outlive the real session and would keep the flag alive forever
+    echo "$cmd" | grep -q -- '--bg-spare' && return 1
     echo "$cmd" | grep -qE '(^|/)claude([^[:space:]]*)?( |$)'
 }
 
