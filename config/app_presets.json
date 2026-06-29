@@ -13,8 +13,10 @@
   },
   "com.mitchellh.ghostty": {
     "name": "Ghostty",
-    "launch": "open -na Ghostty.app --args --working-directory=\"{path}\" --quit-after-last-window-closed=false -e zsh -lc '{prompt_cmd}; exec zsh -il'",
-    "prompt_launch": "open -na Ghostty --args --window-inherit-working-directory=false --working-directory={path} -e {prompt_cmd}",
+    "first_launch": "open -na Ghostty.app --args --working-directory=\"{path}\" --quit-after-last-window-closed=false -e zsh -lc 'exec zsh -il'",
+    "launch": "cmd=$(printf 'cd %q; exec zsh -il' \"{path}\"); osascript -e 'on run argv' -e 'tell application \"Ghostty\" to activate' -e 'tell application \"System Events\" to keystroke \"n\" using command down' -e 'delay 0.25' -e 'tell application \"System Events\" to keystroke (item 1 of argv)' -e 'tell application \"System Events\" to key code 36' -e 'end run' \"$cmd\"",
+    "first_prompt_launch": "open -na Ghostty.app --args --working-directory=\"{path}\" --quit-after-last-window-closed=false -e zsh -lc '{prompt_cmd}; exec zsh -il'",
+    "prompt_launch": "cmd=$(printf 'cd %q && %q; exec zsh -il' \"{path}\" \"{prompt_cmd}\"); osascript -e 'on run argv' -e 'tell application \"Ghostty\" to activate' -e 'tell application \"System Events\" to keystroke \"n\" using command down' -e 'delay 0.25' -e 'tell application \"System Events\" to keystroke (item 1 of argv)' -e 'tell application \"System Events\" to key code 36' -e 'end run' \"$cmd\"",
     "description": "Opens a new Ghostty window in the workspace path"
   },
   "com.github.wez.wezterm": {
@@ -60,7 +62,9 @@
   },
   "com.apple.Safari": {
     "name": "Safari",
+    "first_launch": "open -a Safari",
     "launch": "osascript -e 'tell application \"Safari\"' -e 'activate' -e 'make new document' -e 'end tell'",
+    "first_url_launch": "open -a Safari \"{url}\"",
     "url_launch": "osascript -e 'tell application \"Safari\"' -e 'activate' -e 'make new document' -e 'set URL of document 1 to \"{url}\"' -e 'end tell'",
     "description": "Activates Safari and creates a new document (empty window)"
   },

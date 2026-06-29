@@ -2153,6 +2153,11 @@ _launch_and_corral() {
     return 0
 }
 
+_app_has_any_windows() {
+    local app_name="$1"
+    aerospace list-windows --all --format '%{app-name}' 2>/dev/null | grep -qxF "$app_name"
+}
+
 # cmd_open_url URL [WS_ID] — open URL in the slot-2 browser and corral the new
 # window to WS_ID (defaults to the currently focused workspace). Called by the
 # http_handler daemon so URLs opened via `open <url>` land where the user is.
@@ -2163,13 +2168,26 @@ cmd_open_url() {
     [[ -z "$url" || -z "$ws_id" ]] && return 1
     hub_log "INPUT" "open-url $url (workspace $ws_id)"
 
-    # Resolve the slot-2 (index 1) browser launch command, preferring url_launch.
+    # Resolve the slot-2 (index 1) browser launch command. If the browser has no
+    # windows anywhere, prefer a cold-start URL command so apps like Safari do not
+    # need a warm "make new document" AppleScript before they exist.
     local app_info
-    app_info="$(jq -r 'if length > 1 then .[1] | [.name, (.url_launch // .launch)] | @tsv else empty end' \
+    app_info="$(jq -c 'if length > 1 then .[1] else empty end' \
         "$APPS_FILE" 2>/dev/null)" || return 1
     [[ -z "$app_info" ]] && return 1
-    local app_name launch_cmd
-    IFS=$'\t' read -r app_name launch_cmd <<< "$app_info"
+    local app_name launch_cmd app_launch app_url_launch app_first_url_launch
+    app_name="$(printf '%s' "$app_info" | jq -r '.name // ""')"
+    app_launch="$(printf '%s' "$app_info" | jq -r '.launch // ""')"
+    app_url_launch="$(printf '%s' "$app_info" | jq -r '.url_launch // ""')"
+    app_first_url_launch="$(printf '%s' "$app_info" | jq -r '.first_url_launch // ""')"
+
+    if ! _app_has_any_windows "$app_name" && [[ -n "$app_first_url_launch" ]]; then
+        launch_cmd="$app_first_url_launch"
+    elif [[ -n "$app_url_launch" ]]; then
+        launch_cmd="$app_url_launch"
+    else
+        launch_cmd="$app_launch"
+    fi
 
     # Substitute {url}; if the launch command has no placeholder, append the URL.
     local esc_url="${url//\'/\'\\\'\'}"
@@ -2198,14 +2216,19 @@ open_app_slot() {
     local prompt_cmd="${6:-}"
 
     local app_info
-    app_info="$(jq -r --argjson i "$((slot - 1))" \
-        'if $i >= 0 and $i < length then .[$i] | [.name, .launch, (.icon // .name), (.prompt_launch // "")] | @tsv else empty end' \
+    app_info="$(jq -c --argjson i "$((slot - 1))" \
+        'if $i >= 0 and $i < length then .[$i] else empty end' \
         "$APPS_FILE" 2>/dev/null)" || return 0
 
     [[ -z "$app_info" ]] && return 0
 
-    local app_name launch_cmd app_icon app_prompt_launch
-    IFS=$'\t' read -r app_name launch_cmd app_icon app_prompt_launch <<< "$app_info"
+    local app_name launch_cmd app_icon app_prompt_launch app_first_launch app_first_prompt_launch
+    app_name="$(printf '%s' "$app_info" | jq -r '.name // ""')"
+    launch_cmd="$(printf '%s' "$app_info" | jq -r '.launch // ""')"
+    app_icon="$(printf '%s' "$app_info" | jq -r '.icon // .name // ""')"
+    app_prompt_launch="$(printf '%s' "$app_info" | jq -r '.prompt_launch // ""')"
+    app_first_launch="$(printf '%s' "$app_info" | jq -r '.first_launch // ""')"
+    app_first_prompt_launch="$(printf '%s' "$app_info" | jq -r '.first_prompt_launch // ""')"
 
     # Smart mode: if app has windows on current workspace, cycle focus between
     # them. Otherwise fall through to launch a new window on this workspace.
@@ -2241,11 +2264,24 @@ open_app_slot() {
     [[ "$verbose" == "true" ]] && info "Opening $app_name..." || true
     progress_step "Launching ${app_name}…"
 
-    # When a prompt is active and this slot has a prompt_launch, use it instead
-    # of the plain launch command. HUB_WORKSPACE_ID and the exec-interactive-shell
-    # tail are baked into the wrapper by _build_prompt_cmd.
-    if [[ -n "$prompt_cmd" && -n "$app_prompt_launch" ]]; then
-        launch_cmd="$app_prompt_launch"
+    # Select exactly one launch command. Cold-start commands are used only when
+    # AeroSpace sees no windows for the app anywhere; prompt commands remain the
+    # primary prompt-specific path.
+    local has_any_windows=true
+    if ! _app_has_any_windows "$app_name"; then
+        has_any_windows=false
+    fi
+
+    if [[ -n "$prompt_cmd" ]]; then
+        if [[ "$has_any_windows" == "false" && -n "$app_first_prompt_launch" ]]; then
+            launch_cmd="$app_first_prompt_launch"
+        elif [[ -n "$app_prompt_launch" ]]; then
+            launch_cmd="$app_prompt_launch"
+        elif [[ "$has_any_windows" == "false" && -n "$app_first_launch" ]]; then
+            launch_cmd="$app_first_launch"
+        fi
+    elif [[ "$has_any_windows" == "false" && -n "$app_first_launch" ]]; then
+        launch_cmd="$app_first_launch"
     fi
 
     # Substitute {path}, {workspace}, and {prompt_cmd} in launch command
