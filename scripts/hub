@@ -391,6 +391,13 @@ cmd_app_switcher() {
         return 0
     fi
 
+    # Capture the target workspace before the Cocoa switcher activates its
+    # overlay window. Waiting until commit can pick up AeroSpace's previous or
+    # fallback workspace when the gesture started from an empty workspace.
+    local launch_ws_id
+    launch_ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+    [[ -n "$launch_ws_id" ]] || { rmdir "$APP_SWITCHER_LOCK_DIR" 2>/dev/null || true; return 0; }
+
     # We own the lock — run the modal to completion.
     rm -f "$APP_SWITCHER_RESULT"
     "$APP_SWITCHER_BIN" &
@@ -406,7 +413,7 @@ cmd_app_switcher() {
     rm -f "$APP_SWITCHER_RESULT"
 
     if [[ -n "$slot" ]]; then
-        cmd_open "$slot" --force
+        cmd_open "$slot" --force --workspace "$launch_ws_id"
     fi
 }
 
@@ -2430,12 +2437,31 @@ cmd_open() {
     local slot=""
     local open_all=false
     local force_new=false
+    local requested_ws_id=""
 
-    for arg in "$@"; do
-        case "$arg" in
-            --all) open_all=true ;;
-            --force|--new) force_new=true ;;
-            [1-5]) slot="$arg" ;;
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --all) open_all=true; shift ;;
+            --force|--new) force_new=true; shift ;;
+            --workspace)
+                if [[ $# -lt 2 || -z "${2:-}" ]]; then
+                    fail "--workspace requires a workspace ID"
+                    exit 1
+                fi
+                requested_ws_id="${2:-}"
+                shift 2
+                ;;
+            --workspace=*)
+                requested_ws_id="${1#--workspace=}"
+                shift
+                ;;
+            [1-5])
+                slot="$1"
+                shift
+                ;;
+            *)
+                shift
+                ;;
         esac
     done
 
@@ -2445,7 +2471,11 @@ cmd_open() {
     fi
 
     local ws_id
-    ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+    if [[ -n "$requested_ws_id" ]]; then
+        ws_id="$requested_ws_id"
+    else
+        ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+    fi
     if [[ -z "$ws_id" ]]; then
         fail "Could not determine current workspace"
         exit 1
