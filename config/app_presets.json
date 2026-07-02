@@ -14,9 +14,9 @@
   "com.mitchellh.ghostty": {
     "name": "Ghostty",
     "first_launch": "open -na Ghostty.app --args --working-directory=\"{path}\" --quit-after-last-window-closed=false -e zsh -lc 'exec zsh -il'",
-    "launch": "cmd=$(printf 'cd %q; exec zsh -il' \"{path}\"); osascript -e 'on run argv' -e 'tell application \"Ghostty\" to activate' -e 'tell application \"System Events\" to keystroke \"n\" using command down' -e 'delay 0.25' -e 'tell application \"System Events\" to keystroke (item 1 of argv)' -e 'tell application \"System Events\" to key code 36' -e 'end run' \"$cmd\"",
+    "launch": "open -na Ghostty.app --args --working-directory=\"{path}\" --quit-after-last-window-closed=false -e zsh -lc 'exec zsh -il'",
     "first_prompt_launch": "open -na Ghostty.app --args --working-directory=\"{path}\" --quit-after-last-window-closed=false -e zsh -lc '{prompt_cmd}; exec zsh -il'",
-    "prompt_launch": "cmd=$(printf 'cd %q && %q; exec zsh -il' \"{path}\" \"{prompt_cmd}\"); osascript -e 'on run argv' -e 'tell application \"Ghostty\" to activate' -e 'tell application \"System Events\" to keystroke \"n\" using command down' -e 'delay 0.25' -e 'tell application \"System Events\" to keystroke (item 1 of argv)' -e 'tell application \"System Events\" to key code 36' -e 'end run' \"$cmd\"",
+    "prompt_launch": "open -na Ghostty.app --args --working-directory=\"{path}\" --quit-after-last-window-closed=false -e zsh -lc '{prompt_cmd}; exec zsh -il'",
     "description": "Opens a new Ghostty window in the workspace path"
   },
   "com.github.wez.wezterm": {

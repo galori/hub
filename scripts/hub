@@ -789,6 +789,42 @@ cmd_install() {
         success "App presets deployed to $APP_PRESETS_FILE"
     fi
 
+    if [[ -f "$APPS_FILE" && -f "$APP_PRESETS_FILE" ]]; then
+        local ghostty_preset
+        ghostty_preset="$(jq -c '."com.mitchellh.ghostty" // empty' "$APP_PRESETS_FILE" 2>/dev/null || true)"
+        if [[ -n "$ghostty_preset" ]]; then
+            local apps_tmp
+            apps_tmp="$(mktemp "${APPS_FILE}.XXXXXX")"
+            if jq --argjson preset "$ghostty_preset" '
+                map(
+                    if (.name == "Ghostty" and (
+                        ((.launch // "") | contains("System Events")) or
+                        ((.prompt_launch // "") | contains("System Events"))
+                    )) then
+                        . + {
+                            launch: $preset.launch,
+                            first_launch: $preset.first_launch,
+                            prompt_launch: $preset.prompt_launch,
+                            first_prompt_launch: $preset.first_prompt_launch
+                        }
+                    else
+                        .
+                    end
+                )
+            ' "$APPS_FILE" > "$apps_tmp"; then
+                if ! cmp -s "$APPS_FILE" "$apps_tmp"; then
+                    mv "$apps_tmp" "$APPS_FILE"
+                    success "Updated Ghostty app slot to native launch command"
+                else
+                    rm -f "$apps_tmp"
+                fi
+            else
+                rm -f "$apps_tmp"
+                warn "Could not update Ghostty app slot"
+            fi
+        fi
+    fi
+
     # --- Configure app launcher slots ---
     if [[ ! -f "$APPS_FILE" ]]; then
         echo
