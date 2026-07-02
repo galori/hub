@@ -2736,8 +2736,20 @@ cmd_hub_bar_sync() {
     # AeroSpace outer.top is measured from visibleFrame.maxY (below the menu bar), so
     # it needs only barHeight + gap — NOT barHeight + menuBarInset + gap.
     local outer_top
-    outer_top=$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null)
+    if [[ -f "$FULLSCREEN_STATE_FILE" && -f "$HOME/.config/hub/hub_bar_height_transient" ]]; then
+        outer_top=$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || echo "")
+    else
+        rm -f "$HOME/.config/hub/hub_bar_height_transient"
+        outer_top=$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || echo "")
+    fi
     if [[ ! "$outer_top" =~ ^[0-9]+$ ]]; then
+        outer_top=$HUB_BAR_HEIGHT_NORMAL
+    fi
+    # When exiting fullscreen, the bar can briefly leave behind the fullscreen
+    # metric (smaller because it was measured from the absolute screen top).
+    # Normal mode must never shrink below the physical bar height, or tiled
+    # windows can slide underneath the Hub Bar before the restarted bar settles.
+    if [[ ! -f "$FULLSCREEN_STATE_FILE" && "$outer_top" -lt "$HUB_BAR_HEIGHT_NORMAL" ]]; then
         outer_top=$HUB_BAR_HEIGHT_NORMAL
     fi
     local want=$((outer_top + HUB_BAR_GAP))
