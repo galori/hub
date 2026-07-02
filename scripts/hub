@@ -347,7 +347,7 @@ cmd_testing_banner() {
             echo "Usage:"
             echo "  hub testing-banner start [\"message\"]   Show the banner"
             echo "  hub testing-banner stop                   Hide the banner"
-            echo "  hub testing-banner run -- <cmd> [args…]  Show banner, run cmd, then hide"
+            echo "  hub testing-banner run <cmd> [args…]     Show banner, run cmd, then hide"
             ;;
         *)
             fail "Unknown testing-banner subcommand: $sub"
