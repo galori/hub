@@ -89,6 +89,11 @@ SCRIPT
     [[ "$count" == "0" ]]
 }
 
+@test "deployed aerospace.toml nudges new windows below the Hub Bar" {
+    run_deploy
+    grep -q 'nudge-float-window \$AEROSPACE_WINDOW_ID' "$AEROSPACE_CONFIG"
+}
+
 @test "deploy is idempotent (running twice produces same result)" {
     run_deploy
     checksum1="$(md5 -q "$AEROSPACE_CONFIG")"

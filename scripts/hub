@@ -2089,8 +2089,17 @@ nudge_float_window() {
     local bar_h
     bar_h="$(cat "$HOME/.config/hub/hub_bar_outer_top" 2>/dev/null || echo "$HUB_BAR_HEIGHT_NORMAL")"
     [[ ! "$bar_h" =~ ^[0-9]+$ ]] && bar_h=$HUB_BAR_HEIGHT_NORMAL
+    local min_top=$((bar_h + HUB_BAR_GAP))
 
-    "$FLOAT_NUDGE_BIN" "$app_pid" "$bar_h" &
+    (
+        for delay in 0 0.15 0.35 0.75 1.25; do
+            (
+                sleep "$delay"
+                "$FLOAT_NUDGE_BIN" "$app_pid" "$min_top" >/dev/null 2>&1 || true
+            ) &
+        done
+        wait
+    ) &
 }
 
 # _launch_and_corral APP_NAME LAUNCH_CMD WS_ID [LAUNCH_DIR]
