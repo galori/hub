@@ -2848,14 +2848,18 @@ cmd_bar_layout() {
 }
 
 cmd_hub_bar_sync() {
-    # Read hub_bar_height written by hub_bar.swift: actual rendered bar height in px.
+    # Read metrics written by hub_bar.swift.
+    # - Normal mode: AeroSpace outer.top behaves as distance from the absolute screen top,
+    #   so use hub_bar_outer_top (menu-bar inset + bar height).
+    # - Hub fullscreen: the bar owns the absolute top edge, so use the visible bar height.
     # A transient override is written while the auto-hidden menu bar is revealed and the
     # Hub Bar has dropped below it; during that moment windows need to clear the full bar.
-    # AeroSpace outer.top is measured from visibleFrame.maxY (below the menu bar), so
-    # it needs only barHeight + gap — NOT barHeight + menuBarInset + gap.
     local outer_top
     if [[ -f "$FULLSCREEN_STATE_FILE" && -f "$HOME/.config/hub/hub_bar_height_transient" ]]; then
         outer_top=$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || echo "")
+    elif [[ ! -f "$FULLSCREEN_STATE_FILE" && -f "$HOME/.config/hub/hub_bar_outer_top" ]]; then
+        outer_top=$(cat "$HOME/.config/hub/hub_bar_outer_top" 2>/dev/null || echo "")
+        rm -f "$HOME/.config/hub/hub_bar_height_transient"
     else
         rm -f "$HOME/.config/hub/hub_bar_height_transient"
         outer_top=$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || echo "")

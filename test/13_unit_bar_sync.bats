@@ -34,18 +34,29 @@ teardown() {
 
 @test "bar-sync ignores transient height when fullscreen is off" {
     echo 40 > "$HOME/.config/hub/hub_bar_height"
+    echo 70 > "$HOME/.config/hub/hub_bar_outer_top"
     echo 80 > "$HOME/.config/hub/hub_bar_height_transient"
 
     run "$HUB_SCRIPT" bar-sync
 
     [[ "$status" -eq 0 ]]
-    grep -q 'outer.top =        55' "$HOME/.aerospace.toml"
+    grep -q 'outer.top =        85' "$HOME/.aerospace.toml"
     [[ ! -f "$HOME/.config/hub/hub_bar_height_transient" ]]
+}
+
+@test "bar-sync falls back to bar height when normal outer-top metric is missing" {
+    echo 40 > "$HOME/.config/hub/hub_bar_height"
+
+    run "$HUB_SCRIPT" bar-sync
+
+    [[ "$status" -eq 0 ]]
+    grep -q 'outer.top =        55' "$HOME/.aerospace.toml"
 }
 
 @test "bar-sync uses transient height while fullscreen is on" {
     touch "$HOME/.config/hub/fullscreen"
     echo 16 > "$HOME/.config/hub/hub_bar_height"
+    echo 70 > "$HOME/.config/hub/hub_bar_outer_top"
     echo 80 > "$HOME/.config/hub/hub_bar_height_transient"
 
     run "$HUB_SCRIPT" bar-sync
