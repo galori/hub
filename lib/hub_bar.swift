@@ -183,6 +183,46 @@ func processArgs(pid: pid_t) -> [String] {
     return args
 }
 
+func claudeSessionStatus(pid: Int32) -> (status: String, statusUpdatedAtMs: Double)? {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    let path = "\(home)/.claude/sessions/\(pid).json"
+    guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let status = json["status"] as? String else {
+        return nil
+    }
+
+    if let n = json["statusUpdatedAt"] as? NSNumber {
+        return (status, n.doubleValue)
+    }
+    if let n = json["updatedAt"] as? NSNumber {
+        return (status, n.doubleValue)
+    }
+    return nil
+}
+
+func activeFlagModifiedAtMs(_ url: URL) -> Double? {
+    guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+          let date = values.contentModificationDate else {
+        return nil
+    }
+    return date.timeIntervalSince1970 * 1000.0
+}
+
+func shouldKeepClaudeActive(pid: Int32, activeSinceMs: Double?) -> Bool {
+    guard kill(pid, 0) == 0 else { return false }
+
+    let args = processArgs(pid: pid_t(pid))
+    if args.contains("--bg-spare") { return false }
+
+    // Missing or changed Claude session metadata is ambiguous; preserve blue.
+    guard let session = claudeSessionStatus(pid: pid) else { return true }
+    guard session.status == "idle" else { return true }
+    guard let activeSinceMs = activeSinceMs else { return true }
+
+    return session.statusUpdatedAtMs <= activeSinceMs
+}
+
 func cleanupStaleClaudeActiveFlags() {
     let fm = FileManager.default
     let tmp = URL(fileURLWithPath: "/tmp", isDirectory: true)
@@ -210,18 +250,27 @@ func cleanupStaleClaudeActiveFlags() {
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
-        var hasLive = false
+        let activeSinceMs = activeFlagModifiedAtMs(url)
+        var hasWorking = false
+        var sawLiveClaude = false
         for p in pids {
             guard let pid = Int32(p), kill(pid, 0) == 0 else { continue }
             // Exclude background spare daemons — they outlive the real session
             let args = processArgs(pid: pid_t(pid))
             if args.contains("--bg-spare") { continue }
-            hasLive = true
-            break
+            sawLiveClaude = true
+            if shouldKeepClaudeActive(pid: pid, activeSinceMs: activeSinceMs) {
+                hasWorking = true
+                break
+            }
         }
-        if !hasLive {
+
+        if !hasWorking {
             try? fm.removeItem(at: url)
             try? fm.removeItem(atPath: pidPath)
+            if sawLiveClaude {
+                try? "".write(toFile: "/tmp/hub_claude_alert_\(ws)", atomically: true, encoding: .utf8)
+            }
             changed = true
         }
     }
@@ -2513,7 +2562,10 @@ class HubBarController: NSObject {
             }
         }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
-            object: nil, queue: .main) { [weak self] _ in self?.windows.forEach { $0.clusterOverlay?.updateBattery() } }
+            object: nil, queue: .main) { [weak self] _ in
+                cleanupStaleClaudeActiveFlags()
+                self?.windows.forEach { $0.clusterOverlay?.updateBattery() }
+            }
         // Show/hide bars when a full-screen transition creates/destroys a space.
         // Delay slightly to let the new Space fully settle before querying window list.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,

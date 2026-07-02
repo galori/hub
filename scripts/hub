@@ -3223,6 +3223,7 @@ cmd_claude_hooks() {
 {
   "PermissionRequest": [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify.sh"}]}],
   "Stop":              [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify.sh"}]}],
+  "StopFailure":       [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify.sh"}]}],
   "UserPromptSubmit":  [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}],
   "PreToolUse":        [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}],
   "PostToolUse":       [{"hooks": [{"type": "command", "command": "~/.claude/hooks/hub-notify-clear.sh"}]}],
@@ -3351,7 +3352,7 @@ HOOKS_JSON
         echo "Usage: hub claude-hooks <install|uninstall|status>"
         echo
         echo "Manage Claude Code notification hooks."
-        echo "On Stop/PermissionRequest: amber workspace pill, sound."
+        echo "On Stop/StopFailure/PermissionRequest: amber workspace pill, sound."
         echo "On user activity: restores normal pill. Type '.', 'dismiss', or 'clear' to clear silently."
         echo
         echo "Toggles (env vars, all on by default):"
