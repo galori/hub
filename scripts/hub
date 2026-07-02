@@ -41,8 +41,7 @@ APP_SWITCHER_SRC="$LIB_DIR/app_switcher.swift"
 APP_SWITCHER_BIN="$HOME/.config/hub/app_switcher"
 APP_SWITCHER_LOCK_DIR="$HOME/.config/hub/.app-switcher-lock"
 APP_SWITCHER_RESULT="/tmp/hub-app-switcher-result"
-PREV_BROWSER_FILE="$HOME/.config/hub/prev_browser.txt"
-ORIGINAL_DEFAULT_BROWSER_FILE="$HOME/.config/hub/original_default_browser.txt"
+PREV_BROWSER_FILE="$HOME/.config/hub/prev_browser"
 HUB_BROWSER_ID="sh.hub.http-handler"
 WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
 RECENT_REPOS_FILE="$HOME/.config/hub/recent_repos.json"
@@ -850,20 +849,6 @@ cmd_install() {
     # --- Compile Swift binaries ---
     echo
     compile_all
-
-    # --- Save original default browser if not already saved ---
-    echo
-    echo -e "${bold}Preserving original default browser...${reset}"
-    if [[ -x "$BROWSER_CTL_BIN" ]] && [[ ! -f "$ORIGINAL_DEFAULT_BROWSER_FILE" ]]; then
-        local original_browser
-        original_browser="$("$BROWSER_CTL_BIN" get 2>/dev/null || true)"
-        if [[ -n "$original_browser" && "$original_browser" != "$HUB_BROWSER_ID" ]]; then
-            "$BROWSER_CTL_BIN" save_original
-            success "Original default browser saved ($original_browser)"
-        else
-            warn "Could not determine original default browser"
-        fi
-    fi
 
     # --- Install shell alias ---
     echo
@@ -2952,15 +2937,6 @@ cmd_up() {
 
     # Set HubHTTPHandler as default browser, saving previous for restore
     if [[ -x "$BROWSER_CTL_BIN" ]]; then
-        # Save the original default browser if not already saved
-        if [[ ! -f "$ORIGINAL_DEFAULT_BROWSER_FILE" ]]; then
-            local original_browser
-            original_browser="$("$BROWSER_CTL_BIN" get 2>/dev/null || true)"
-            if [[ -n "$original_browser" && "$original_browser" != "$HUB_BROWSER_ID" ]]; then
-                "$BROWSER_CTL_BIN" save_original
-            fi
-        fi
-        
         local prev_browser
         prev_browser="$("$BROWSER_CTL_BIN" get 2>/dev/null || true)"
         if [[ -n "$prev_browser" && "$prev_browser" != "$HUB_BROWSER_ID" ]]; then
@@ -3041,47 +3017,17 @@ cmd_down() {
         stop_overlay
     fi
 
-    # Restore original default browser
-    if [[ -x "$BROWSER_CTL_BIN" ]]; then
-        # Check if HubHTTPHandler is still the default browser
-        local current_browser
-        current_browser="$("$BROWSER_CTL_BIN" get 2>/dev/null || true)"
-        
-        if [[ "$current_browser" == "$HUB_BROWSER_ID" ]]; then
-            # Fallback: Restore the original default browser
-            if [[ -f "$ORIGINAL_DEFAULT_BROWSER_FILE" ]]; then
-                local original_browser
-                original_browser="$(cat "$ORIGINAL_DEFAULT_BROWSER_FILE")"
-                if [[ -n "$original_browser" ]]; then
-                    "$BROWSER_CTL_BIN" set "$original_browser" 2>/dev/null || true
-                    success "Default browser restored to original ($original_browser)"
-                fi
-            fi
-            
-            # If no original browser is found, restore from prev_browser.txt
-            if [[ "$current_browser" == "$HUB_BROWSER_ID" ]] && [[ -f "$PREV_BROWSER_FILE" ]]; then
-                local prev_browser
-                prev_browser="$(cat "$PREV_BROWSER_FILE")"
-                if [[ -n "$prev_browser" ]]; then
-                    "$BROWSER_CTL_BIN" set "$prev_browser" 2>/dev/null || true
-                    rm -f "$PREV_BROWSER_FILE"
-                    success "Default browser restored to $prev_browser"
-                fi
-            fi
-        else
-            # Restore from prev_browser.txt if HubHTTPHandler is not the default
-            if [[ -f "$PREV_BROWSER_FILE" ]]; then
-                local prev_browser
-                prev_browser="$(cat "$PREV_BROWSER_FILE")"
-                if [[ -n "$prev_browser" ]]; then
-                    "$BROWSER_CTL_BIN" set "$prev_browser" 2>/dev/null || true
-                    rm -f "$PREV_BROWSER_FILE"
-                    success "Default browser restored to $prev_browser"
-                fi
-            fi
+    # Restore previous default browser
+    if [[ -x "$BROWSER_CTL_BIN" ]] && [[ -f "$PREV_BROWSER_FILE" ]]; then
+        local prev_browser
+        prev_browser="$(cat "$PREV_BROWSER_FILE")"
+        if [[ -n "$prev_browser" ]]; then
+            "$BROWSER_CTL_BIN" set "$prev_browser" 2>/dev/null || true
+            rm -f "$PREV_BROWSER_FILE"
+            success "Default browser restored to $prev_browser"
         fi
     else
-        warn "browser_ctl not found — skipping default browser restore"
+        warn "No saved browser to restore"
     fi
 
     echo
