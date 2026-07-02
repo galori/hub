@@ -39,6 +39,105 @@ run_hub_function() {
     " 2>/dev/null
 }
 
+run_hub_eval() {
+    local code="$1"
+    bash -c "
+        export HOME='$HOME'
+        export STUB_CALLS='$STUB_CALLS'
+        source '$HUB_SCRIPT' >/dev/null 2>&1
+        $code
+    " 2>/dev/null
+}
+
+write_handler_plist() {
+    local app="$1"
+    mkdir -p "$app/Contents"
+    cat > "$app/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>sh.hub.http-handler</string>
+</dict>
+</plist>
+PLIST
+}
+
+@test "http handler display name uses slot 2 browser" {
+    seed_apps "iTerm2:echo terminal" "Safari:echo browser"
+
+    run run_hub_eval "http_handler_display_name"
+
+    [[ "$status" -eq 0 ]]
+    [[ "$output" = "Safari (via Hub)" ]]
+}
+
+@test "http handler display name falls back without slot 2" {
+    seed_apps "iTerm2:echo terminal"
+
+    run run_hub_eval "http_handler_display_name"
+
+    [[ "$status" -eq 0 ]]
+    [[ "$output" = "Hub HTTP Handler" ]]
+}
+
+@test "http handler app path uses slot 2 browser name" {
+    seed_apps "iTerm2:echo terminal" "Google Chrome:echo browser"
+
+    run run_hub_eval "http_handler_app_path"
+
+    [[ "$status" -eq 0 ]]
+    [[ "$output" = "$HOME/Applications/Google Chrome (via Hub).app" ]]
+}
+
+@test "stale http handler bundles are removed" {
+    local active="$HOME/Applications/Safari (via Hub).app"
+    local legacy="$HOME/Applications/HubHTTPHandler.app"
+    local fallback="$HOME/Applications/Hub HTTP Handler.app"
+    local previous="$HOME/Applications/Google Chrome (via Hub).app"
+    write_handler_plist "$active"
+    write_handler_plist "$legacy"
+    write_handler_plist "$fallback"
+    write_handler_plist "$previous"
+
+    run run_hub_eval "cleanup_stale_http_handlers '$active'"
+
+    [[ "$status" -eq 0 ]]
+    [[ -d "$active" ]]
+    [[ ! -d "$legacy" ]]
+    [[ ! -d "$fallback" ]]
+    [[ ! -d "$previous" ]]
+}
+
+@test "slot 2 app changes refresh http handler" {
+    run run_hub_eval "
+        build_http_handler() { echo build_http_handler >> \"\$STUB_CALLS\"; }
+        apps_save_slot 1 iTerm2 'echo terminal' iTerm2 >/dev/null
+        apps_save_slot 2 Safari 'echo browser' Safari >/dev/null
+        apps_remove_slot 1 >/dev/null
+        apps_remove_slot 2 >/dev/null
+    "
+
+    [[ "$status" -eq 0 ]]
+    [[ "$(grep -c '^build_http_handler$' "$STUB_CALLS")" -eq 2 ]]
+}
+
+@test "apps reset refreshes http handler" {
+    seed_apps "iTerm2:echo terminal" "Safari:echo browser"
+
+    run bash -c "
+        export HOME='$HOME'
+        export STUB_CALLS='$STUB_CALLS'
+        source '$HUB_SCRIPT' >/dev/null 2>&1
+        build_http_handler() { echo build_http_handler >> \"\$STUB_CALLS\"; }
+        cmd_apps reset -y
+    " 2>/dev/null
+
+    [[ "$status" -eq 0 ]]
+    assert_called "^build_http_handler$"
+}
+
 @test "hub up browser save stores a non-hub default browser before switching" {
     write_browser_ctl "com.apple.Safari"
 

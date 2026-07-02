@@ -25,7 +25,8 @@ DASHBOARD_BIN="$HOME/.config/hub/dashboard_dialog"
 OUTPUT_WINDOW_SRC="$LIB_DIR/output_window.swift"
 OUTPUT_WINDOW_BIN="$HOME/.config/hub/output_window"
 HTTP_HANDLER_SRC="$LIB_DIR/http_handler.swift"
-HTTP_HANDLER_APP="$HOME/Applications/HubHTTPHandler.app"
+HTTP_HANDLER_LEGACY_APP="$HOME/Applications/HubHTTPHandler.app"
+HTTP_HANDLER_EXECUTABLE="HubHTTPHandler"
 BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
 BROWSER_CTL_BIN="$HOME/.config/hub/browser_ctl"
 SPATIAL_ORDER_SRC="$LIB_DIR/spatial_order.swift"
@@ -566,10 +567,80 @@ compile_all() {
     build_http_handler
 }
 
+plist_xml_escape() {
+    local value="$1"
+    value="${value//&/&amp;}"
+    value="${value//</&lt;}"
+    value="${value//>/&gt;}"
+    value="${value//\"/&quot;}"
+    value="${value//\'/&apos;}"
+    printf '%s' "$value"
+}
+
+http_handler_display_name() {
+    local browser_name=""
+    if [[ -f "$APPS_FILE" ]] && command -v jq >/dev/null 2>&1; then
+        browser_name="$(jq -r 'if length > 1 then .[1].name // "" else "" end' "$APPS_FILE" 2>/dev/null || true)"
+    fi
+    if [[ -n "$browser_name" ]]; then
+        printf '%s (via Hub)' "$browser_name"
+    else
+        printf 'Hub HTTP Handler'
+    fi
+}
+
+http_handler_app_basename() {
+    local display_name="$1"
+    local basename="$display_name"
+    basename="${basename//\//-}"
+    basename="${basename//:/-}"
+    printf '%s.app' "$basename"
+}
+
+http_handler_app_path() {
+    local display_name
+    display_name="$(http_handler_display_name)"
+    printf '%s/%s' "$HOME/Applications" "$(http_handler_app_basename "$display_name")"
+}
+
+http_handler_process_pattern() {
+    printf '/Contents/MacOS/%s' "$HTTP_HANDLER_EXECUTABLE"
+}
+
+is_http_handler_running() {
+    pgrep -qf "$(http_handler_process_pattern)"
+}
+
+stop_http_handler() {
+    pkill -f "$(http_handler_process_pattern)" 2>/dev/null || true
+}
+
+cleanup_stale_http_handlers() {
+    local active_app="$1"
+    local lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+    local candidate plist bundle_id
+
+    for candidate in "$HTTP_HANDLER_LEGACY_APP" "$HOME/Applications/Hub HTTP Handler.app" "$HOME/Applications/"*' (via Hub).app'; do
+        [[ -d "$candidate" ]] || continue
+        [[ "$candidate" == "$active_app" ]] && continue
+        plist="$candidate/Contents/Info.plist"
+        [[ -f "$plist" ]] || continue
+        bundle_id="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$plist" 2>/dev/null || true)"
+        [[ "$bundle_id" == "$HUB_BROWSER_ID" ]] || continue
+        "$lsregister" -u "$candidate" 2>/dev/null || true
+        rm -rf "$candidate"
+    done
+}
+
 build_http_handler() {
     local src="$HTTP_HANDLER_SRC"
-    local app="$HTTP_HANDLER_APP"
-    local bin="$app/Contents/MacOS/HubHTTPHandler"
+    local app
+    app="$(http_handler_app_path)"
+    local display_name
+    display_name="$(http_handler_display_name)"
+    local escaped_display_name
+    escaped_display_name="$(plist_xml_escape "$display_name")"
+    local bin="$app/Contents/MacOS/$HTTP_HANDLER_EXECUTABLE"
     local plist="$app/Contents/Info.plist"
 
     if [[ ! -f "$src" ]]; then
@@ -577,15 +648,17 @@ build_http_handler() {
         return
     fi
 
+    cleanup_stale_http_handlers "$app"
+
     if [[ -f "$bin" ]] && [[ "$bin" -nt "$src" ]] && [[ "$bin" -nt "${BASH_SOURCE[0]}" ]]; then
-        info "HubHTTPHandler.app up to date"
+        info "$display_name.app up to date"
         return
     fi
 
     mkdir -p "$app/Contents/MacOS"
     mkdir -p "$app/Contents/Resources"
 
-    cat > "$plist" <<'PLIST'
+    cat > "$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -593,15 +666,15 @@ build_http_handler() {
     <key>CFBundleIdentifier</key>
     <string>sh.hub.http-handler</string>
     <key>CFBundleName</key>
-    <string>HubHTTPHandler</string>
+    <string>$escaped_display_name</string>
     <key>CFBundleDisplayName</key>
-    <string>Hub HTTP Handler</string>
+    <string>$escaped_display_name</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleExecutable</key>
-    <string>HubHTTPHandler</string>
+    <string>$HTTP_HANDLER_EXECUTABLE</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>
@@ -656,15 +729,15 @@ PLIST
         /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
             -f "$app" 2>/dev/null || true
         # Restart if already running so the new binary takes effect
-        if pgrep -qf "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler"; then
-            pkill -f "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler" 2>/dev/null || true
+        if is_http_handler_running; then
+            stop_http_handler
             sleep 0.3
-            open -a "$app" &
+            open "$app" &
         fi
-        success "HubHTTPHandler.app built and registered: $app"
+        success "$display_name.app built and registered: $app"
     else
         rm -rf "$tmp_http_dir"
-        warn "HubHTTPHandler.app compilation failed"
+        warn "$display_name.app compilation failed"
     fi
 }
 
@@ -1740,7 +1813,7 @@ cmd_status() {
     echo
 
     # --- Hub up/down (HubHTTPHandler is the hub-specific long-running process) ---
-    if pgrep -qf "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler"; then
+    if is_http_handler_running; then
         echo -e "${bold}Hub:${reset}  ${green}✓ up${reset}"
     else
         echo -e "${bold}Hub:${reset}  ${red}✗ down${reset}  (run: hub up)"
@@ -2978,8 +3051,8 @@ cmd_up() {
     fi
 
     # Launch HubHTTPHandler as persistent daemon
-    if ! pgrep -qf "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler"; then
-        open -a "$HTTP_HANDLER_APP" &>/dev/null &
+    if ! is_http_handler_running; then
+        open "$(http_handler_app_path)" &>/dev/null &
         disown
         success "HubHTTPHandler started"
     else
@@ -3075,8 +3148,8 @@ cmd_down() {
     fi
 
     # Stop HubHTTPHandler daemon
-    if pgrep -qf "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler"; then
-        pkill -f "HubHTTPHandler.app/Contents/MacOS/HubHTTPHandler" 2>/dev/null || true
+    if is_http_handler_running; then
+        stop_http_handler
         success "HubHTTPHandler stopped"
     else
         warn "HubHTTPHandler was not running"
@@ -3176,6 +3249,7 @@ cmd_apps() {
             echo "[]" > "$APPS_FILE"
             success "Cleared all app slots"
             apps_refresh
+            build_http_handler
             ;;
         help|-h|--help)
             echo -e "${bold}Usage:${reset} hub apps <subcommand>"

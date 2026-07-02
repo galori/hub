@@ -261,6 +261,9 @@ apps_save_slot() {
        ' "$APPS_FILE" > "$tmp" && mv "$tmp" "$APPS_FILE" || { rm -f "$tmp"; return 1; }
     success "Saved slot $slot: $name"
     apps_refresh
+    if [[ "$slot" == "2" ]] && command -v build_http_handler >/dev/null 2>&1; then
+        build_http_handler
+    fi
 }
 
 # Remove a slot. Shrinks the array (so a subsequent add fills the next free index).
@@ -275,6 +278,9 @@ apps_remove_slot() {
        ' "$APPS_FILE" > "$tmp" && mv "$tmp" "$APPS_FILE" || { rm -f "$tmp"; return 1; }
     success "Removed slot $slot"
     apps_refresh
+    if [[ "$slot" == "2" ]] && command -v build_http_handler >/dev/null 2>&1; then
+        build_http_handler
+    fi
 }
 
 # Refresh Hub Bar after apps.json changes.
