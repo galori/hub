@@ -1206,7 +1206,10 @@ class HubBarWindow: NSWindow {
         hasShadow = false
         ignoresMouseEvents = false
         isReleasedWhenClosed = false  // ARC owns lifetime; prevent double-free on close()
-        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        // Join normal Spaces, but do not opt into native macOS full-screen Spaces.
+        // Hub fullscreen mode is not a native full-screen Space, so it does not need
+        // .fullScreenAuxiliary; including it lets the bar cover apps like Slack.
+        collectionBehavior = [.canJoinAllSpaces, .stationary]
     }
 
     // Install timer for checking notifications
@@ -2370,43 +2373,9 @@ class HubBarController: NSObject {
         }
     }
 
-    // Returns display IDs of screens where a native macOS full-screen app covers the entire frame.
-    // Layer-0 windows that span screen.frame exactly are full-screen app windows; normal app windows
-    // can't extend into the menu-bar area, so only true full-screen apps satisfy this check.
-    private func fullScreenDisplayIDs() -> Set<CGDirectDisplayID> {
-        var result = Set<CGDirectDisplayID>()
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
-                                                    kCGNullWindowID) as? [[String: Any]] else { return result }
-        let mainH = NSScreen.screens.first?.frame.height ?? 0
-        for screen in NSScreen.screens {
-            let sf = screen.frame
-            for info in list {
-                guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
-                      let b = info[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
-                // CGWindowList uses flipped coords (Y=0 at top of main screen); convert to NSScreen space.
-                let cgY = b["Y"] ?? 0, cgH = b["Height"] ?? 0
-                let win = CGRect(x: b["X"] ?? 0, y: mainH - cgY - cgH,
-                                 width: b["Width"] ?? 0, height: cgH)
-                if win.contains(sf) {
-                    if let did = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID {
-                        result.insert(did)
-                    }
-                    break
-                }
-            }
-        }
-        return result
-    }
-
     func updateVisibility() {
-        let fullScreenIDs = fullScreenDisplayIDs()
         for w in windows {
-            let did = w.barScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
-            if let did = did, fullScreenIDs.contains(did) {
-                w.orderOut(nil)
-            } else {
-                w.orderFrontRegardless()
-            }
+            w.orderFrontRegardless()
         }
     }
 
@@ -2566,8 +2535,7 @@ class HubBarController: NSObject {
                 cleanupStaleClaudeActiveFlags()
                 self?.windows.forEach { $0.clusterOverlay?.updateBattery() }
             }
-        // Show/hide bars when a full-screen transition creates/destroys a space.
-        // Delay slightly to let the new Space fully settle before querying window list.
+        // Re-front bars when returning from a native full-screen Space.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil, queue: .main) { [weak self] _ in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self?.updateVisibility() }
