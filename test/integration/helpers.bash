@@ -2,7 +2,7 @@
 # Integration test helpers for the hub live test suite.
 #
 # These helpers are NOT the stub sandbox (test/helpers/stubs.bash).
-# They run against real services — aerospace, sketchybar, jq, git — and
+# They run against real services — aerospace, the native Hub Bar, jq, git — and
 # expect a real, logged-in macOS GUI session.
 #
 # REQUIRED macOS permissions for the terminal running the tests:
@@ -10,7 +10,7 @@
 #     (required for `aerospace` CLI to query/switch workspaces)
 #   - Automation:     System Settings → Privacy & Security → Automation
 #     (terminal must be allowed to control System Events / Finder if needed)
-#   - A real GUI login session (not SSH headless) — sketchybar and aerospace
+#   - A real GUI login session (not SSH headless) — Hub Bar and AeroSpace
 #     bind to the WindowServer / loginwindow, so a `loginwindow` session must
 #     be active on the display.
 
@@ -27,7 +27,7 @@ require_live_session() {
     fi
 
     local missing_tools=()
-    for tool in aerospace sketchybar jq git bats; do
+    for tool in aerospace jq git bats; do
         command -v "$tool" &>/dev/null || missing_tools+=("$tool")
     done
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
@@ -36,7 +36,7 @@ require_live_session() {
 
     # Verify a real GUI session is present — WindowServer only exists in a live
     # loginwindow session (not headless SSH). We do NOT check whether aerospace
-    # or sketchybar are already running here: test 1 starts them via hub up.
+    # or the Hub Bar are already running here: test 1 starts them via hub up.
     if ! pgrep -x "WindowServer" &>/dev/null; then
         skip "No WindowServer found. Integration tests require a live GUI login session."
     fi
@@ -51,6 +51,55 @@ hub_bin() {
     local repo_dir
     repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
     echo "$repo_dir/scripts/hub"
+}
+
+# ---------------------------------------------------------------------------
+# hub_bar_labels_file
+#
+# Returns the deployed native Hub Bar labels file.
+# ---------------------------------------------------------------------------
+hub_bar_labels_file() {
+    echo "$HOME/.config/hub/hub_bar_labels"
+}
+
+# ---------------------------------------------------------------------------
+# aerospace_outer_top
+#
+# Returns AeroSpace's configured top outer gap in pixels.
+# ---------------------------------------------------------------------------
+aerospace_outer_top() {
+    grep -E '^\s*outer\.top' "$HOME/.aerospace.toml" 2>/dev/null \
+        | grep -oE '[0-9]+' \
+        | head -1
+}
+
+# ---------------------------------------------------------------------------
+# hub_bar_clearance_for_mode <fullscreen|normal>
+#
+# Returns the minimum top gap needed to keep tiled AeroSpace windows below the
+# Hub Bar in the given mode.
+# ---------------------------------------------------------------------------
+hub_bar_clearance_for_mode() {
+    local mode="$1"
+    local metric=""
+    local gap=15
+
+    if [[ "$mode" == "fullscreen" ]]; then
+        if [[ -f "$HOME/.config/hub/hub_bar_height_transient" ]]; then
+            metric="$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || true)"
+        fi
+        [[ -z "$metric" && -f "$HOME/.config/hub/hub_bar_height" ]] && \
+            metric="$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || true)"
+    else
+        [[ -f "$HOME/.config/hub/hub_bar_outer_top" ]] && \
+            metric="$(cat "$HOME/.config/hub/hub_bar_outer_top" 2>/dev/null || true)"
+        if [[ ! "$metric" =~ ^[0-9]+$ || "$metric" -lt 40 ]]; then
+            metric=40
+        fi
+    fi
+
+    [[ "$metric" =~ ^[0-9]+$ ]] || metric=40
+    echo $((metric + gap))
 }
 
 # ---------------------------------------------------------------------------

@@ -30,6 +30,9 @@ setup() {
 }
 
 teardown() {
+    if [[ -z "$WS_ID" && -n "$WS_NAME" ]]; then
+        WS_ID="$(ws_id_for_name "$WS_NAME" 2>/dev/null || true)"
+    fi
     cleanup_workspace "$WS_ID"
     # BATS_TEST_TMPDIR (and FIXTURE_REPO inside it) is removed by Bats after the test.
 }
@@ -78,14 +81,15 @@ teardown() {
 }
 
 # ---------------------------------------------------------------------------
-@test "hub new creates a bar_labels entry for the workspace" {
+@test "hub new creates a hub_bar_labels entry for the workspace" {
     run "$(hub_bin)" new --path "$FIXTURE_REPO" --worktree "$WS_NAME" --no-apps
     [[ "$status" -eq 0 ]]
 
     WS_ID="$(ws_id_for_name "$WS_NAME")"
     [[ -n "$WS_ID" ]]
 
-    local labels_file="$HOME/.config/hub/bar_labels"
+    local labels_file
+    labels_file="$(hub_bar_labels_file)"
     [[ -f "$labels_file" ]]
     grep -q "^$WS_ID:$WS_NAME:" "$labels_file"
 }

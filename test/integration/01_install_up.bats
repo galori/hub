@@ -43,11 +43,11 @@ setup() {
 }
 
 # ---------------------------------------------------------------------------
-@test "status_bar process is running after hub up" {
-    pgrep -f "status_bar" >/dev/null
+@test "hub_bar process is running after hub up" {
+    pgrep -f "hub_bar" >/dev/null
 }
 
 # ---------------------------------------------------------------------------
-@test "bar_labels file exists after hub up" {
-    [[ -f "$HOME/.config/hub/bar_labels" ]]
+@test "hub_bar_labels file exists after hub up" {
+    [[ -f "$(hub_bar_labels_file)" ]]
 }

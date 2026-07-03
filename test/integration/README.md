@@ -22,6 +22,7 @@ repo's own templates), this is safe to run on your normal dev machine:
 Visible side effects on your screen during the suite:
 - A brief bar reload flicker (test 1)
 - AeroSpace focus switches to the newly created test workspace (tests 2/3), then back after cleanup
+- Hub fullscreen mode is toggled on/off while verifying AeroSpace top padding (test 4)
 
 > For a fully hands-off run with zero screen disruption, use a dedicated test
 > machine or test user. But running on your dev machine while you step away is
@@ -84,6 +85,7 @@ never touch `test/integration/`.
 | `01_install_up.bats` | `hub install` (non-interactive) + `hub up` — services start, Hub Bar running, hub_bar_labels file created |
 | `02_new_workspace.bats` | `hub new` — worktree created, workspaces.json entry, `hub list`, hub_bar_labels entry |
 | `03_new_workspace_custom_setup.bats` | Same + `.superset/config.json` `"setup"` hook writes a marker file in the worktree |
+| `04_fullscreen_padding.bats` | `hub fullscreen on/off` — AeroSpace `outer.top` keeps tiled windows below the Hub Bar in both modes |
 
 ---
 
