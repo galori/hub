@@ -2251,6 +2251,8 @@ class HubBarController: NSObject {
     var clockTimer: Timer?; var batteryTimer: Timer?; var pulseTimer: Timer?
     var staleClaudeTimer: Timer?
     var menuBarRevealTimer: Timer?
+    var nativeFullscreenTimer: Timer?
+    var nativeFullscreenDisplayIDs = Set<CGDirectDisplayID>()
     var menuBarRevealGeneration: Int = 0
     var pulseBright = true; var lastState = HubBarState()
 
@@ -2363,7 +2365,7 @@ class HubBarController: NSObject {
 
     private func applyMenuBarRevealGeometry(for window: HubBarWindow) {
         window.buildContents(state: lastState, lastRows: max(1, window.lastFitRows), writeBarMetrics: false)
-        window.orderFrontRegardless()
+        orderFrontUnlessNativeFullscreen(window)
     }
 
     private func applyRevealedMenuBarGeometry(generation: Int) {
@@ -2373,9 +2375,75 @@ class HubBarController: NSObject {
         }
     }
 
+    private func cgWindowBounds(_ info: [String: Any]) -> CGRect? {
+        if let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+           let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary) {
+            return rect
+        }
+        return nil
+    }
+
+    private func coversDisplayForNativeFullscreen(_ rect: CGRect, display: CGRect) -> Bool {
+        let tolerance: CGFloat = 4
+        let menuAllowance: CGFloat = max(40, NSStatusBar.system.thickness + 4)
+        let leftAligned = abs(rect.minX - display.minX) <= tolerance
+        let rightAligned = abs(rect.maxX - display.maxX) <= tolerance
+        let bottomAligned = abs(rect.maxY - display.maxY) <= tolerance
+        let topAtDisplay = abs(rect.minY - display.minY) <= tolerance
+        let topBelowMenu = rect.minY >= display.minY - tolerance
+            && rect.minY <= display.minY + menuAllowance
+        return leftAligned && rightAligned && bottomAligned && (topAtDisplay || topBelowMenu)
+    }
+
+    private func visibleNativeFullscreenDisplayIDs() -> Set<CGDirectDisplayID> {
+        var result = Set<CGDirectDisplayID>()
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
+                                                    kCGNullWindowID) as? [[String: Any]] else {
+            return result
+        }
+
+        let ignoredOwners = Set(["borders", "hub_bar", "Dock", "Window Server", "Control Center"])
+        for screen in NSScreen.screens {
+            guard let did = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
+                continue
+            }
+
+            let display = CGDisplayBounds(did)
+            for info in list {
+                guard let owner = info[kCGWindowOwnerName as String] as? String,
+                      !ignoredOwners.contains(owner),
+                      let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                      let bounds = cgWindowBounds(info) else { continue }
+
+                if coversDisplayForNativeFullscreen(bounds, display: display) {
+                    result.insert(did)
+                    break
+                }
+            }
+        }
+
+        return result
+    }
+
+    private func isHiddenForNativeFullscreen(_ window: HubBarWindow) -> Bool {
+        guard let did = window.barScreen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
+            return false
+        }
+        return nativeFullscreenDisplayIDs.contains(did)
+    }
+
+    private func orderFrontUnlessNativeFullscreen(_ window: HubBarWindow) {
+        if isHiddenForNativeFullscreen(window) {
+            window.orderOut(nil)
+        } else {
+            window.orderFrontRegardless()
+        }
+    }
+
     func updateVisibility() {
+        nativeFullscreenDisplayIDs = visibleNativeFullscreenDisplayIDs()
         for w in windows {
-            w.orderFrontRegardless()
+            orderFrontUnlessNativeFullscreen(w)
         }
     }
 
@@ -2500,7 +2568,7 @@ class HubBarController: NSObject {
                     if rowsChanged || capChanged || modeChanged || newPillMissing {
                         w.buildContents(state: state, lastRows: w.lastFitRows,
                                         writeBarMetrics: !w.menuBarRevealedInFullscreen)
-                        w.orderFrontRegardless()
+                        self.orderFrontUnlessNativeFullscreen(w)
                         if w.menuBarRevealedInFullscreen {
                             self.updateTransientBarHeightOverride()
                         }
@@ -2521,6 +2589,9 @@ class HubBarController: NSObject {
         }
         staleClaudeTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
             cleanupStaleClaudeActiveFlags()
+        }
+        nativeFullscreenTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.updateVisibility()
         }
         pulseTimer   = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
             guard let self = self else { return }
