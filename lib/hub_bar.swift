@@ -508,11 +508,16 @@ struct FitDecision {
     // so their labels grow to fill that space. nil = no relaxation (left uses effectiveCap).
     var leftCap: Int? = nil
     var leftWsIDs: Set<String> = []
+    // Symmetric relaxation for the right side of the notch. When the left segment is the
+    // limiting side, the right-side labels can safely grow without changing the split.
+    var rightCap: Int? = nil
+    var rightWsIDs: Set<String> = []
 
-    // Per-workspace label cap: left-segment pills use the relaxed leftCap; all others use
-    // the global effectiveCap.
+    // Per-workspace label cap: notch-side pills may use a relaxed segment cap; all others
+    // use the global effectiveCap.
     func capFor(_ ws: String) -> Int {
         if let lc = leftCap, leftWsIDs.contains(ws) { return lc }
+        if let rc = rightCap, rightWsIDs.contains(ws) { return rc }
         return effectiveCap
     }
 }
@@ -715,6 +720,25 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
             if bestLeftCap > bestCap {
                 fit.leftCap = bestLeftCap
                 fit.leftWsIDs = Set(leftPills.map { $0.ws })
+            }
+        }
+
+        // Symmetric post-layout relaxation for the right segment. The global cap may be
+        // constrained by the left side of the notch; when that happens, grow only the
+        // already-assigned right-side labels up to the right segment's available width.
+        if hasNotchSplit, let split = split, split < pills.count, bestCap >= 0 {
+            let rightPills = Array(pills[min(split, pills.count)...])
+            var bestRightCap = bestCap
+            var rlo = bestCap + 1, rhi = maxCap
+            while rlo <= rhi {
+                let mid = (rlo + rhi) / 2
+                let w = stripWidth(pills: rightPills, cap: mid, focused: focused,
+                                   claudeAlert: claudeAlert, claudeActive: claudeActive)
+                if w <= rightSegW { bestRightCap = mid; rlo = mid + 1 } else { rhi = mid - 1 }
+            }
+            if bestRightCap > bestCap {
+                fit.rightCap = bestRightCap
+                fit.rightWsIDs = Set(rightPills.map { $0.ws })
             }
         }
         return fit
@@ -2635,6 +2659,13 @@ class HubBarController: NSObject {
 // MARK: – Entry point
 // ──────────────────────────────────────────────────────────────────────────────
 
+class AppDelegate: NSObject, NSApplicationDelegate {
+    let controller = HubBarController()
+    func applicationDidFinishLaunching(_ n: Notification) { controller.start() }
+}
+
+#if HUB_BAR_TEST
+#else
 // hub_bar_restart sends SIGUSR1 immediately after launch. Ignore it before the
 // app publishes its PID so an early refresh cannot terminate a fresh process.
 signal(SIGUSR1, SIG_IGN)
@@ -2650,11 +2681,7 @@ if let existing = try? String(contentsOfFile: pidFile, encoding: .utf8),
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 
-class AppDelegate: NSObject, NSApplicationDelegate {
-    let controller = HubBarController()
-    func applicationDidFinishLaunching(_ n: Notification) { controller.start() }
-}
-
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
+#endif
