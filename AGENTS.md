@@ -5,14 +5,17 @@
 ### REQUIRED: After every change
 
 - MUST run `hub install` if any file in `config/` or `lib/` changed
-- MUST create a git commit and `git push` after every completed set of changes
+- MUST make changes on a non-`main` branch; never commit directly on `main`
+- MUST create a git commit and push the branch after every completed set of changes
+- MUST open a PR, wait for all PR builds/checks to run and pass, then merge it immediately
 
 ### Pull request flow
 
 - Always create changes on a branch and open a PR; do not push directly to `main`.
-- Wait for the fast GitHub-hosted PR test suite to pass.
-- Once the PR builds are green, it is OK to merge promptly; do not wait for the live integration suite before merging.
-- After merging, watch the GitHub Actions run on `main` and confirm the live integration suite passes on the self-hosted `Gall` macOS runner.
+- Push completed changes to the PR branch, not to `main`.
+- Wait for every PR build/check to complete and turn green, including live integration when it runs for PRs.
+- Once the PR is green and mergeable, merge it immediately.
+- After merging, confirm the GitHub Actions run on `main` stays green.
 - If live integration fails on `main`, investigate immediately and treat `main` as red until a repair PR lands.
 
 ### Live integration failure repair
