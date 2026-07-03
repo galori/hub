@@ -64,9 +64,19 @@ hub_bar_labels_file() {
 
 # ---------------------------------------------------------------------------
 menu_bar_auto_hide_value() {
-    local repo_dir
-    repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-    osascript "$repo_dir/lib/hide_menu_bar.applescript" Get 2>/dev/null
+    local hide_menu_bar visible_in_fullscreen
+    hide_menu_bar="$(defaults read NSGlobalDomain _HIHideMenuBar 2>/dev/null || echo "")"
+    visible_in_fullscreen="$(defaults read NSGlobalDomain AppleMenuBarVisibleInFullscreen 2>/dev/null || echo "")"
+
+    if [[ "$hide_menu_bar" == "1" ]]; then
+        echo "Always"
+    elif [[ "$hide_menu_bar" == "0" && "$visible_in_fullscreen" == "1" ]]; then
+        echo "Never"
+    elif [[ "$hide_menu_bar" == "0" && "$visible_in_fullscreen" == "0" ]]; then
+        echo "In Full Screen Only"
+    else
+        echo "Unknown"
+    fi
 }
 
 # ---------------------------------------------------------------------------
