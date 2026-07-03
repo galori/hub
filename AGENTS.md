@@ -7,6 +7,22 @@
 - MUST run `hub install` if any file in `config/` or `lib/` changed
 - MUST create a git commit and `git push` after every completed set of changes
 
+### Pull request flow
+
+- Create changes on a branch and open a PR instead of pushing directly to `main`.
+- Wait for the fast GitHub-hosted PR test suite to pass.
+- Once the PR is green, merge it promptly; do not wait for the live integration suite before merging.
+- The live integration suite runs after merge on the self-hosted `Gall` macOS runner.
+- If live integration fails, treat `main` as red until a repair PR lands.
+
+### Live integration failure repair
+
+- Live integration failures create or update a GitHub issue titled `Live integration failure on main`.
+- The issue includes the failing commit SHA, workflow run URL, and captured test output.
+- Local repair automation may use Codex or Claude Code on the `Gall` runner to diagnose the failure.
+- Repair agents MUST create a branch from current `main`, make the smallest safe fix, run relevant tests, and open a PR.
+- Repair agents MUST NOT push fixes directly to `main`.
+
 ## Project Structure
 
 - `scripts/hub` - Main shell script (install, up, down, new, list, remove, rename, open, apps, tree commands)
