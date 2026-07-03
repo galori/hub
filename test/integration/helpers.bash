@@ -63,6 +63,13 @@ hub_bar_labels_file() {
 }
 
 # ---------------------------------------------------------------------------
+menu_bar_auto_hide_value() {
+    local repo_dir
+    repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    osascript "$repo_dir/lib/hide_menu_bar.applescript" Get 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
 # aerospace_outer_top
 #
 # Returns AeroSpace's configured top outer gap in pixels.
@@ -76,8 +83,8 @@ aerospace_outer_top() {
 # ---------------------------------------------------------------------------
 # hub_bar_clearance_for_mode <fullscreen|normal>
 #
-# Returns the minimum top gap needed to keep tiled AeroSpace windows below the
-# Hub Bar in the given mode.
+# Returns the exact top gap needed to keep tiled AeroSpace windows below the
+# Hub Bar with Hub's configured visual gap in the given mode.
 # ---------------------------------------------------------------------------
 hub_bar_clearance_for_mode() {
     local mode="$1"
@@ -91,8 +98,8 @@ hub_bar_clearance_for_mode() {
         [[ -z "$metric" && -f "$HOME/.config/hub/hub_bar_height" ]] && \
             metric="$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || true)"
     else
-        [[ -f "$HOME/.config/hub/hub_bar_outer_top" ]] && \
-            metric="$(cat "$HOME/.config/hub/hub_bar_outer_top" 2>/dev/null || true)"
+        [[ -f "$HOME/.config/hub/hub_bar_height" ]] && \
+            metric="$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || true)"
         if [[ ! "$metric" =~ ^[0-9]+$ || "$metric" -lt 40 ]]; then
             metric=40
         fi

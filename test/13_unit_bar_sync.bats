@@ -32,7 +32,7 @@ teardown() {
     grep -q 'aerospace reload-config' "$STUB_CALLS"
 }
 
-@test "bar-sync ignores transient height when fullscreen is off" {
+@test "bar-sync uses bar height when fullscreen is off" {
     echo 40 > "$HOME/.config/hub/hub_bar_height"
     echo 70 > "$HOME/.config/hub/hub_bar_outer_top"
     echo 80 > "$HOME/.config/hub/hub_bar_height_transient"
@@ -40,7 +40,7 @@ teardown() {
     run "$HUB_SCRIPT" bar-sync
 
     [[ "$status" -eq 0 ]]
-    grep -q 'outer.top =        85' "$HOME/.aerospace.toml"
+    grep -q 'outer.top =        55' "$HOME/.aerospace.toml"
     [[ ! -f "$HOME/.config/hub/hub_bar_height_transient" ]]
 }
 

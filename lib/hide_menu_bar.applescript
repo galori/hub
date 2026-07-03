@@ -1,3 +1,26 @@
+property menuBarPopupName : "Automatically hide and show the menu bar"
+
+on findMenuBarPopup(elementToSearch)
+	tell application "System Events"
+		try
+			if (class of elementToSearch as text) is "pop up button" then
+				try
+					if (name of elementToSearch as text) is menuBarPopupName then return elementToSearch
+				end try
+			end if
+		end try
+
+		try
+			repeat with childElement in UI elements of elementToSearch
+				set foundElement to my findMenuBarPopup(childElement)
+				if foundElement is not missing value then return foundElement
+			end repeat
+		end try
+	end tell
+
+	return missing value
+end findMenuBarPopup
+
 on run argv
 	set targetValue to item 1 of argv
 
@@ -5,39 +28,37 @@ on run argv
 
 	tell application "System Events"
 		tell process "System Settings"
-			repeat 20 times
+			repeat 80 times
 				if exists window 1 then exit repeat
-				delay 0.1
+				delay 0.25
 			end repeat
 
 			if not (exists window 1) then error "System Settings window did not appear."
 
-			-- Wait for the scroll area to load
-			repeat 20 times
-				try
-					if exists scroll area 1 of group 1 of group 1 of UI element 1 of group 1 of window 1 then exit repeat
-				end try
-				delay 0.1
+			-- Wait for the menu bar popup to load. System Settings changes its
+			-- internal group hierarchy across macOS releases, so find by label.
+			set p to missing value
+			repeat 80 times
+				set p to my findMenuBarPopup(window 1)
+				if p is not missing value then exit repeat
+				delay 0.25
 			end repeat
 
-			tell window 1
-				tell group 1
-					tell UI element 1
-						tell group 3
-							tell group 1
-								tell scroll area 1
-									tell group 1
-										set p to pop up button "Automatically hide and show the menu bar"
-										perform action "AXPress" of p
-										delay 0.2
-										click menu item targetValue of menu 1 of p
-									end tell
-								end tell
-							end tell
-						end tell
-					end tell
-				end tell
-			end tell
+			if p is missing value then error "Menu bar auto-hide popup did not appear."
+
+			if targetValue is "Get" or targetValue is "--get" then return (value of p as text)
+			if (value of p as text) is targetValue then return
+
+			perform action "AXPress" of p
+			delay 0.2
+			click menu item targetValue of menu 1 of p
+
+			repeat 40 times
+				if (value of p as text) is targetValue then return
+				delay 0.25
+			end repeat
+
+			error "Menu bar auto-hide popup did not change to " & targetValue & "."
 		end tell
 	end tell
   delay 1

@@ -35,12 +35,20 @@ assert_outer_top_clears_hub_bar() {
     local required actual
 
     wait_for 15 "AeroSpace outer.top clears Hub Bar in $mode mode" \
-        "required=\"\$(hub_bar_clearance_for_mode '$mode')\"; actual=\"\$(aerospace_outer_top)\"; [[ \"\$actual\" =~ ^[0-9]+$ && \"\$actual\" -ge \"\$required\" ]]"
+        "required=\"\$(hub_bar_clearance_for_mode '$mode')\"; actual=\"\$(aerospace_outer_top)\"; [[ \"\$actual\" =~ ^[0-9]+$ && \"\$actual\" -eq \"\$required\" ]]"
 
     required="$(hub_bar_clearance_for_mode "$mode")"
     actual="$(aerospace_outer_top)"
-    echo "# $mode required outer.top >= $required; actual $actual" >&3
-    [[ "$actual" -ge "$required" ]]
+    echo "# $mode required outer.top = $required; actual $actual" >&3
+    [[ "$actual" -eq "$required" ]]
+}
+
+assert_menu_bar_auto_hide_value() {
+    local expected="$1"
+    local actual
+    actual="$(menu_bar_auto_hide_value)"
+    echo "# menu bar auto-hide expected $expected; actual $actual" >&3
+    [[ "$actual" == "$expected" ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -52,6 +60,7 @@ assert_outer_top_clears_hub_bar() {
 
     wait_for 15 "fullscreen state file exists" \
         "[[ -f '$HOME/.config/hub/fullscreen' ]]"
+    assert_menu_bar_auto_hide_value Always
     assert_outer_top_clears_hub_bar fullscreen
 }
 
@@ -64,5 +73,6 @@ assert_outer_top_clears_hub_bar() {
 
     wait_for 15 "fullscreen state file is removed" \
         "[[ ! -f '$HOME/.config/hub/fullscreen' ]]"
+    assert_menu_bar_auto_hide_value Never
     assert_outer_top_clears_hub_bar normal
 }
