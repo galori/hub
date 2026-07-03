@@ -497,6 +497,15 @@ install_brew_package() {
     fi
 }
 
+record_missing_brew_package() {
+    local display="$1"
+    local install_pkg="$2"
+    local cask="$3"
+    missing+=("$display")
+    missing_install+=("$install_pkg")
+    missing_cask+=("$cask")
+}
+
 # --- Compile overlay ---
 
 compile_swift() {
@@ -779,30 +788,28 @@ cmd_install() {
     # --- Check dependencies ---
     echo -e "${bold}Checking dependencies...${reset}"
     local missing=()
+    local missing_install=()
     local missing_cask=()
 
     if check_brew_package aerospace true; then
         success "aerospace is installed"
     else
         fail "aerospace is not installed"
-        missing+=(aerospace)
-        missing_cask+=(true)
+        record_missing_brew_package aerospace nikitabobko/tap/aerospace true
     fi
 
     if check_brew_package borders false; then
         success "borders (JankyBorders) is installed"
     else
         fail "borders (JankyBorders) is not installed"
-        missing+=(borders)
-        missing_cask+=(false)
+        record_missing_brew_package borders FelixKratz/formulae/borders false
     fi
 
     if command -v jq &>/dev/null; then
         success "jq is installed"
     else
         fail "jq is not installed"
-        missing+=(jq)
-        missing_cask+=(false)
+        record_missing_brew_package jq jq false
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
@@ -812,7 +819,7 @@ cmd_install() {
         if [[ "$answer" =~ ^[Yy]$ ]]; then
             for i in "${!missing[@]}"; do
                 echo -e "\nInstalling ${bold}${missing[$i]}${reset}..."
-                install_brew_package "${missing[$i]}" "${missing_cask[$i]}"
+                install_brew_package "${missing_install[$i]}" "${missing_cask[$i]}"
                 success "${missing[$i]} installed"
             done
         else
@@ -823,6 +830,7 @@ cmd_install() {
     # --- Deploy aerospace config ---
     echo
     echo -e "${bold}Deploying configs...${reset}"
+    mkdir -p "$HOME/.config/hub"
     if [[ -f "$AEROSPACE_CONFIG" ]]; then
         if grep -q "# AeroSpace config managed by hub" "$AEROSPACE_CONFIG" 2>/dev/null; then
             success "aerospace.toml already managed by hub, updating"
