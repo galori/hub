@@ -424,6 +424,9 @@ MENU_BAR_PID=""
 
 toggle_menu_bar() {
     local hidden="$1"
+    open "x-apple.systempreferences:com.apple.ControlCenter-Settings.extension?MenuBar" &>/dev/null \
+        || open "/System/Applications/System Settings.app" &>/dev/null \
+        || true
     if [[ "$hidden" == "true" ]]; then
         osascript "$APPLESCRIPT" "Always" &>/dev/null &
     else

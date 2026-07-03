@@ -24,8 +24,6 @@ end findMenuBarPopup
 on run argv
 	set targetValue to item 1 of argv
 
-	open location "x-apple.systempreferences:com.apple.ControlCenter-Settings.extension?MenuBar"
-
 	tell application "System Events"
 		tell process "System Settings"
 			repeat 80 times
@@ -46,7 +44,9 @@ on run argv
 
 			if p is missing value then error "Menu bar auto-hide popup did not appear."
 
-			if targetValue is "Get" or targetValue is "--get" then return (value of p as text)
+			if targetValue is "Get" or targetValue is "--get" then
+				return (value of p as text)
+			end if
 			if (value of p as text) is targetValue then return
 
 			perform action "AXPress" of p
