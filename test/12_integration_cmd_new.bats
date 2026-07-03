@@ -44,9 +44,9 @@ write_workspace() {
         source '$HUB_SCRIPT' >/dev/null 2>&1
         rebuild_labels_file
     " 2>/dev/null
-    [[ -f "$HOME/.config/hub/bar_labels" ]]
-    grep -q "^1:Alpha:" "$HOME/.config/hub/bar_labels"
-    grep -q "^2:Beta:"  "$HOME/.config/hub/bar_labels"
+    [[ -f "$HOME/.config/hub/hub_bar_labels" ]]
+    grep -q "^1:Alpha:" "$HOME/.config/hub/hub_bar_labels"
+    grep -q "^2:Beta:"  "$HOME/.config/hub/hub_bar_labels"
 }
 
 @test "rebuild_labels_file includes repo basename when root_repo set" {
@@ -57,7 +57,7 @@ write_workspace() {
         source '$HUB_SCRIPT' >/dev/null 2>&1
         rebuild_labels_file
     " 2>/dev/null
-    grep -q "^3:feature::repo" "$HOME/.config/hub/bar_labels"
+    grep -q "^3:feature::repo" "$HOME/.config/hub/hub_bar_labels"
 }
 
 # ---------------------------------------------------------------------------

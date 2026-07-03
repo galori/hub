@@ -1872,19 +1872,6 @@ cmd_status() {
     echo -e "${bold}Active workspaces:${reset} $active_count  ($(echo "$active_ws" | tr '\n' ' ' | sed 's/ $//'))"
     echo
 
-    # --- Label length ---
-    local maxlen=-1
-    [[ -f /tmp/hub_label_maxlen ]] && maxlen="$(cat /tmp/hub_label_maxlen 2>/dev/null || echo -1)"
-    echo -e "${bold}Label length:${reset}"
-    if [[ "$maxlen" -lt 0 ]]; then
-        echo -e "  unlimited  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
-    elif [[ "$maxlen" -eq 0 ]]; then
-        echo -e "  workspace number only  ${yellow}(adjust with ctrl-alt-${green}-${yellow} and ctrl-alt-${green}+${yellow})${reset}"
-    else
-        echo -e "  $maxlen chars"
-    fi
-    echo
-
     # --- Workspaces ---
     if [[ "$compact" == "true" ]]; then
         cmd_list
