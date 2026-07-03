@@ -9,11 +9,11 @@
 
 ### Pull request flow
 
-- Create changes on a branch and open a PR instead of pushing directly to `main`.
+- Always create changes on a branch and open a PR; do not push directly to `main`.
 - Wait for the fast GitHub-hosted PR test suite to pass.
-- Once the PR is green, merge it promptly; do not wait for the live integration suite before merging.
-- The live integration suite runs after merge on the self-hosted `Gall` macOS runner.
-- If live integration fails, treat `main` as red until a repair PR lands.
+- Once the PR builds are green, it is OK to merge promptly; do not wait for the live integration suite before merging.
+- After merging, watch the GitHub Actions run on `main` and confirm the live integration suite passes on the self-hosted `Gall` macOS runner.
+- If live integration fails on `main`, investigate immediately and treat `main` as red until a repair PR lands.
 
 ### Live integration failure repair
 
