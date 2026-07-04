@@ -140,13 +140,16 @@ hub open 2         # open just the second configured app (e.g., Safari)
 
 ## Development
 
-* If working from a worktree, run `hub reboot` after making changes to get everything running from the worktree path for testing.
-* The AeroSpace config in this repo serves as a template. It gets converted to the actual config file and placed in the right location during `hub install`
+* Worktree development is local and isolated by default. Run `make test-fast` for the stubbed local suite, or `make test-local` to include Swift compile checks.
+* Use `./scripts/hub` when checking CLI behavior from a worktree. Do not rely on the installed `hub` alias in `$PATH`.
+* Do not run `hub install`, `hub reboot`, `hub up`, or `hub down` for ordinary worktree validation; those commands affect the single running Hub installation on the laptop.
+* If you need to test install steps without touching the running Hub, use `HUB_NONINTERACTIVE=1 ./scripts/hub install --no-reload --no-shell-integration --no-launch-services --no-default-browser-change` with isolated `HUB_CONFIG_DIR` / `HUB_RUNTIME_DIR`.
+* The AeroSpace config in this repo serves as a template. It gets converted to the actual config file and placed in the right location during `hub install`.
 * AeroSpace
   * AeroSpace is configured via `aerospace.toml`
   * See the docs here: https://github.com/nikitabobko/AeroSpace/blob/main/README.md
   * AeroSpace can also be managed at runtime with the `aerospace` cli. (see `aerospace --help`)
-* If working off of a git worktree, to test first install the worktree's version with `scripts/hub install`
+* Live integration tests run in CI/PR checks on a dedicated macOS runner. Local runs of `make test-integration` require `HUB_RUN_INTEGRATION=1` and intentionally exercise the installed/running Hub.
 
 ## Dependencies
 

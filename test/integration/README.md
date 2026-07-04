@@ -10,9 +10,9 @@ stubbed unit-test suite in `test/` and are gated so they never run by accident.
 
 ### Machine
 
-Test 1 (`01_install_up.bats`) runs a full `hub install` + `hub up`. Because
-`hub install` is an **idempotent deploy** (all outputs are generated from the
-repo's own templates), this is safe to run on your normal dev machine:
+Test 1 (`01_install_up.bats`) runs a full `hub install` + `hub up`. Run this
+suite on the dedicated macOS runner, a test user, or a machine where it is
+acceptable to exercise the installed/running Hub:
 
 - overwrites `~/.aerospace.toml` from `config/aerospace.toml` — same result
 - shell rc / global gitignore / `~/.claude/commands` — all guarded; no-op if already installed
@@ -24,9 +24,9 @@ Visible side effects on your screen during the suite:
 - AeroSpace focus switches to the newly created test workspace (tests 2/3), then back after cleanup
 - Hub fullscreen mode is toggled on/off while verifying AeroSpace top padding (test 4)
 
-> For a fully hands-off run with zero screen disruption, use a dedicated test
-> machine or test user. But running on your dev machine while you step away is
-> fine.
+> For routine worktree development, use `make test-fast` or `make test-local`.
+> Live integration is intentionally reserved for CI/PR checks or explicit
+> installed-Hub validation.
 
 ### Software — must be pre-installed via Homebrew
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Integration tests: invoke hub as a subprocess and assert CLI output
+# Stubbed command tests: invoke the worktree hub script and assert CLI output.
 
 load helpers/stubs
 

@@ -8,12 +8,14 @@ import Cocoa
 // this process (SIGUSR1) to advance the highlight. Releasing Alt commits the
 // highlighted app; Esc cancels.
 //
-// Result: writes the chosen 1-based slot number to /tmp/hub-app-switcher-result
-// and exits 0 on commit. On cancel, removes that file and exits 1.
+// Result: writes the chosen 1-based slot number to APP_SWITCHER_RESULT,
+// or /tmp/hub-app-switcher-result as fallback, and exits 0 on commit.
+// On cancel, removes that file and exits 1.
 
-let resultPath = "/tmp/hub-app-switcher-result"
-let appsPath = ("~/.config/hub/apps.json" as NSString).expandingTildeInPath
-let iconsDir = ("~/.config/hub/icons" as NSString).expandingTildeInPath
+let resultPath = ProcessInfo.processInfo.environment["APP_SWITCHER_RESULT"] ?? "/tmp/hub-app-switcher-result"
+let hubConfigDir = ProcessInfo.processInfo.environment["HUB_CONFIG_DIR"] ?? ("~/.config/hub" as NSString).expandingTildeInPath
+let appsPath = ProcessInfo.processInfo.environment["APPS_FILE"] ?? (hubConfigDir as NSString).appendingPathComponent("apps.json")
+let iconsDir = ProcessInfo.processInfo.environment["ICONS_DIR"] ?? (hubConfigDir as NSString).appendingPathComponent("icons")
 
 // ── App loading ──────────────────────────────────────────────────────────────
 

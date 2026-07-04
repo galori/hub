@@ -6,7 +6,12 @@ setup_stubs() {
     export HUB_TEST_DIR
     HUB_TEST_DIR="$(mktemp -d)"
     export HOME="$HUB_TEST_DIR"
-    mkdir -p "$HOME/.config/hub"
+    export HUB_HOME="$HOME"
+    export HUB_CONFIG_DIR="$HOME/.config/hub"
+    export HUB_RUNTIME_DIR="$HUB_TEST_DIR/runtime"
+    export HUB_APPLICATIONS_DIR="$HOME/Applications"
+    export AEROSPACE_CONFIG="$HOME/.aerospace.toml"
+    mkdir -p "$HUB_CONFIG_DIR" "$HUB_RUNTIME_DIR" "$HUB_APPLICATIONS_DIR"
 
     # Stub bin dir (prepended to PATH so stubs shadow real tools)
     export STUB_BIN="$HUB_TEST_DIR/stubs"
@@ -21,12 +26,14 @@ setup_stubs() {
     make_stub osascript   ""  0
     make_stub defaults    ""  0
     make_stub killall     ""  0
+    make_stub launchctl   ""  1
     make_stub open        ""  0
     make_stub pgrep       ""  1  # default: "not running"
     make_stub pkill       ""  0
     make_stub swiftc      ""  0
     make_stub brew        ""  0
     make_stub git         ""  0
+    make_stub sips        ""  0
 
     # Use real jq (remove the stub so the real one is used for workspace JSON)
     rm -f "$STUB_BIN/jq"
@@ -64,23 +71,6 @@ STUB
 # by setting BATS_HUB_SOURCED so callers can re-source selectively.
 load_hub_functions() {
     local script="$BATS_TEST_DIRNAME/../scripts/hub"
-    # We source the script but need to prevent the main case statement from
-    # running. We do this by pre-setting $1 to a no-op sentinel that falls
-    # through to the empty/help branch without side effects, then re-exporting
-    # just the functions we need. The cleanest approach is to extract and eval
-    # the function definitions only.
-    #
-    # Strategy: source with `set --` to clear positional params, then the
-    # `case "$command"` at the bottom hits `''` → print_usage (harmless to
-    # stdout in tests, which we redirect).
-    (
-        set --
-        # shellcheck disable=SC1090
-        source "$script" 2>/dev/null
-    )
-    # Actually we need the functions in the current shell. Source directly
-    # with empty $1 so the bottom case hits '' → print_usage.
-    # Suppress output.
     # shellcheck disable=SC1090
-    source "$script" > /dev/null 2>&1 || true
+    source "$script"
 }

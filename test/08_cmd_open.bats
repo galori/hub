@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Integration tests for hub open argument parsing and app slot dispatch
+# Stubbed command tests for hub open argument parsing and app slot dispatch.
 
 load helpers/stubs
 

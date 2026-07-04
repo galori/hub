@@ -10,6 +10,8 @@ setup() {
         skip "SKIP_SWIFT_COMPILE set"
     fi
     COMPILE_OUT="$(mktemp -d)"
+    export CLANG_MODULE_CACHE_PATH="$COMPILE_OUT/module-cache"
+    mkdir -p "$CLANG_MODULE_CACHE_PATH"
     BIN="$COMPILE_OUT/spatial_order"
     swiftc -O -o "$BIN" "$SPATIAL_ORDER_SRC" 2>/tmp/swiftc_err
 }

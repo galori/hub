@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Integration tests: hub install config deployment (sed substitution,
+# Stubbed command tests: hub install config deployment (sed substitution,
 # placeholder replacement, idempotency). Does NOT require running services.
 
 load helpers/stubs
@@ -14,7 +14,9 @@ setup() {
     export AEROSPACE_CONFIG="$HOME/.aerospace.toml"
     export WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
     export APPS_FILE="$HOME/.config/hub/apps.json"
+    export APP_PRESETS_FILE="$HOME/.config/hub/app_presets.json"
     export KEYS_CACHE="$HOME/.config/hub/keys_cache"
+    export STUB_CALLS="$HOME/stub_calls"
 
     # Stub interactive tools that install would prompt or run
     make_stub git "" 0
@@ -41,23 +43,18 @@ teardown() {
     teardown_stubs
 }
 
-# Run just the deploy-configs portion of install.
-# Uses a temp script file to avoid quoting pitfalls in bash -c heredocs.
+# Run just the deploy-configs portion of install through the real helper.
 run_deploy() {
-    local deploy_script
-    deploy_script="$(mktemp /tmp/hub_test_deploy.XXXXXX.sh)"
-    cat > "$deploy_script" <<SCRIPT
-#!/usr/bin/env bash
-set -euo pipefail
-HUB_SCRIPT="$REPO_DIR/scripts/hub"
-
-# Deploy aerospace config
-sed "s|__HUB_SCRIPT__|\$HUB_SCRIPT|g" \
-    "$REPO_DIR/config/aerospace.toml" > "$AEROSPACE_CONFIG"
-SCRIPT
-    chmod +x "$deploy_script"
-    bash "$deploy_script"
-    rm -f "$deploy_script"
+    bash -c "
+        export HOME='$HOME'
+        export HUB_HOME='$HUB_HOME'
+        export HUB_CONFIG_DIR='$HUB_CONFIG_DIR'
+        export HUB_RUNTIME_DIR='$HUB_RUNTIME_DIR'
+        export HUB_APPLICATIONS_DIR='$HUB_APPLICATIONS_DIR'
+        export AEROSPACE_CONFIG='$AEROSPACE_CONFIG'
+        source '$HUB_SCRIPT' >/dev/null 2>&1
+        deploy_aerospace_config
+    "
 }
 
 # ---------------------------------------------------------------------------
@@ -81,6 +78,12 @@ SCRIPT
     grep -q 'config-version = 2' "$AEROSPACE_CONFIG"
     grep -q '\[mode.main.binding\]' "$AEROSPACE_CONFIG"
     grep -q '\[mode.service.binding\]' "$AEROSPACE_CONFIG"
+}
+
+@test "deployed aerospace.toml contains resolved outer.top" {
+    run_deploy
+    grep -q 'outer.top =        55' "$AEROSPACE_CONFIG"
+    ! grep -q '__HUB_OUTER_TOP__' "$AEROSPACE_CONFIG"
 }
 
 @test "all __HUB_SCRIPT__ placeholders replaced in aerospace.toml" {
@@ -134,4 +137,16 @@ APPS_EOF
 ]
 JSON
     jq . "$APPS_FILE" >/dev/null 2>&1
+}
+
+@test "install isolated flags avoid live reloads and shell integration" {
+    run env HUB_NONINTERACTIVE=1 "$HUB_SCRIPT" install --no-reload --no-shell-integration --no-launch-services --no-default-browser-change
+
+    [[ "$status" -eq 0 ]]
+    [[ -f "$AEROSPACE_CONFIG" ]]
+    [[ -f "$APP_PRESETS_FILE" ]]
+    [[ ! -f "$HOME/.zshrc" ]]
+    [[ ! -f "$HOME/.claude/commands/hub-new.md" ]]
+    [[ "$output" == *"Skipped live service reload"* ]]
+    [[ "$output" == *"Skipped shell alias install"* ]]
 }

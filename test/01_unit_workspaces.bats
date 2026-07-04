@@ -53,7 +53,8 @@ teardown() {
 
 @test "get_workspace_path returns empty when workspaces.json missing" {
     empty_home="$(mktemp -d)"
-    result="$(HOME="$empty_home" bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; get_workspace_path 1")"
+    result="$(HOME="$empty_home" env -u HUB_HOME -u HUB_CONFIG_DIR -u WORKSPACES_FILE \
+        bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; get_workspace_path 1")"
     rm -rf "$empty_home"
     [[ -z "$result" ]]
 }
@@ -79,7 +80,8 @@ teardown() {
 
 @test "cmd_list when no workspaces.json prints message" {
     empty_home="$(mktemp -d)"
-    output="$(HOME="$empty_home" bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_list")"
+    output="$(HOME="$empty_home" env -u HUB_HOME -u HUB_CONFIG_DIR -u WORKSPACES_FILE \
+        bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; cmd_list")"
     rm -rf "$empty_home"
     [[ "$output" == *"No workspaces"* ]]
 }

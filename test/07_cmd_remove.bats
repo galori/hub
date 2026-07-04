@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Integration tests for hub remove (non-interactive / -y flag path)
+# Stubbed command tests for hub remove (non-interactive / -y flag path).
 
 load helpers/stubs
 
