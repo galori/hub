@@ -522,6 +522,40 @@ struct FitDecision {
     }
 }
 
+func fitStructureMatchesForRefresh(_ lhs: FitDecision?, _ rhs: FitDecision) -> Bool {
+    guard let lhs = lhs else { return true }
+    return lhs.rowAssignment == rhs.rowAssignment
+        && lhs.row0Split == rhs.row0Split
+        && lhs.leftCap == rhs.leftCap
+        && lhs.leftWsIDs == rhs.leftWsIDs
+        && lhs.rightCap == rhs.rightCap
+        && lhs.rightWsIDs == rhs.rightWsIDs
+}
+
+func refreshRequiresRebuild(lastFitRows: Int,
+                            lastFitCap: Int,
+                            lastFitDecision: FitDecision?,
+                            lastVisiblePillIDs: [String],
+                            previousMode: HubBarState.LayoutMode,
+                            currentMode: HubBarState.LayoutMode,
+                            currentPillIDs: [String],
+                            existingPillIDs: Set<String>,
+                            newFit: FitDecision) -> Bool {
+    let rowsChanged = newFit.rows != lastFitRows
+    let capChanged = newFit.effectiveCap != lastFitCap
+    let modeChanged = currentMode != previousMode
+    let pillSequenceChanged = currentPillIDs != lastVisiblePillIDs
+    let newPillMissing = currentPillIDs.contains { !existingPillIDs.contains($0) }
+    let fitStructureChanged = !fitStructureMatchesForRefresh(lastFitDecision, newFit)
+
+    return rowsChanged
+        || capChanged
+        || modeChanged
+        || pillSequenceChanged
+        || newPillMissing
+        || fitStructureChanged
+}
+
 let FIT_MAX_ROWS = 4
 
 // Greedy packing of pills into rows given row widths.
@@ -1154,6 +1188,7 @@ class HubBarWindow: NSWindow {
     var lastFitRows: Int = 0
     var lastFitCap: Int = -2  // sentinel "unknown"
     var lastFitDecision: FitDecision?
+    var lastVisiblePillIDs: [String] = []
     var lastRenderedState: HubBarState = HubBarState()
     private var hoveredTruncatedWsID: String?
     private var hoverCollapseWorkItem: DispatchWorkItem?
@@ -1288,6 +1323,7 @@ class HubBarWindow: NSWindow {
 
         let monitorWs = state.monitorWorkspaces[monitorIndex]
         let pills = state.visiblePillInfos(monitorWs: monitorWs)
+        lastVisiblePillIDs = pills.map { $0.ws }
 
         let notch = notchRange(isFullscreen: isFullscreen)
         let fit = decideFit(
@@ -1645,6 +1681,8 @@ class HubBarWindow: NSWindow {
     func applyRefresh(state: HubBarState, fit: FitDecision) {
         lastRenderedState = state
         lastFitDecision = fit
+        let monitorWs = state.monitorWorkspaces[monitorIndex]
+        lastVisiblePillIDs = state.visiblePillInfos(monitorWs: monitorWs).map { $0.ws }
         applyWorkspaceState(state: state, fit: fit)
         serviceModeLabel?.isHidden = !state.serviceMode
     }
@@ -2569,6 +2607,7 @@ class HubBarController: NSObject {
                     let notch = w.notchRange(isFullscreen: isFullscreen)
                     let monitorWs = state.monitorWorkspaces[w.monitorIndex]
                     let pills = state.visiblePillInfos(monitorWs: monitorWs)
+                    let currentPillIDs = pills.map { $0.ws }
 
                     let newFit = decideFit(
                         pills: pills, screenW: sf.width,
@@ -2578,18 +2617,25 @@ class HubBarController: NSObject {
                         mode: state.layoutMode,
                         lastRows: w.lastFitRows)
 
-                    let rowsChanged    = newFit.rows != w.lastFitRows
-                    let capChanged     = newFit.effectiveCap != w.lastFitCap
-                    let modeChanged    = state.layoutMode != prevState.layoutMode
-                    // Detect new workspaces whose pill view hasn't been created yet
-                    let newPillMissing = pills.contains { w.wsPills[$0.ws] == nil }
+                    let needsRebuild = refreshRequiresRebuild(
+                        lastFitRows: w.lastFitRows,
+                        lastFitCap: w.lastFitCap,
+                        lastFitDecision: w.lastFitDecision,
+                        lastVisiblePillIDs: w.lastVisiblePillIDs,
+                        previousMode: prevState.layoutMode,
+                        currentMode: state.layoutMode,
+                        currentPillIDs: currentPillIDs,
+                        existingPillIDs: Set(w.wsPills.keys),
+                        newFit: newFit)
 
                     if ProcessInfo.processInfo.environment["HUB_BAR_DEBUG"] != nil {
                         let missingWs = pills.filter { w.wsPills[$0.ws] == nil }.map { $0.ws }
-                        fputs("[DEBUG refresh] rowsChanged=\(rowsChanged) capChanged=\(capChanged) modeChanged=\(modeChanged) newPillMissing=\(newPillMissing) missingWs=\(missingWs) newCap=\(newFit.effectiveCap) lastCap=\(w.lastFitCap)\n", stderr)
+                        let visibleChanged = currentPillIDs != w.lastVisiblePillIDs
+                        let structureChanged = !fitStructureMatchesForRefresh(w.lastFitDecision, newFit)
+                        fputs("[DEBUG refresh] needsRebuild=\(needsRebuild) visibleChanged=\(visibleChanged) structureChanged=\(structureChanged) missingWs=\(missingWs) newCap=\(newFit.effectiveCap) lastCap=\(w.lastFitCap)\n", stderr)
                     }
 
-                    if rowsChanged || capChanged || modeChanged || newPillMissing {
+                    if needsRebuild {
                         w.buildContents(state: state, lastRows: w.lastFitRows,
                                         writeBarMetrics: !w.menuBarRevealedInFullscreen)
                         self.orderFrontUnlessNativeFullscreen(w)
