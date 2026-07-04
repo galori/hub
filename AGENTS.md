@@ -4,6 +4,7 @@
 
 ### REQUIRED: After every change
 
+- MUST use test-driven development when feasible: write or update a failing test that captures the intended behavior before changing implementation, then make it pass. If TDD is not feasible, document the reason in the final response or PR notes.
 - MUST run `hub install` if any file in `config/` or `lib/` changed
 - MUST make changes on a non-`main` branch; never commit directly on `main`
 - MUST create a git commit and push the branch after every completed set of changes
@@ -17,6 +18,11 @@
 - Once the PR is green and mergeable, merge it immediately.
 - After merging, confirm the GitHub Actions run on `main` stays green.
 - If live integration fails on `main`, investigate immediately and treat `main` as red until a repair PR lands.
+
+## PR Style
+
+simple
+This is a simple repo. Use a concise title and one-paragraph body; no ticket numbers and no formal PR template are needed.
 
 ### Live integration failure repair
 
