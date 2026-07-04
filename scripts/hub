@@ -1129,7 +1129,8 @@ cmd_new() {
 
 # _git_worktree_add <repo_root> <branch_name> <worktree_path>
 # Create a git worktree, using an existing branch or creating a new one off the
-# default branch. Returns 0 on success; prints the git error and returns 1 on failure.
+# fetched origin default branch when origin is available. Returns 0 on success;
+# prints the git error and returns 1 on failure.
 _git_worktree_add() {
     local repo_root="$1" branch="$2" wt_path="$3"
     local git_err
@@ -1138,10 +1139,25 @@ _git_worktree_add() {
             echo "$git_err"; return 1
         }
     else
-        local base_branch
+        local base_branch base_ref has_origin=false
+        if git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
+            has_origin=true
+            git_err="$(git -C "$repo_root" fetch 2>&1)" || {
+                echo "$git_err"; return 1
+            }
+        fi
+
         base_branch="$(_default_branch "$repo_root" || true)"
         if [[ -n "$base_branch" ]]; then
-            git_err="$(git -C "$repo_root" worktree add -b "$branch" "$wt_path" "$base_branch" 2>&1)" || {
+            base_ref="$base_branch"
+            if [[ "$has_origin" == "true" ]]; then
+                base_ref="origin/$base_branch"
+                if ! git -C "$repo_root" rev-parse --verify "refs/remotes/$base_ref" >/dev/null 2>&1; then
+                    echo "origin/$base_branch not found after git fetch"
+                    return 1
+                fi
+            fi
+            git_err="$(git -C "$repo_root" worktree add -b "$branch" "$wt_path" "$base_ref" 2>&1)" || {
                 echo "$git_err"; return 1
             }
         else
@@ -1399,7 +1415,8 @@ _default_branch() {
         return 0
     fi
     for candidate in main master; do
-        if git -C "$repo_root" rev-parse --verify "refs/heads/$candidate" >/dev/null 2>&1; then
+        if git -C "$repo_root" rev-parse --verify "refs/remotes/origin/$candidate" >/dev/null 2>&1 || \
+           git -C "$repo_root" rev-parse --verify "refs/heads/$candidate" >/dev/null 2>&1; then
             echo "$candidate"
             return 0
         fi

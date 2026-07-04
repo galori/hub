@@ -4,6 +4,7 @@
 
 ### REQUIRED: After every change
 
+- MUST use test-driven development when feasible: write or update a failing test that captures the intended behavior before changing implementation, then make it pass. If TDD is not feasible, document the reason in the final response or PR notes.
 - MUST run `hub install` if any file in `config/` or `lib/` changed
 - MUST make changes on a non-`main` branch; never commit directly on `main`
 - MUST create a git commit and push the branch after every completed set of changes
