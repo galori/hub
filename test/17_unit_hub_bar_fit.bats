@@ -89,6 +89,39 @@ guard relaxedWidth > baseWidth else {
 guard relaxedWidth <= rightSegW else {
     fail("expected relaxed right width \(relaxedWidth) to fit right segment \(rightSegW)")
 }
+
+let previousRefreshFit = FitDecision(
+    rows: 1,
+    rowAssignment: [[0, 1, 2]],
+    effectiveCap: 8,
+    row0Split: 1,
+    leftCap: nil,
+    leftWsIDs: [],
+    rightCap: 14,
+    rightWsIDs: Set(["2", "3"]))
+let afterDeletionFit = FitDecision(
+    rows: 1,
+    rowAssignment: [[0, 1]],
+    effectiveCap: 8,
+    row0Split: 1,
+    leftCap: nil,
+    leftWsIDs: [],
+    rightCap: 18,
+    rightWsIDs: Set(["3"]))
+
+let rebuildAfterDeletion = refreshRequiresRebuild(
+    lastFitRows: 1,
+    lastFitCap: 8,
+    lastFitDecision: previousRefreshFit,
+    lastVisiblePillIDs: ["1", "2", "3"],
+    previousMode: .shrink,
+    currentMode: .shrink,
+    currentPillIDs: ["1", "3"],
+    existingPillIDs: Set(["1", "2", "3"]),
+    newFit: afterDeletionFit)
+guard rebuildAfterDeletion else {
+    fail("expected deletion of an existing visible pill to rebuild notch row stacks")
+}
 SWIFT
 
     swiftc -D HUB_BAR_TEST -O -o "$COMPILE_OUT/hub_bar_fit" \
