@@ -19,6 +19,11 @@
 - After merging, confirm the GitHub Actions run on `main` stays green.
 - If live integration fails on `main`, investigate immediately and treat `main` as red until a repair PR lands.
 
+## PR Style
+
+simple
+This is a simple repo. Use a concise title and one-paragraph body; no ticket numbers and no formal PR template are needed.
+
 ### Live integration failure repair
 
 - Live integration failures create or update a GitHub issue titled `Live integration failure on main`.
