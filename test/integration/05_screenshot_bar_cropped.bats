@@ -18,6 +18,7 @@ setup() {
     require_live_session
     require_macos_sequoia
     require_imagemagick
+    require_timeout
 
     ORIGINAL_DESKTOP_PICTURES="$BATS_TEST_TMPDIR/original_desktop_pictures.txt"
     save_desktop_pictures "$ORIGINAL_DESKTOP_PICTURES"
@@ -61,9 +62,49 @@ require_imagemagick() {
     fi
 }
 
+timeout_bin() {
+    if command -v timeout >/dev/null 2>&1; then
+        command -v timeout
+    elif command -v gtimeout >/dev/null 2>&1; then
+        command -v gtimeout
+    else
+        return 1
+    fi
+}
+
+require_timeout() {
+    timeout_bin >/dev/null || skip "timeout or gtimeout is required for bounded live screenshot checks"
+}
+
+osascript_with_timeout() {
+    local seconds="$1"
+    shift
+
+    local script_file timeout_cmd
+    script_file="$BATS_TEST_TMPDIR/osascript-${BATS_TEST_NUMBER:-0}-${RANDOM}.applescript"
+    cat > "$script_file"
+
+    timeout_cmd="$(timeout_bin)"
+    "$timeout_cmd" "$seconds" osascript "$script_file" "$@"
+}
+
+hub_bar_top_y() {
+    swift -e 'import Cocoa
+let options: CGWindowListOption = [.excludeDesktopElements, .optionOnScreenOnly]
+let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+for window in list {
+    guard let owner = window[kCGWindowOwnerName as String] as? String, owner == "hub_bar",
+          let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+          let y = bounds["Y"] as? Int else { continue }
+    print(y)
+    exit(0)
+}
+exit(1)'
+}
+
 save_desktop_pictures() {
     local out="$1"
-    osascript <<'APPLESCRIPT' > "$out"
+    osascript_with_timeout 10 <<'APPLESCRIPT' > "$out"
 set oldDelimiters to AppleScript's text item delimiters
 set AppleScript's text item delimiters to linefeed
 set paths to {}
@@ -84,7 +125,7 @@ APPLESCRIPT
 
 restore_desktop_pictures() {
     local source_file="$1"
-    osascript - "$source_file" <<'APPLESCRIPT'
+    osascript_with_timeout 10 "$source_file" <<'APPLESCRIPT'
 on run argv
     set sourceFile to POSIX file (item 1 of argv)
     set rawPaths to read sourceFile
@@ -111,7 +152,7 @@ APPLESCRIPT
 
 set_desktop_picture() {
     local image_path="$1"
-    osascript - "$image_path" <<'APPLESCRIPT'
+    osascript_with_timeout 10 "$image_path" <<'APPLESCRIPT'
 on run argv
     set imagePath to item 1 of argv
     tell application "System Events"
@@ -153,7 +194,7 @@ non_solid_pixel_count() {
 }
 
 @test "screenshot-bar-cropped shows only solid strips, no wallpaper sliver, over Sequoia Sunrise" {
-    local hub repo_dir wallpaper screenshot non_solid_count
+    local hub repo_dir wallpaper screenshot non_solid_count hub_top crop_y1 crop_y2
     hub="$(hub_bin)"
     repo_dir="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
     wallpaper="/System/Library/Desktop Pictures/.wallpapers/Sequoia Sunrise/Sequoia Sunrise.heic"
@@ -176,7 +217,14 @@ non_solid_pixel_count() {
     wait_for 15 "menu bar is visible in normal mode" \
         "[[ \"\$(menu_bar_auto_hide_value)\" == \"Never\" ]]"
 
-    run "$repo_dir/agents/bin/screenshot-bar-cropped" 430 40 490 70 "$screenshot"
+    hub_top="$(hub_bar_top_y)"
+    echo "# hub bar top y: $hub_top" >&3
+    [[ "$hub_top" =~ ^[0-9]+$ ]]
+    crop_y1=$((hub_top - 6))
+    [[ "$crop_y1" -lt 0 ]] && crop_y1=0
+    crop_y2=$((hub_top + 10))
+
+    run "$repo_dir/agents/bin/screenshot-bar-cropped" 430 "$crop_y1" 490 "$crop_y2" "$screenshot"
     echo "# status: $status" >&3
     echo "# output: $output" >&3
     [[ "$status" -eq 0 ]]
