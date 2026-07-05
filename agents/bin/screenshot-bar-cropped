@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Capture the Hub Bar, then keep a cropped left-side slice.
+# Usage: screenshot-bar-cropped [left-width] [top-crop] [bottom-crop] [output.png]
+#        screenshot-bar-cropped [output.png]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CROP_WIDTH=100
+TOP_CROP=0
+BOTTOM_CROP=0
+OUT="/tmp/hub-bar-cropped.png"
+
+is_number() {
+    [[ "${1:-}" =~ ^[0-9]+$ ]]
+}
+
+if [ "$#" -gt 0 ]; then
+    if is_number "$1"; then
+        CROP_WIDTH="$1"
+        shift
+        if [ "$#" -gt 0 ] && is_number "$1"; then
+            TOP_CROP="$1"
+            shift
+        fi
+        if [ "$#" -gt 0 ] && is_number "$1"; then
+            BOTTOM_CROP="$1"
+            shift
+        fi
+        if [ "$#" -gt 0 ]; then
+            OUT="$1"
+            shift
+        fi
+    else
+        OUT="$1"
+        shift
+    fi
+fi
+
+if [ "$#" -gt 0 ]; then
+    echo "Usage: screenshot-bar-cropped [left-width] [top-crop] [bottom-crop] [output.png]" >&2
+    exit 2
+fi
+
+if [ "$CROP_WIDTH" -eq 0 ]; then
+    echo "left-width must be greater than 0" >&2
+    exit 2
+fi
+
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hub-bar-cropped.XXXXXX")"
+FULL_IMG="$TMP_DIR/full.png"
+BOTTOM_IMG="$TMP_DIR/bottom-cropped.png"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+CAPTURE_OUTPUT="$("$SCRIPT_DIR/screenshot-bar" "$FULL_IMG")"
+CAPTURED_IMG="$(printf '%s\n' "$CAPTURE_OUTPUT" | tail -n 1)"
+if [[ -n "$CAPTURED_IMG" ]]; then
+    FULL_IMG="$CAPTURED_IMG"
+fi
+
+WIDTH="$(sips -g pixelWidth "$FULL_IMG" | awk '/pixelWidth:/ {print $2; exit}')"
+HEIGHT="$(sips -g pixelHeight "$FULL_IMG" | awk '/pixelHeight:/ {print $2; exit}')"
+
+if [[ ! "$WIDTH" =~ ^[0-9]+$ ]] || [[ ! "$HEIGHT" =~ ^[0-9]+$ ]] || [ "$WIDTH" -eq 0 ] || [ "$HEIGHT" -eq 0 ]; then
+    echo "Unable to read screenshot dimensions" >&2
+    exit 1
+fi
+
+if [ "$WIDTH" -lt "$CROP_WIDTH" ]; then
+    CROP_WIDTH="$WIDTH"
+fi
+
+if [ "$BOTTOM_CROP" -ge "$HEIGHT" ]; then
+    echo "bottom-crop must be less than image height ($HEIGHT)" >&2
+    exit 2
+fi
+
+BOTTOM_HEIGHT=$((HEIGHT - BOTTOM_CROP))
+
+if [ "$TOP_CROP" -ge "$BOTTOM_HEIGHT" ]; then
+    echo "top-crop must be less than remaining image height ($BOTTOM_HEIGHT)" >&2
+    exit 2
+fi
+
+FINAL_HEIGHT=$((BOTTOM_HEIGHT - TOP_CROP))
+
+sips --cropOffset 0 0 \
+    --cropToHeightWidth "$BOTTOM_HEIGHT" "$CROP_WIDTH" \
+    "$FULL_IMG" --out "$BOTTOM_IMG" >/dev/null
+
+sips --cropOffset "$TOP_CROP" 0 \
+    --cropToHeightWidth "$FINAL_HEIGHT" "$CROP_WIDTH" \
+    "$BOTTOM_IMG" --out "$OUT" >/dev/null
+
+echo "$OUT"
