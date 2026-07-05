@@ -10,14 +10,13 @@
 - MUST NOT run `hub install`, `hub reboot`, `hub up`, or `hub down` on a development machine for ordinary worktree validation unless the task explicitly requires testing the live installed Hub
 - MUST make changes on a non-`main` branch; never commit directly on `main`
 - MUST create a git commit and push the branch after every completed set of changes
-- MUST open a PR, wait for all PR builds/checks to run and pass, then merge it immediately
+- MUST open a PR and enable auto-merge on it; do not wait for checks or merge manually
 
 ### Pull request flow
 
 - Always create changes on a branch and open a PR; do not push directly to `main`.
 - Push completed changes to the PR branch, not to `main`.
-- Wait for every PR build/check to complete and turn green, including live integration.
-- Once the PR is green and mergeable, merge it immediately.
+- Enable auto-merge on the PR (`gh pr merge --auto --squash`, or the repo's default merge method) and stop there. PR checks include integration tests, and auto-merge will complete the merge once they pass — do not wait for checks or merge manually.
 
 ## PR Style
 
