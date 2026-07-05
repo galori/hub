@@ -3025,14 +3025,16 @@ cmd_fullscreen() {
             hub_log INPUT "fullscreen on"
             _fullscreen_apply
             # Restart the Hub Bar after the menu bar hides so it reads the new visibleFrame.
-            sleep 0.8 && hub_bar_restart &
+            (sleep 0.8; hub_bar_restart) >/dev/null 2>&1 &
+            disown
             ;;
         off)
             rm -f "$FULLSCREEN_STATE_FILE"
             hub_log INPUT "fullscreen off"
             _fullscreen_restore
             # Restart the Hub Bar after the menu bar reappears so it reads the new visibleFrame.
-            sleep 0.8 && hub_bar_restart &
+            (sleep 0.8; hub_bar_restart) >/dev/null 2>&1 &
+            disown
             ;;
         toggle)
             if $is_on; then cmd_fullscreen off; else cmd_fullscreen on; fi
