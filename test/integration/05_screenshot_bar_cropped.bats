@@ -55,7 +55,10 @@ require_macos_sequoia() {
 }
 
 require_imagemagick() {
-    command -v magick >/dev/null 2>&1 || echo "ImageMagick is required for screenshot pixel assertions" || exit 1
+    if ! command -v magick >/dev/null 2>&1; then
+        echo "ImageMagick is required for screenshot pixel assertions" >&2
+        return 1
+    fi
 }
 
 save_desktop_pictures() {
@@ -122,7 +125,6 @@ APPLESCRIPT
 
 non_solid_pixel_count() {
     local image_path="$1"
-    echo "image_path = $image_path"
     magick "$image_path" -alpha off -depth 8 txt:- \
         | awk -F'[(),]' '
             BEGIN {

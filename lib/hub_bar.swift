@@ -59,6 +59,7 @@ let SERVICE_BG: UInt32 = 0xFFC91B00
 
 // ── Geometry ──
 let barHeightNormal: CGFloat = 40
+let normalMenuBarOverlap: CGFloat = 1  // Cover the Sequoia compositor gap below the persistent menu bar.
 let pillH:           CGFloat = 32      // Standard pill height
 let pillRadius:      CGFloat = 16      // Pill corner radius
 let pillPadH:        CGFloat = 8       // Horizontal padding in pills
@@ -1193,7 +1194,7 @@ class HubBarWindow: NSWindow {
     private var hoveredTruncatedWsID: String?
     private var hoverCollapseWorkItem: DispatchWorkItem?
 
-    static let normalWindowLevel = NSWindow.Level.floating
+    static let normalWindowLevel = NSWindow.Level.statusBar
     static let fullscreenWindowLevel = NSWindow.Level.statusBar // 21 — same as macOS notifications; allows notifications to appear above the bar while keeping it pinned at top edge
 
     static func isHubFullscreen() -> Bool {
@@ -1221,7 +1222,7 @@ class HubBarWindow: NSWindow {
     static func barTopY(screen: NSScreen, menuBarRevealedInFullscreen: Bool) -> CGFloat {
         let sf = screen.frame
         let vf = screen.visibleFrame
-        if !isHubFullscreen() { return vf.maxY }
+        if !isHubFullscreen() { return min(sf.maxY, vf.maxY + normalMenuBarOverlap) }
         if !menuBarRevealedInFullscreen { return sf.maxY }
         return sf.maxY - menuBarRevealInset(screen: screen, sf: sf, vf: vf)
     }
