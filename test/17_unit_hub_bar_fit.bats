@@ -15,6 +15,8 @@ setup() {
     fi
     export COMPILE_OUT
     COMPILE_OUT="$(mktemp -d)"
+    export CLANG_MODULE_CACHE_PATH="$COMPILE_OUT/module-cache"
+    mkdir -p "$CLANG_MODULE_CACHE_PATH"
 }
 
 teardown() {

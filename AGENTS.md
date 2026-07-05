@@ -5,7 +5,9 @@
 ### REQUIRED: After every change
 
 - MUST use test-driven development when feasible: write or update a failing test that captures the intended behavior before changing implementation, then make it pass. If TDD is not feasible, document the reason in the final response or PR notes.
-- MUST run `hub install` if any file in `config/` or `lib/` changed
+- MUST run worktree-safe local tests from the repo, such as `make test-fast` or `make test-local`, before committing
+- MUST use `./scripts/hub` (or an absolute path to this worktree's `scripts/hub`) for local CLI checks; do not rely on `hub` from `$PATH`
+- MUST NOT run `hub install`, `hub reboot`, `hub up`, or `hub down` on a development machine for ordinary worktree validation unless the task explicitly requires testing the live installed Hub
 - MUST make changes on a non-`main` branch; never commit directly on `main`
 - MUST create a git commit and push the branch after every completed set of changes
 - MUST open a PR, wait for all PR builds/checks to run and pass, then merge it immediately
@@ -14,10 +16,8 @@
 
 - Always create changes on a branch and open a PR; do not push directly to `main`.
 - Push completed changes to the PR branch, not to `main`.
-- Wait for every PR build/check to complete and turn green, including live integration when it runs for PRs.
+- Wait for every PR build/check to complete and turn green, including live integration.
 - Once the PR is green and mergeable, merge it immediately.
-- After merging, confirm the GitHub Actions run on `main` stays green.
-- If live integration fails on `main`, investigate immediately and treat `main` as red until a repair PR lands.
 
 ## PR Style
 
@@ -64,14 +64,15 @@ This is a simple repo. Use a concise title and one-paragraph body; no ticket num
 - **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command. Commands without full flags show a GUI dialog; with all flags + `-y`, they execute silently. The same code path runs from both CLI and keybinding.
 - **Single-binary Swift UIs**: GUI elements are standalone Swift files compiled with `swiftc -O -framework Cocoa`. No Xcode project, no storyboards.
 - **Config is deployed, not symlinked**: `hub install` deploys configs to their destinations. `aerospace.toml` uses an `__HUB_SCRIPT__` placeholder substituted via sed.
-- **Harmless deploy**: Running `hub install` is always safe as an idempotent deploy/reload step after code changes.
+- **Worktree-safe development**: Unit and stubbed command tests must run against the worktree copy via `./scripts/hub`, isolated `HUB_CONFIG_DIR` / `HUB_RUNTIME_DIR`, and stubbed system tools. Live install/reload checks belong in the opt-in integration suite.
+- **Harmless deploy**: Running `./scripts/hub install` is intended to be idempotent, but it deploys configs, compiles binaries, and may reload the running Hub. Do not use it as a routine local validation step from a worktree.
 - **Responsiveness first**: UI actions must feel instant. Never block the user waiting for background work (app teardown, window closing, etc.) to complete. Move slow work off the critical path — fire-and-forget or background subshells — so the visible state updates immediately.
 - **Dismissable HUDs**: Every floating/always-on-top HUD whose lifetime is tied to an external process (banners, progress overlays — anything launched as a background Swift binary fed via stdin/FIFO) MUST render a manual ✕ dismiss button. If the launching process crashes or is `^C`'d before it sends `QUIT`, the button is the user's only escape hatch. Such windows must set `ignoresMouseEvents = false`. Reuse the `ClickView` dismiss-button pattern in `lib/progress_banner.swift` (hover states + `onPress = { dismiss() }`). Modal overlays that auto-dismiss on a deterministic, short-lived action via `start_overlay` / `stop_overlay` are exempt.
 
 ## Agent Tools
 
 - `agents/bin/screenshot-bar` - Captures a screenshot of just the Hub Bar region (top of screen). **MUST be used to visually confirm the Hub Bar looks correct after any Hub Bar-related change** — layout, icons, spacing, colors. Run it, read the PNG, and verify before committing. Outputs a PNG path: `agents/bin/screenshot-bar [output.png]`
-- `hub testing-banner start|stop|run` - Raise/dismiss a small top-right "stand by" HUD so the user knows not to interact with the UI while you're testing. MUST be used before triggering transient UI, timing-sensitive screenshots, or focus-dependent flows. Always pair `start` with `stop`, even on failure paths.
+- `./scripts/hub testing-banner start|stop|run` - Raise/dismiss a small top-right "stand by" HUD so the user knows not to interact with the UI while you're testing. MUST be used before triggering transient UI, timing-sensitive screenshots, or focus-dependent flows. Always pair `start` with `stop`, even on failure paths.
 
 ## Testing Live UI
 
@@ -88,20 +89,20 @@ Do not raise the banner for:
 
 - Taking screenshots with `agents/bin/screenshot-bar` because it is passive
 - Editing files, compiling, reading logs, or running shell commands the user will not see or feel
-- Running `hub install` only when it will not restart visible services
+- Running `./scripts/hub install --no-reload` only when it will not restart visible services
 
 Use this lifecycle:
 
 ```bash
-hub testing-banner start "short description"
+./scripts/hub testing-banner start "short description"
 # ... do the work ...
-hub testing-banner stop
+./scripts/hub testing-banner stop
 ```
 
 Or in one shot:
 
 ```bash
-hub testing-banner run your-command --with args
+./scripts/hub testing-banner run your-command --with args
 ```
 
 Rules:

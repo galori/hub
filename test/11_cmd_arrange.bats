@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Integration tests for arrange_after_open and arrange_workspace_windows.
+# Stubbed command tests for arrange_after_open and arrange_workspace_windows.
 # Uses recording aerospace stubs and a scripted spatial_order stub to assert
 # on the exact command sequence issued to AeroSpace — no real windows needed.
 

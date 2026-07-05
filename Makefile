@@ -1,10 +1,10 @@
-.PHONY: test test-fast test-swift test-integration
+.PHONY: test test-local test-fast test-swift test-integration
 
-# Run all tests (including Swift compile tests)
-test:
+# Run all local, worktree-safe tests (including Swift compile tests)
+test test-local:
 	bats test/
 
-# Run all tests except slow Swift compile tests
+# Run all local, worktree-safe tests except slow Swift compile tests
 test-fast:
 	SKIP_SWIFT_COMPILE=1 bats test/
 

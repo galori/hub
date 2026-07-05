@@ -2,15 +2,16 @@ import Cocoa
 
 // New Workspace dialog for hub.
 // Keyboard-first: every action reachable via keyboard, also clickable with mouse.
-// Writes result to /tmp/hub-new-workspace as tab-separated:
+// Writes result to HUB_NEW_WORKSPACE_RESULT, or /tmp/hub-new-workspace as fallback, as tab-separated:
 //   name\tpath\troot_repo\tworkspace_id
 // or "cancel" if cancelled.
 
-let resultPath = "/tmp/hub-new-workspace"
+let resultPath = ProcessInfo.processInfo.environment["HUB_NEW_WORKSPACE_RESULT"] ?? "/tmp/hub-new-workspace"
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 
-let iconPath = ("~/.config/hub/hub-logo.png" as NSString).expandingTildeInPath
+let hubConfigDir = ProcessInfo.processInfo.environment["HUB_CONFIG_DIR"] ?? ("~/.config/hub" as NSString).expandingTildeInPath
+let iconPath = (hubConfigDir as NSString).appendingPathComponent("hub-logo.png")
 if let icon = NSImage(contentsOfFile: iconPath) {
     app.applicationIconImage = icon
 }

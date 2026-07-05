@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Integration tests: Claude hook installation.
+# Stubbed command tests: Claude hook installation.
 
 load helpers/stubs
 
