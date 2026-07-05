@@ -453,6 +453,22 @@ toggle_menu_bar() {
 
 wait_for_menu_bar() {
     if [[ -n "${MENU_BAR_PID:-}" ]]; then
+        local limit="${HUB_MENU_BAR_TIMEOUT:-60}"
+        [[ "$limit" =~ ^[0-9]+$ ]] || limit=60
+
+        local ticks=0
+        local max_ticks=$((limit * 10))
+        while kill -0 "$MENU_BAR_PID" 2>/dev/null; do
+            if [[ "$ticks" -ge "$max_ticks" ]]; then
+                warn "Menu bar update timed out"
+                kill "$MENU_BAR_PID" 2>/dev/null || true
+                sleep 0.2
+                kill -9 "$MENU_BAR_PID" 2>/dev/null || true
+                break
+            fi
+            sleep 0.1
+            ticks=$((ticks + 1))
+        done
         wait "$MENU_BAR_PID" 2>/dev/null || true
         killall "System Settings" 2>/dev/null || true
         MENU_BAR_PID=""
