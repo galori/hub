@@ -1,8 +1,10 @@
 #!/usr/bin/env bats
 # Integration test: cropped Hub Bar screenshots
 #
-# Verifies the crop helper does not leak desktop background pixels from the
-# macOS menu-bar/desktop layer when Hub is not in fullscreen mode.
+# Verifies the crop helper does not leak a sliver of desktop wallpaper
+# between the macOS menu bar and the Hub Bar when Hub is not in fullscreen
+# mode. The crop region should show only the solid-ish Hub Bar/menu-bar
+# strips, never the colorful (unblurred) wallpaper peeking through.
 
 # shellcheck disable=SC2034
 BATS_TEST_DIRNAME="${BATS_TEST_DIRNAME:-$(dirname "$0")}"
@@ -118,15 +120,28 @@ end run
 APPLESCRIPT
 }
 
-greenish_pixel_count() {
+non_solid_pixel_count() {
     local image_path="$1"
     magick "$image_path" -alpha off -depth 8 txt:- \
         | awk -F'[(),]' '
+            BEGIN {
+                # Expected solid-ish strip colors sampled with Digital Color
+                # Meter against the Hub Bar over the Sequoia Sunrise wallpaper:
+                # #4A4F44, #333538, #1A1B20 (decimal; awk on macOS does not
+                # reliably parse 0x hex literals in source).
+                r1 = 74; g1 = 79; b1 = 68
+                r2 = 51; g2 = 53; b2 = 56
+                r3 = 26; g3 = 27; b3 = 32
+                threshold = 45
+            }
             /: \(/ {
-                r = $2 + 0
-                g = $3 + 0
-                b = $4 + 0
-                if (g >= 150 && r <= 130 && b <= 130 && g - r >= 40 && g - b >= 40) {
+                r = $3 + 0
+                g = $4 + 0
+                b = $5 + 0
+                d1 = sqrt((r - r1) ^ 2 + (g - g1) ^ 2 + (b - b1) ^ 2)
+                d2 = sqrt((r - r2) ^ 2 + (g - g2) ^ 2 + (b - b2) ^ 2)
+                d3 = sqrt((r - r3) ^ 2 + (g - g3) ^ 2 + (b - b3) ^ 2)
+                if (d1 > threshold && d2 > threshold && d3 > threshold) {
                     count++
                 }
             }
@@ -134,17 +149,18 @@ greenish_pixel_count() {
         '
 }
 
-@test "screenshot-bar-cropped excludes green desktop background in normal mode" {
-    local hub repo_dir green_wallpaper screenshot green_count
+@test "screenshot-bar-cropped shows only solid strips, no wallpaper sliver, over Sequoia Sunrise" {
+    local hub repo_dir wallpaper screenshot non_solid_count
     hub="$(hub_bin)"
     repo_dir="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-    green_wallpaper="$BATS_TEST_TMPDIR/green-desktop.png"
+    wallpaper="/System/Library/Desktop Pictures/.wallpapers/Sequoia Sunrise/Sequoia Sunrise.heic"
     screenshot="$BATS_TEST_TMPDIR/hub-bar-cropped.png"
+
+    [[ -f "$wallpaper" ]] || skip "Sequoia Sunrise wallpaper not present on this system"
 
     "$hub" testing-banner start "crop check" >/dev/null 2>&1 && BANNER_STARTED="1" || true
 
-    magick -size 64x64 xc:'#00ff00' "$green_wallpaper"
-    set_desktop_picture "$green_wallpaper"
+    set_desktop_picture "$wallpaper"
     sleep 1
 
     run "$hub" fullscreen off
@@ -157,13 +173,13 @@ greenish_pixel_count() {
     wait_for 15 "menu bar is visible in normal mode" \
         "[[ \"\$(menu_bar_auto_hide_value)\" == \"Never\" ]]"
 
-    run "$repo_dir/agents/bin/screenshot-bar-cropped" 30 50 31 70 "$screenshot"
+    run "$repo_dir/agents/bin/screenshot-bar-cropped" 430 40 490 70 "$screenshot"
     echo "# status: $status" >&3
     echo "# output: $output" >&3
     [[ "$status" -eq 0 ]]
     [[ -s "$screenshot" ]]
 
-    green_count="$(greenish_pixel_count "$screenshot")"
-    echo "# greenish pixels in crop: $green_count" >&3
-    [[ "$green_count" -eq 0 ]]
+    non_solid_count="$(non_solid_pixel_count "$screenshot")"
+    echo "# non-solid (wallpaper sliver) pixels in crop: $non_solid_count" >&3
+    [[ "$non_solid_count" -eq 0 ]]
 }
