@@ -227,7 +227,7 @@ non_solid_pixel_count() {
     [[ "$crop_y1" -lt 0 ]] && crop_y1=0
     crop_y2=$((hub_top + 10))
 
-    run "$repo_dir/agents/bin/screenshot-bar-cropped" 700 "$crop_y1" 760 "$crop_y2" "$screenshot"
+    run "$repo_dir/agents/bin/screenshot-bar-cropped" 600 "$crop_y1" 660 "$crop_y2" "$screenshot"
     echo "# status: $status" >&3
     echo "# output: $output" >&3
     [[ "$status" -eq 0 ]]
