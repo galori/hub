@@ -93,10 +93,10 @@ hub_bar_top_y() {
 let options: CGWindowListOption = [.excludeDesktopElements, .optionOnScreenOnly]
 let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
 for window in list {
-    guard let owner = window[kCGWindowOwnerName as String] as? String, owner == "hub_bar",
+    guard let owner = window[kCGWindowOwnerName as String] as? String, owner.contains("hub_bar"),
           let bounds = window[kCGWindowBounds as String] as? NSDictionary,
-          let y = bounds["Y"] as? Int else { continue }
-    print(y)
+          let y = bounds["Y"] as? NSNumber else { continue }
+    print(Int(y.doubleValue))
     exit(0)
 }
 exit(1)'
