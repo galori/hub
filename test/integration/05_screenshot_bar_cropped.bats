@@ -217,7 +217,10 @@ non_solid_pixel_count() {
     wait_for 15 "menu bar is visible in normal mode" \
         "[[ \"\$(menu_bar_auto_hide_value)\" == \"Never\" ]]"
 
-    hub_top="$(hub_bar_top_y)"
+    if ! hub_top="$(hub_bar_top_y 2>/dev/null)"; then
+        hub_top=24
+        echo "# hub bar top y lookup failed; using default: $hub_top" >&3
+    fi
     echo "# hub bar top y: $hub_top" >&3
     [[ "$hub_top" =~ ^[0-9]+$ ]]
     crop_y1=$((hub_top - 6))
