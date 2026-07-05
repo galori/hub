@@ -16,4 +16,4 @@ test-swift:
 # aerospace, borders, jq, and bats installed. Intended for a
 # dedicated / isolated test machine. See test/integration/README.md.
 test-integration:
-	HUB_RUN_INTEGRATION=1 bats test/integration/
+	HUB_RUN_INTEGRATION=1 bats --formatter tap test/integration/
