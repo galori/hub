@@ -10,8 +10,10 @@ setup_stubs() {
     export HUB_CONFIG_DIR="$HOME/.config/hub"
     export HUB_RUNTIME_DIR="$HUB_TEST_DIR/runtime"
     export HUB_APPLICATIONS_DIR="$HOME/Applications"
+    export APPS_FILE="$HUB_CONFIG_DIR/apps.json"
+    export ICONS_DIR="$HUB_CONFIG_DIR/icons"
     export AEROSPACE_CONFIG="$HOME/.aerospace.toml"
-    mkdir -p "$HUB_CONFIG_DIR" "$HUB_RUNTIME_DIR" "$HUB_APPLICATIONS_DIR"
+    mkdir -p "$HUB_CONFIG_DIR" "$HUB_RUNTIME_DIR" "$HUB_APPLICATIONS_DIR" "$ICONS_DIR"
 
     # Stub bin dir (prepended to PATH so stubs shadow real tools)
     export STUB_BIN="$HUB_TEST_DIR/stubs"

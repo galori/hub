@@ -36,6 +36,7 @@ Visible side effects on your screen during the suite:
 | `aerospace` | `brew install --cask nikitabobko/tap/aerospace` |
 | `borders` (JankyBorders) | `brew install FelixKratz/formulae/borders` |
 | `jq` | `brew install jq` |
+| `imagemagick` | `brew install imagemagick` |
 
 ### macOS Permissions (for the terminal running the tests)
 
@@ -86,6 +87,7 @@ never touch `test/integration/`.
 | `02_new_workspace.bats` | `hub new` — worktree created, workspaces.json entry, `hub list`, hub_bar_labels entry |
 | `03_new_workspace_custom_setup.bats` | Same + `.superset/config.json` `"setup"` hook writes a marker file in the worktree |
 | `04_fullscreen_padding.bats` | `hub fullscreen on/off` — AeroSpace `outer.top` keeps tiled windows below the Hub Bar in both modes |
+| `05_screenshot_bar_cropped.bats` | macOS Sequoia only — `screenshot-bar-cropped` does not leak green desktop pixels in normal mode |
 
 ---
 

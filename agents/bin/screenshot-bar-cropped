@@ -12,15 +12,15 @@ usage() {
 Usage: screenshot-bar-cropped <x1> <y1> <x2> <y2> [output.png]
 
 Arguments:
-  x1          Left edge of the rectangle to keep.
-  y1          Top edge of the rectangle to keep.
-  x2          Right edge of the rectangle to keep.
-  y2          Bottom edge of the rectangle to keep.
+  x1          Left edge of the rectangle to keep, in screen points.
+  y1          Top edge of the rectangle to keep, in screen points.
+  x2          Right edge of the rectangle to keep, in screen points.
+  y2          Bottom edge of the rectangle to keep, in screen points.
   output.png  Destination path. Defaults to /tmp/hub-bar-cropped.png.
 
 Example:
   screenshot-bar-cropped 10 10 30 30
-  Produces a 20x20 image.
+  Produces a 20x20 point crop. On Retina displays the PNG has more backing pixels.
 EOF
 }
 
@@ -68,21 +68,40 @@ fi
 
 WIDTH="$(sips -g pixelWidth "$FULL_IMG" | awk '/pixelWidth:/ {print $2; exit}')"
 HEIGHT="$(sips -g pixelHeight "$FULL_IMG" | awk '/pixelHeight:/ {print $2; exit}')"
+DPI_WIDTH="$(sips -g dpiWidth "$FULL_IMG" | awk '/dpiWidth:/ {print $2; exit}')"
 
 if [[ ! "$WIDTH" =~ ^[0-9]+$ ]] || [[ ! "$HEIGHT" =~ ^[0-9]+$ ]] || [ "$WIDTH" -eq 0 ] || [ "$HEIGHT" -eq 0 ]; then
     echo "Unable to read screenshot dimensions" >&2
     exit 1
 fi
 
-if [ "$X1" -ge "$WIDTH" ] || [ "$Y1" -ge "$HEIGHT" ] || [ "$X2" -gt "$WIDTH" ] || [ "$Y2" -gt "$HEIGHT" ]; then
+SCALE="$(awk -v dpi="$DPI_WIDTH" 'BEGIN {
+    if (dpi ~ /^[0-9]+([.][0-9]+)?$/ && dpi > 0) {
+        printf "%.6f", dpi / 72
+    } else {
+        printf "1.000000"
+    }
+}')"
+
+PX_X1="$(awk -v value="$X1" -v scale="$SCALE" 'BEGIN { printf "%d", int(value * scale + 0.5) }')"
+PX_Y1="$(awk -v value="$Y1" -v scale="$SCALE" 'BEGIN { printf "%d", int(value * scale + 0.5) }')"
+PX_X2="$(awk -v value="$X2" -v scale="$SCALE" 'BEGIN { printf "%d", int(value * scale + 0.5) }')"
+PX_Y2="$(awk -v value="$Y2" -v scale="$SCALE" 'BEGIN { printf "%d", int(value * scale + 0.5) }')"
+
+if [ "$PX_X1" -ge "$WIDTH" ] || [ "$PX_Y1" -ge "$HEIGHT" ] || [ "$PX_X2" -gt "$WIDTH" ] || [ "$PX_Y2" -gt "$HEIGHT" ]; then
     echo "Rectangle must fit inside image bounds (${WIDTH}x${HEIGHT})" >&2
     exit 2
 fi
 
-CROP_WIDTH=$((X2 - X1))
-CROP_HEIGHT=$((Y2 - Y1))
+CROP_WIDTH=$((PX_X2 - PX_X1))
+CROP_HEIGHT=$((PX_Y2 - PX_Y1))
 
-sips --cropOffset "$Y1" "$X1" \
+if [ "$CROP_WIDTH" -le 0 ] || [ "$CROP_HEIGHT" -le 0 ]; then
+    echo "Coordinates produce an empty backing-pixel rectangle at ${SCALE}x scale" >&2
+    exit 2
+fi
+
+sips --cropOffset "$PX_Y1" "$PX_X1" \
     --cropToHeightWidth "$CROP_HEIGHT" "$CROP_WIDTH" \
     "$FULL_IMG" --out "$OUT" >/dev/null
 
