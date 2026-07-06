@@ -34,6 +34,11 @@ OUTPUT_WINDOW_SRC="$LIB_DIR/output_window.swift"
 HTTP_HANDLER_SRC="$LIB_DIR/http_handler.swift"
 : "${HTTP_HANDLER_LEGACY_APP:=$HUB_APPLICATIONS_DIR/HubHTTPHandler.app}"
 HTTP_HANDLER_EXECUTABLE="HubHTTPHandler"
+HUB_APP_SRC="$LIB_DIR/hub_toggle_app.swift"
+: "${HUB_APP_PATH:=$HUB_APPLICATIONS_DIR/Hub.app}"
+HUB_APP_EXECUTABLE="Hub"
+HUB_APP_ICON_SRC="$REPO_DIR/assets/hub-logo.png"
+HUB_APP_BUNDLE_ID="sh.hub.app"
 BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
 : "${BROWSER_CTL_BIN:=$HUB_CONFIG_DIR/browser_ctl}"
 SPATIAL_ORDER_SRC="$LIB_DIR/spatial_order.swift"
@@ -102,6 +107,7 @@ print_usage() {
     echo "  install       Install Hub alias, check dependencies, compile binaries, and deploy configs"
     echo "  up            Start AeroSpace, Hub Bar, JankyBorders (restores fullscreen state if active)"
     echo "  down          Stop everything, restore the Dock and menu bar (preserves fullscreen state)"
+    echo "  toggle        Run 'up' if hub is down, or 'down' if hub is up (used by the Dock icon)"
     echo "  reboot        Stop, reinstall, and restart the Hub environment"
     echo "  new           Create a new workspace (opens dialog; pass flags to run silently)"
     echo "  list          List all defined workspaces
@@ -609,6 +615,8 @@ compile_all() {
         success "hub-logo.png deployed"
     fi
     build_http_handler
+    build_hub_app
+    pin_hub_dock_icon
 }
 
 plist_xml_escape() {
@@ -793,6 +801,140 @@ PLIST
         rm -rf "$tmp_http_dir"
         warn "$display_name.app compilation failed"
     fi
+}
+
+# build_hub_icns <out_icns_path>
+# Builds a .icns from assets/hub-logo.png via sips + iconutil. Returns
+# non-zero (leaving out_icns_path absent) if the source image or tools
+# are unavailable, so callers can fall back to no custom icon.
+build_hub_icns() {
+    local out_icns="$1"
+    [[ -f "$HUB_APP_ICON_SRC" ]] || return 1
+    command -v sips >/dev/null 2>&1 || return 1
+    command -v iconutil >/dev/null 2>&1 || return 1
+
+    local tmp_dir
+    tmp_dir="$(mktemp -d "$HUB_RUNTIME_DIR/icns.XXXXXX")"
+    local iconset="$tmp_dir/Hub.iconset"
+    mkdir -p "$iconset"
+
+    # Pad the source image to a square so sips can generate uniform icon sizes.
+    sips -p 512 512 "$HUB_APP_ICON_SRC" --out "$tmp_dir/padded.png" >/dev/null 2>&1 || {
+        rm -rf "$tmp_dir"; return 1
+    }
+
+    local size
+    for size in 16 32 128 256 512; do
+        sips -z "$size" "$size" "$tmp_dir/padded.png" \
+            --out "$iconset/icon_${size}x${size}.png" >/dev/null 2>&1 || true
+        sips -z $((size * 2)) $((size * 2)) "$tmp_dir/padded.png" \
+            --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null 2>&1 || true
+    done
+
+    if iconutil -c icns "$iconset" -o "$out_icns" 2>/dev/null; then
+        rm -rf "$tmp_dir"
+        return 0
+    else
+        rm -rf "$tmp_dir"
+        return 1
+    fi
+}
+
+# build_hub_app — builds ~/Applications/Hub.app, a Dock-clickable launcher
+# that runs `hub toggle` (up if down, down if up).
+build_hub_app() {
+    local src="$HUB_APP_SRC"
+    local app="$HUB_APP_PATH"
+    local bin="$app/Contents/MacOS/$HUB_APP_EXECUTABLE"
+    local plist="$app/Contents/Info.plist"
+    local icns="$app/Contents/Resources/Hub.icns"
+
+    if [[ ! -f "$src" ]]; then
+        warn "hub_toggle_app source not found — skipping"
+        return
+    fi
+
+    if [[ -f "$bin" ]] && [[ "$bin" -nt "$src" ]] && [[ "$bin" -nt "${BASH_SOURCE[0]}" ]] \
+        && [[ ! "$HUB_APP_ICON_SRC" -nt "$icns" ]]; then
+        info "Hub.app up to date"
+        return
+    fi
+
+    mkdir -p "$app/Contents/MacOS"
+    mkdir -p "$app/Contents/Resources"
+
+    local icon_key=""
+    if build_hub_icns "$icns"; then
+        icon_key="    <key>CFBundleIconFile</key>
+    <string>Hub</string>
+"
+    else
+        rm -f "$icns"
+    fi
+
+    cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>$HUB_APP_BUNDLE_ID</string>
+    <key>CFBundleName</key>
+    <string>Hub</string>
+    <key>CFBundleDisplayName</key>
+    <string>Hub</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleExecutable</key>
+    <string>$HUB_APP_EXECUTABLE</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+${icon_key}</dict>
+</plist>
+PLIST
+
+    local tmp_dir
+    tmp_dir="$(mktemp -d "$HUB_RUNTIME_DIR/swift-hub-app.XXXXXX")"
+    cp "$src" "$tmp_dir/main.swift"
+    if swiftc -O -o "$bin" -framework Cocoa "$tmp_dir/main.swift" 2>/dev/null; then
+        rm -rf "$tmp_dir"
+        if [[ "${HUB_SKIP_LAUNCH_SERVICES:-0}" != "1" ]]; then
+            /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+                -f "$app" 2>/dev/null || true
+        fi
+        success "Hub.app built: $app"
+    else
+        rm -rf "$tmp_dir"
+        warn "Hub.app compilation failed"
+    fi
+}
+
+# pin_hub_dock_icon — idempotently adds Hub.app to the Dock's persistent-apps
+# list. Safe to call every install: no-ops if already pinned. Restarts the
+# live Dock, so it's skipped under --no-launch-services (used by isolated/CI
+# installs that must not touch real system state).
+pin_hub_dock_icon() {
+    [[ "${HUB_SKIP_LAUNCH_SERVICES:-0}" != "1" ]] || return 0
+    [[ -d "$HUB_APP_PATH" ]] || return 0
+    command -v defaults >/dev/null 2>&1 || return 0
+
+    if defaults read com.apple.dock persistent-apps 2>/dev/null | grep -q "$HUB_APP_BUNDLE_ID"; then
+        info "Hub.app already pinned to Dock"
+        return 0
+    fi
+
+    local file_url="file://$HUB_APP_PATH/"
+    defaults write com.apple.dock persistent-apps -array-add \
+        "<dict><key>tile-data</key><dict><key>bundle-identifier</key><string>$HUB_APP_BUNDLE_ID</string><key>file-data</key><dict><key>_CFURLString</key><string>$file_url</string><key>_CFURLStringType</key><integer>15</integer></dict><key>file-label</key><string>Hub</string><key>file-type</key><integer>41</integer></dict><key>tile-type</key><string>file-tile</string></dict>" \
+        2>/dev/null || { warn "Could not pin Hub.app to Dock"; return; }
+    killall Dock 2>/dev/null || true
+    success "Hub.app pinned to Dock"
 }
 
 # --- Shared libraries ---
@@ -3305,6 +3447,14 @@ cmd_down() {
     echo -e "${green}${bold}hub shut down complete.${reset}"
 }
 
+cmd_toggle() {
+    if is_http_handler_running; then
+        cmd_down
+    else
+        cmd_up
+    fi
+}
+
 # --- App launcher slot management ---
 
 cmd_apps() {
@@ -3587,6 +3737,7 @@ hub_main() {
         app-switcher) cmd_app_switcher "$@" ;;
         up)       cmd_up ;;
         down)     cmd_down ;;
+        toggle)   cmd_toggle ;;
         reboot)   cmd_reboot ;;
         keys)         cmd_keys ;;
         dashboard)    cmd_dashboard ;;
