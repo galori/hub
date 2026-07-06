@@ -102,6 +102,18 @@ for window in list {
 exit(1)'
 }
 
+hub_bar_top_y_from_metrics() {
+    local outer_top height
+    outer_top="$(cat "$HOME/.config/hub/hub_bar_outer_top" 2>/dev/null || true)"
+    height="$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || true)"
+
+    [[ "$outer_top" =~ ^[0-9]+$ ]] || return 1
+    [[ "$height" =~ ^[0-9]+$ ]] || height=40
+    [[ "$outer_top" -ge "$height" ]] || return 1
+
+    echo $((outer_top - height))
+}
+
 save_desktop_pictures() {
     local out="$1"
     osascript_with_timeout 10 <<'APPLESCRIPT' > "$out"
@@ -218,14 +230,20 @@ non_solid_pixel_count() {
         "[[ \"\$(menu_bar_auto_hide_value)\" == \"Never\" ]]"
 
     if ! hub_top="$(hub_bar_top_y 2>/dev/null)"; then
-        hub_top=24
-        echo "# hub bar top y lookup failed; using default: $hub_top" >&3
+        if hub_top="$(hub_bar_top_y_from_metrics 2>/dev/null)"; then
+            echo "# hub bar top y lookup failed; using metrics fallback: $hub_top" >&3
+        else
+            hub_top=24
+            echo "# hub bar top y lookup failed; using default: $hub_top" >&3
+        fi
     fi
     echo "# hub bar top y: $hub_top" >&3
     [[ "$hub_top" =~ ^[0-9]+$ ]]
     crop_y1=$((hub_top - 6))
     [[ "$crop_y1" -lt 0 ]] && crop_y1=0
-    crop_y2=$((hub_top + 10))
+    # Sample only the seam and the top few pixels of the bar. Workspace pills start
+    # lower inside the bar, and their adaptive widths can legitimately occupy this x range.
+    crop_y2=$((hub_top + 3))
 
     run "$repo_dir/agents/bin/screenshot-bar-cropped" 600 "$crop_y1" 660 "$crop_y2" "$screenshot"
     echo "# status: $status" >&3
