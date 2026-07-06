@@ -103,15 +103,16 @@ exit(1)'
 }
 
 hub_bar_top_y_from_metrics() {
-    local outer_top height
+    local outer_top visual_height
     outer_top="$(cat "$HOME/.config/hub/hub_bar_outer_top" 2>/dev/null || true)"
-    height="$(cat "$HOME/.config/hub/hub_bar_height" 2>/dev/null || true)"
 
     [[ "$outer_top" =~ ^[0-9]+$ ]] || return 1
-    [[ "$height" =~ ^[0-9]+$ ]] || height=40
-    [[ "$outer_top" -ge "$height" ]] || return 1
+    # hub_bar_height is an AeroSpace clearance metric, not the visual bar height.
+    # This test forces normal one-row mode, whose visual Hub Bar height is 40px.
+    visual_height=40
+    [[ "$outer_top" -ge "$visual_height" ]] || return 1
 
-    echo $((outer_top - height))
+    echo $((outer_top - visual_height))
 }
 
 save_desktop_pictures() {
