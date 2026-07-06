@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TMP_DIR="${TMPDIR:-/private/tmp}"
+RESET_APPS=false
+
+if [[ "${1:-}" == "--reset-apps" ]]; then
+    RESET_APPS=true
+    shift
+fi
+
+timeout_bin() {
+    if command -v timeout >/dev/null 2>&1; then
+        command -v timeout
+    elif command -v gtimeout >/dev/null 2>&1; then
+        command -v gtimeout
+    else
+        return 1
+    fi
+}
+
+run_with_timeout() {
+    local seconds="$1"
+    shift
+    local timeout_cmd
+    timeout_cmd="$(timeout_bin)" || {
+        echo "timeout or gtimeout is required" >&2
+        return 1
+    }
+    "$timeout_cmd" "$seconds" "$@"
+}
+
+quit_app() {
+    local app="$1"
+    osascript -e "tell application \"$app\" to quit" >/dev/null 2>&1 || true
+    sleep 2
+}
+
+reset_app_if_requested() {
+    local app="$1"
+    if [[ "$RESET_APPS" == "true" ]]; then
+        quit_app "$app"
+    fi
+}
+
+window_count() {
+    local app_name="$1"
+    if command -v aerospace >/dev/null 2>&1; then
+        aerospace list-windows --all --format '%{app-name}' 2>/dev/null \
+            | awk -v app="$app_name" '$0 == app { count++ } END { print count + 0 }'
+        return 0
+    fi
+
+    osascript <<APPLESCRIPT 2>/dev/null || printf '0\n'
+tell application "System Events"
+	if not (exists process "$app_name") then return 0
+	tell process "$app_name" to return count of windows
+end tell
+APPLESCRIPT
+}
+
+wait_for_file_value() {
+    local file="$1"
+    local expected="$2"
+    local i
+    for i in {1..80}; do
+        if [[ -f "$file" ]] && [[ "$(cat "$file")" == "$expected" ]]; then
+            return 0
+        fi
+        sleep 0.25
+    done
+    echo "marker $file did not contain expected value $expected" >&2
+    [[ -f "$file" ]] && cat "$file" >&2 || true
+    return 1
+}
+
+wait_for_url() {
+    local app="$1"
+    local expected="$2"
+    local i actual
+    for i in {1..80}; do
+        case "$app" in
+            Safari)
+                actual="$(run_with_timeout 3 osascript -e 'tell application "Safari" to return URL of front document' 2>/dev/null || true)"
+                ;;
+            "Google Chrome")
+                actual="$(run_with_timeout 3 osascript -e 'tell application "Google Chrome" to return URL of active tab of front window' 2>/dev/null || true)"
+                ;;
+            *)
+                echo "unsupported browser verifier: $app" >&2
+                return 1
+                ;;
+        esac
+        [[ "$actual" == "$expected" ]] && return 0
+        sleep 0.25
+    done
+    echo "$app did not load expected URL: $expected" >&2
+    echo "last observed: ${actual:-<empty>}" >&2
+    return 1
+}
+
+verify_generic_app() {
+    local app="$1"
+    local process_name="$2"
+    reset_app_if_requested "$app"
+    run_with_timeout 15 osascript "$REPO_DIR/generic_app_launch.applescript" "$app"
+    local count
+    count="$(window_count "$process_name")"
+    [[ "$count" -ge 1 ]] || {
+        echo "$app did not open a window" >&2
+        return 1
+    }
+    echo "ok: $app opened a generic window"
+}
+
+verify_terminal() {
+    local app="$1"
+    local safe_name="$2"
+    local marker="$TMP_DIR/hub-generic-${safe_name}-pwd"
+    rm -f "$marker"
+    reset_app_if_requested "$app"
+    run_with_timeout 20 osascript "$REPO_DIR/generic_terminal_launch.applescript" "$app" "$REPO_DIR" "pwd > '$marker'"
+    wait_for_file_value "$marker" "$REPO_DIR"
+
+    run_with_timeout 20 osascript "$REPO_DIR/generic_terminal_launch.applescript" "$app" "$REPO_DIR"
+    run_with_timeout 20 osascript "$REPO_DIR/generic_terminal_launch.applescript" "$app" "$REPO_DIR" ""
+    echo "ok: $app terminal cwd and optional prompt paths work"
+}
+
+verify_browser() {
+    local app="$1"
+    local file="$TMP_DIR/hub-generic-${app// /-}.html"
+    local url
+    printf '<!doctype html><title>hub generic launcher</title>\n' > "$file"
+    url="file://$file"
+    reset_app_if_requested "$app"
+    run_with_timeout 20 osascript "$REPO_DIR/generic_browser_launch.applescript" "$app" "$url"
+    wait_for_url "$app" "$url"
+    echo "ok: $app opened a browser window at $url"
+}
+
+verify_windowless_safari() {
+    quit_app Safari
+    open -a Safari
+    sleep 2
+    osascript -e 'tell application "Safari" to close every window' >/dev/null 2>&1 || true
+    sleep 1
+    run_with_timeout 15 osascript "$REPO_DIR/generic_app_launch.applescript" Safari
+    local count
+    count="$(window_count Safari)"
+    [[ "$count" -ge 1 ]] || {
+        echo "Safari windowless case did not open a window" >&2
+        return 1
+    }
+    echo "ok: Safari running-windowless case opens a window"
+}
+
+main() {
+    "$REPO_DIR/scripts/hub" testing-banner start "launcher checks"
+    trap '"$REPO_DIR/scripts/hub" testing-banner stop >/dev/null 2>&1 || true' EXIT
+
+    verify_generic_app TextEdit TextEdit
+    verify_generic_app "Visual Studio Code" Code
+    verify_terminal iTerm iterm
+    verify_terminal Terminal terminal
+    verify_browser Safari
+    verify_browser "Google Chrome"
+    if [[ "$RESET_APPS" == "true" ]]; then
+        verify_windowless_safari
+    else
+        echo "skip: Safari running-windowless case requires --reset-apps"
+    fi
+}
+
+main "$@"
