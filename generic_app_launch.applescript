@@ -32,6 +32,17 @@ on windowCount(processName)
 	end tell
 end windowCount
 
+on processExists(processName)
+	if processName is "" then return false
+	tell application "System Events"
+		try
+			return exists process processName
+		on error
+			return false
+		end try
+	end tell
+end processExists
+
 on waitForWindowCount(processName, minimumCount)
 	repeat pollCount times
 		if my windowCount(processName) >= minimumCount then return true
@@ -63,15 +74,26 @@ on clickFirstExistingFileMenuItem(processName, itemNames)
 	return false
 end clickFirstExistingFileMenuItem
 
-on ensureNewWindow(appName)
+on ensureNewWindow(appName, expectedProcessName)
+	set processHint to expectedProcessName
+	if processHint is "" then set processHint to appName
+	set wasRunning to my processExists(processHint)
+
 	my activateApp(appName)
-	delay 0.3
+	delay 1.0
 
 	set processName to my frontmostProcessName()
+	if my processExists(processHint) then set processName to processHint
 	if processName is "" then error "Could not find the frontmost process for " & appName & "."
 
 	set initialWindows to my windowCount(processName)
+	if not wasRunning and initialWindows > 0 then return processName
+
 	if initialWindows is 0 then
+		if my clickFirstExistingFileMenuItem(processName, {"New Window", "New Document", "New"}) then
+			if my waitForWindowCount(processName, 1) then return processName
+		end if
+
 		tell application "System Events" to keystroke "n" using command down
 		if my waitForWindowCount(processName, 1) then return processName
 	else
@@ -88,6 +110,8 @@ end ensureNewWindow
 
 on run argv
 	if (count of argv) < 1 then error "Usage: osascript generic_app_launch.applescript <app_name>"
-	set openedProcess to my ensureNewWindow(item 1 of argv)
+	set processName to ""
+	if (count of argv) >= 2 then set processName to item 2 of argv
+	set openedProcess to my ensureNewWindow(item 1 of argv, processName)
 	return ""
 end run

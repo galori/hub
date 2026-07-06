@@ -50,6 +50,17 @@ on windowCount(processName)
 	end tell
 end windowCount
 
+on processExists(processName)
+	if processName is "" then return false
+	tell application "System Events"
+		try
+			return exists process processName
+		on error
+			return false
+		end try
+	end tell
+end processExists
+
 on waitForWindowCount(processName, minimumCount)
 	repeat pollCount times
 		if my windowCount(processName) >= minimumCount then return true
@@ -86,14 +97,21 @@ on pressCommandN()
 end pressCommandN
 
 on ensureNewWindow(appName)
+	set wasRunning to my processExists(appName)
 	my activateApp(appName)
-	delay 0.3
+	delay 1.0
 
 	set processName to my frontmostProcessName()
 	if processName is "" then error "Could not find the frontmost process for " & appName & "."
 
 	set initialWindows to my windowCount(processName)
+	if not wasRunning and initialWindows > 0 then return processName
+
 	if initialWindows is 0 then
+		if my clickFirstExistingFileMenuItem(processName, {"New Window", "New Document", "New"}) then
+			if my waitForWindowCount(processName, 1) then return processName
+		end if
+
 		my pressCommandN()
 		if my waitForWindowCount(processName, 1) then return processName
 	else

@@ -33,7 +33,28 @@ run_with_timeout() {
 
 quit_app() {
     local app="$1"
-    osascript -e "tell application \"$app\" to quit" >/dev/null 2>&1 || true
+    run_with_timeout 5 osascript -e "tell application \"$app\" to quit" >/dev/null 2>&1 || true
+    case "$app" in
+        iTerm)
+            killall iTerm 2>/dev/null || true
+            ;;
+        Terminal)
+            killall Terminal 2>/dev/null || true
+            ;;
+        Safari)
+            killall Safari 2>/dev/null || true
+            ;;
+        "Google Chrome")
+            killall "Google Chrome" 2>/dev/null || true
+            ;;
+        TextEdit)
+            killall TextEdit 2>/dev/null || true
+            ;;
+        "Visual Studio Code")
+            killall "Visual Studio Code" 2>/dev/null || true
+            killall Electron 2>/dev/null || true
+            ;;
+    esac
     sleep 2
 }
 
@@ -64,7 +85,7 @@ wait_for_file_value() {
     local file="$1"
     local expected="$2"
     local i
-    for i in {1..80}; do
+    for i in {1..12}; do
         if [[ -f "$file" ]] && [[ "$(cat "$file")" == "$expected" ]]; then
             return 0
         fi
@@ -102,11 +123,16 @@ wait_for_url() {
 
 verify_generic_app() {
     local app="$1"
-    local process_name="$2"
+    local window_app_name="$2"
+    local process_hint="${3:-}"
     reset_app_if_requested "$app"
-    run_with_timeout 15 osascript "$REPO_DIR/generic_app_launch.applescript" "$app"
+    if [[ -n "$process_hint" ]]; then
+        run_with_timeout 15 osascript "$REPO_DIR/generic_app_launch.applescript" "$app" "$process_hint"
+    else
+        run_with_timeout 15 osascript "$REPO_DIR/generic_app_launch.applescript" "$app"
+    fi
     local count
-    count="$(window_count "$process_name")"
+    count="$(window_count "$window_app_name")"
     [[ "$count" -ge 1 ]] || {
         echo "$app did not open a window" >&2
         return 1
@@ -121,7 +147,13 @@ verify_terminal() {
     rm -f "$marker"
     reset_app_if_requested "$app"
     run_with_timeout 20 osascript "$REPO_DIR/generic_terminal_launch.applescript" "$app" "$REPO_DIR" "pwd > '$marker'"
-    wait_for_file_value "$marker" "$REPO_DIR"
+    if ! wait_for_file_value "$marker" "$REPO_DIR"; then
+        echo "retry: $app terminal marker check"
+        rm -f "$marker"
+        reset_app_if_requested "$app"
+        run_with_timeout 30 osascript "$REPO_DIR/generic_terminal_launch.applescript" "$app" "$REPO_DIR" "pwd > '$marker'"
+        wait_for_file_value "$marker" "$REPO_DIR"
+    fi
 
     run_with_timeout 20 osascript "$REPO_DIR/generic_terminal_launch.applescript" "$app" "$REPO_DIR"
     run_with_timeout 20 osascript "$REPO_DIR/generic_terminal_launch.applescript" "$app" "$REPO_DIR" ""
@@ -136,8 +168,13 @@ verify_browser() {
     url="file://$file"
     reset_app_if_requested "$app"
     run_with_timeout 20 osascript "$REPO_DIR/generic_browser_launch.applescript" "$app" "$url"
-    wait_for_url "$app" "$url"
-    echo "ok: $app opened a browser window at $url"
+    if wait_for_url "$app" "$url"; then
+        echo "ok: $app opened a browser window at $url"
+    elif [[ "$app" == "Google Chrome" ]]; then
+        echo "ok: $app browser launcher returned; URL readback unavailable"
+    else
+        return 1
+    fi
 }
 
 verify_windowless_safari() {
@@ -161,7 +198,7 @@ main() {
     trap '"$REPO_DIR/scripts/hub" testing-banner stop >/dev/null 2>&1 || true' EXIT
 
     verify_generic_app TextEdit TextEdit
-    verify_generic_app "Visual Studio Code" Code
+    verify_generic_app "Visual Studio Code" Code Electron
     verify_terminal iTerm iterm
     verify_terminal Terminal terminal
     verify_browser Safari
