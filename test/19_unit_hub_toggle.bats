@@ -55,18 +55,29 @@ run_hub_eval() {
 @test "hub toggle dispatches to cmd_toggle" {
     run run_hub_eval "
         cmd_toggle() { echo cmd_toggle >> \"\$STUB_CALLS\"; }
-        set -- toggle
-        command=\"\$1\"; shift
-        case \"\$command\" in toggle) cmd_toggle ;; esac
+        hub_main toggle
     "
 
     [[ "$status" -eq 0 ]]
     assert_called "^cmd_toggle$"
 }
 
+# write_hub_app_executable — creates an executable file at the path
+# pin_hub_dock_icon requires before it will consider Hub.app installed.
+write_hub_app_executable() {
+    local app="$1"
+    mkdir -p "$app/Contents/MacOS"
+    cat > "$app/Contents/MacOS/Hub" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+    chmod +x "$app/Contents/MacOS/Hub"
+}
+
 @test "pin_hub_dock_icon skips when Hub.app is not installed" {
     run run_hub_eval "
         HUB_APP_PATH='$HOME/Applications/Hub.app'
+        HUB_APP_EXECUTABLE='Hub'
         pin_hub_dock_icon
     "
 
@@ -74,13 +85,30 @@ run_hub_eval() {
     assert_not_called "^defaults write com.apple.dock"
 }
 
+@test "pin_hub_dock_icon skips when HUB_SKIP_LAUNCH_SERVICES is set" {
+    write_hub_app_executable "$HOME/Applications/Hub.app"
+    make_stub_recording defaults "" 0
+
+    run run_hub_eval "
+        HUB_APP_PATH='$HOME/Applications/Hub.app'
+        HUB_APP_EXECUTABLE='Hub'
+        HUB_APP_BUNDLE_ID='sh.hub.app'
+        HUB_SKIP_LAUNCH_SERVICES=1
+        pin_hub_dock_icon
+    "
+
+    [[ "$status" -eq 0 ]]
+    assert_not_called "^defaults"
+}
+
 @test "pin_hub_dock_icon adds Hub.app when not already pinned" {
-    mkdir -p "$HOME/Applications/Hub.app"
+    write_hub_app_executable "$HOME/Applications/Hub.app"
     make_stub_recording defaults "" 0
     make_stub_recording killall "" 0
 
     run run_hub_eval "
         HUB_APP_PATH='$HOME/Applications/Hub.app'
+        HUB_APP_EXECUTABLE='Hub'
         HUB_APP_BUNDLE_ID='sh.hub.app'
         pin_hub_dock_icon
     "
@@ -91,8 +119,34 @@ run_hub_eval() {
     assert_called "^killall Dock$"
 }
 
+@test "pin_hub_dock_icon does not match a bundle ID substring from another app" {
+    write_hub_app_executable "$HOME/Applications/Hub.app"
+    cat > "$STUB_BIN/defaults" <<'SH'
+#!/usr/bin/env bash
+echo "defaults $*" >> "${STUB_CALLS:-/tmp/stub_calls_$$}"
+if [[ "$1" = "read" ]]; then
+    # Bundle ID that would false-positive match "sh.hub.app" as a regex
+    # (the '.' wildcards) but is not a literal match.
+    echo 'shxhubxapp'
+fi
+exit 0
+SH
+    chmod +x "$STUB_BIN/defaults"
+    make_stub_recording killall "" 0
+
+    run run_hub_eval "
+        HUB_APP_PATH='$HOME/Applications/Hub.app'
+        HUB_APP_EXECUTABLE='Hub'
+        HUB_APP_BUNDLE_ID='sh.hub.app'
+        pin_hub_dock_icon
+    "
+
+    [[ "$status" -eq 0 ]]
+    assert_called "defaults write com.apple.dock persistent-apps -array-add"
+}
+
 @test "pin_hub_dock_icon is a no-op when already pinned" {
-    mkdir -p "$HOME/Applications/Hub.app"
+    write_hub_app_executable "$HOME/Applications/Hub.app"
     cat > "$STUB_BIN/defaults" <<'SH'
 #!/usr/bin/env bash
 echo "defaults $*" >> "${STUB_CALLS:-/tmp/stub_calls_$$}"
@@ -105,6 +159,7 @@ SH
 
     run run_hub_eval "
         HUB_APP_PATH='$HOME/Applications/Hub.app'
+        HUB_APP_EXECUTABLE='Hub'
         HUB_APP_BUNDLE_ID='sh.hub.app'
         pin_hub_dock_icon
     "

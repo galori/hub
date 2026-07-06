@@ -921,10 +921,10 @@ PLIST
 # installs that must not touch real system state).
 pin_hub_dock_icon() {
     [[ "${HUB_SKIP_LAUNCH_SERVICES:-0}" != "1" ]] || return 0
-    [[ -d "$HUB_APP_PATH" ]] || return 0
+    [[ -x "$HUB_APP_PATH/Contents/MacOS/$HUB_APP_EXECUTABLE" ]] || return 0
     command -v defaults >/dev/null 2>&1 || return 0
 
-    if defaults read com.apple.dock persistent-apps 2>/dev/null | grep -q "$HUB_APP_BUNDLE_ID"; then
+    if defaults read com.apple.dock persistent-apps 2>/dev/null | grep -qF "$HUB_APP_BUNDLE_ID"; then
         info "Hub.app already pinned to Dock"
         return 0
     fi

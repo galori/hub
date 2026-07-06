@@ -9,7 +9,9 @@ app.setActivationPolicy(.regular)
 func hubScriptPath() -> String? {
     let path = NSHomeDirectory() + "/.config/hub/hub_path"
     guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
-    return content.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, FileManager.default.isExecutableFile(atPath: trimmed) else { return nil }
+    return trimmed
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -18,10 +20,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return
         }
-        let escapedHub = hub.replacingOccurrences(of: "'", with: "'\\''")
         let p = Process()
-        p.launchPath = "/bin/sh"
-        p.arguments = ["-c", "'\(escapedHub)' toggle"]
+        p.executableURL = URL(fileURLWithPath: hub)
+        p.arguments = ["toggle"]
         p.terminationHandler = { _ in
             DispatchQueue.main.async { NSApp.terminate(nil) }
         }
