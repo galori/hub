@@ -430,6 +430,10 @@ func cachedTextWidth(_ s: String, font: NSFont) -> CGFloat {
     return w
 }
 
+func preferredPillPadH() -> CGFloat {
+    pillPadH + ceil(cachedTextWidth("center", font: monoFont13))
+}
+
 // Apply a label cap to a workspace name.
 // cap == -1 → full name; cap == 0 → empty; cap > 0 → truncate to cap chars.
 func cappedName(full: String, cap: Int) -> String {
@@ -441,10 +445,10 @@ func cappedName(full: String, cap: Int) -> String {
 
 // Analytic pill width for a given (idx, name) pair — mirrors WorkspacePill layout constants.
 // showDot adds 4(spacing)+6(dot) to the inner stack.
-func analyticalPillWidth(idx: String, name: String, showDot: Bool) -> CGFloat {
+func analyticalPillWidth(idx: String, name: String, showDot: Bool, padH: CGFloat = pillPadH) -> CGFloat {
     let idxFont = NSFontManager.shared.font(withFamily: "Hack Nerd Font", traits: .boldFontMask, weight: 9, size: 11)
                   ?? monoFont11
-    var w = pillPadH * 2 + cachedTextWidth(idx, font: idxFont)
+    var w = padH * 2 + cachedTextWidth(idx, font: idxFont)
     if !name.isEmpty {
         w += 4 + cachedTextWidth(name, font: monoFont13)  // innerStack spacing=4
     }
@@ -452,41 +456,44 @@ func analyticalPillWidth(idx: String, name: String, showDot: Bool) -> CGFloat {
     return ceil(w)
 }
 
-func normalPillWidth(idx: String, fullName: String, displayName: String, showDot: Bool) -> CGFloat {
-    var width = analyticalPillWidth(idx: idx, name: displayName, showDot: showDot)
+func normalPillWidth(idx: String, fullName: String, displayName: String, showDot: Bool, padH: CGFloat = pillPadH) -> CGFloat {
+    var width = analyticalPillWidth(idx: idx, name: displayName, showDot: showDot, padH: padH)
     if !displayName.isEmpty, displayName == fullName {
         width += completeNameSlack
     }
     return width
 }
 
-func normalPillWidth(idx: String, fullName: String, cap: Int, showDot: Bool) -> CGFloat {
+func normalPillWidth(idx: String, fullName: String, cap: Int, showDot: Bool, padH: CGFloat = pillPadH) -> CGFloat {
     normalPillWidth(
         idx: idx,
         fullName: fullName,
         displayName: cappedName(full: fullName, cap: cap),
-        showDot: showDot)
+        showDot: showDot,
+        padH: padH)
 }
 
-func hoverExpandedPillWidth(idx: String, fullName: String, cappedName: String, showDot: Bool) -> CGFloat {
+func hoverExpandedPillWidth(idx: String, fullName: String, cappedName: String, showDot: Bool, padH: CGFloat = pillPadH) -> CGFloat {
     normalPillWidth(
         idx: idx,
         fullName: fullName,
         displayName: fullName,
-        showDot: showDot) + hoverExpandedSlack
+        showDot: showDot,
+        padH: padH) + hoverExpandedSlack
 }
 
 // Total strip width for a slice of pills at a given label cap.
 func stripWidth(pills: [(ws: String, fullName: String, isFocused: Bool)],
                 cap: Int, focused: String,
-                claudeAlert: Set<String>, claudeActive: Set<String>) -> CGFloat {
+                claudeAlert: Set<String>, claudeActive: Set<String>,
+                padH: CGFloat = pillPadH) -> CGFloat {
     guard !pills.isEmpty else { return 0 }
     var total: CGFloat = 0
     for (i, p) in pills.enumerated() {
         if i > 0 { total += pillGap }
         let effCap = cap
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
-        total += normalPillWidth(idx: p.ws, fullName: p.fullName, cap: effCap, showDot: showDot)
+        total += normalPillWidth(idx: p.ws, fullName: p.fullName, cap: effCap, showDot: showDot, padH: padH)
     }
     return total
 }
@@ -499,6 +506,7 @@ struct FitDecision {
     var rows: Int           // 1..maxRows
     var rowAssignment: [[Int]]  // indices into `pills` for each row
     var effectiveCap: Int   // label cap (-1 unlimited, 0 code-only, N>0 truncated)
+    var effectivePadH: CGFloat = pillPadH
     // Notch split for row 0: count of pills that go into the LEFT segment.
     // The remainder go into the RIGHT segment (right of notch).
     // nil = no notch / not fullscreen → single continuous row, unchanged behaviour.
@@ -508,10 +516,12 @@ struct FitDecision {
     // before the notch. leftCap (> effectiveCap) is applied to the workspaces in leftWsIDs
     // so their labels grow to fill that space. nil = no relaxation (left uses effectiveCap).
     var leftCap: Int? = nil
+    var leftPadH: CGFloat? = nil
     var leftWsIDs: Set<String> = []
     // Symmetric relaxation for the right side of the notch. When the left segment is the
     // limiting side, the right-side labels can safely grow without changing the split.
     var rightCap: Int? = nil
+    var rightPadH: CGFloat? = nil
     var rightWsIDs: Set<String> = []
 
     // Per-workspace label cap: notch-side pills may use a relaxed segment cap; all others
@@ -521,15 +531,25 @@ struct FitDecision {
         if let rc = rightCap, rightWsIDs.contains(ws) { return rc }
         return effectiveCap
     }
+
+    // Per-workspace horizontal padding: notch-side pills may use relaxed segment padding.
+    func padFor(_ ws: String) -> CGFloat {
+        if let lp = leftPadH, leftWsIDs.contains(ws) { return lp }
+        if let rp = rightPadH, rightWsIDs.contains(ws) { return rp }
+        return effectivePadH
+    }
 }
 
 func fitStructureMatchesForRefresh(_ lhs: FitDecision?, _ rhs: FitDecision) -> Bool {
     guard let lhs = lhs else { return true }
     return lhs.rowAssignment == rhs.rowAssignment
+        && lhs.effectivePadH == rhs.effectivePadH
         && lhs.row0Split == rhs.row0Split
         && lhs.leftCap == rhs.leftCap
+        && lhs.leftPadH == rhs.leftPadH
         && lhs.leftWsIDs == rhs.leftWsIDs
         && lhs.rightCap == rhs.rightCap
+        && lhs.rightPadH == rhs.rightPadH
         && lhs.rightWsIDs == rhs.rightWsIDs
 }
 
@@ -565,6 +585,7 @@ let FIT_MAX_ROWS = 4
 private func greedyPack(pills: [(ws: String, fullName: String, isFocused: Bool)],
                         cap: Int, focused: String,
                         claudeAlert: Set<String>, claudeActive: Set<String>,
+                        padH: CGFloat,
                         row0Width: CGFloat, fullRowWidth: CGFloat,
                         maxRows: Int) -> (assignment: [[Int]], overflowed: Bool) {
     var rows: [[Int]] = Array(repeating: [], count: maxRows)
@@ -576,7 +597,7 @@ private func greedyPack(pills: [(ws: String, fullName: String, isFocused: Bool)]
     for (i, p) in pills.enumerated() {
         let effCap = cap
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
-        let pw = normalPillWidth(idx: p.ws, fullName: p.fullName, cap: effCap, showDot: showDot)
+        let pw = normalPillWidth(idx: p.ws, fullName: p.fullName, cap: effCap, showDot: showDot, padH: padH)
         let gap: CGFloat = rows[r].isEmpty ? 0 : pillGap
 
         if used[r] + gap + pw <= rowWidths[r] {
@@ -608,6 +629,7 @@ private func splitRow0AroundNotch(
     pills: [(ws: String, fullName: String, isFocused: Bool)],
     cap: Int,
     claudeAlert: Set<String>, claudeActive: Set<String>,
+    padH: CGFloat,
     leftSegW: CGFloat) -> Int {
     var used: CGFloat = 0
     var leftCount = 0
@@ -615,7 +637,7 @@ private func splitRow0AroundNotch(
         let p = pills[idx]
         let effCap = cap
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
-        let pw = normalPillWidth(idx: p.ws, fullName: p.fullName, cap: effCap, showDot: showDot)
+        let pw = normalPillWidth(idx: p.ws, fullName: p.fullName, cap: effCap, showDot: showDot, padH: padH)
         let gap: CGFloat = leftCount == 0 ? 0 : pillGap
         if used + gap + pw <= leftSegW {
             used += gap + pw
@@ -635,10 +657,11 @@ private func fitNotchSplit(
     pills: [(ws: String, fullName: String, isFocused: Bool)],
     cap: Int,
     claudeAlert: Set<String>, claudeActive: Set<String>,
+    padH: CGFloat,
     leftSegW: CGFloat, rightSegW: CGFloat) -> Int? {
     func pillW(_ p: (ws: String, fullName: String, isFocused: Bool)) -> CGFloat {
         let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
-        return normalPillWidth(idx: p.ws, fullName: p.fullName, cap: cap, showDot: showDot)
+        return normalPillWidth(idx: p.ws, fullName: p.fullName, cap: cap, showDot: showDot, padH: padH)
     }
     // Greedy left-fill (must match splitRow0AroundNotch).
     var used: CGFloat = 0
@@ -695,16 +718,18 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
 
     let hasNotchSplit = isFullscreen && notchMinX != nil && notchMaxX != nil
 
-    func makeSplit(_ assignment: [[Int]], cap: Int) -> Int? {
+    func makeSplit(_ assignment: [[Int]], cap: Int, padH: CGFloat) -> Int? {
         guard hasNotchSplit, let row0 = assignment.first else { return nil }
         return splitRow0AroundNotch(row0Indices: row0, pills: pills, cap: cap,
                                     claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                    padH: padH,
                                     leftSegW: leftSegW)
     }
 
     switch mode {
     case .shrink:
-        // Always 1 row. Binary-search the largest label cap (0..60) that fits.
+        // Always 1 row. Prefer roomy pill padding, shrink that padding first, then
+        // binary-search the largest label cap (0..60) at the minimum padding.
         //
         // In notch mode the pills are split greedily — left segment first, then the rest go
         // right — so a cap that fits the COMBINED width can still overflow the right segment
@@ -715,44 +740,118 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
         // excess rather than leaving pills rendered off-screen.
         let allIndices = Array(0..<pills.count)
         let maxCap = 60
-        var lo = 0, hi = maxCap
-        var bestCap = 0
-        while lo <= hi {
-            let mid = (lo + hi) / 2
-            let fits: Bool
+
+        let minPad = pillPadH
+        let maxPad = preferredPillPadH()
+
+        func fitsOneRow(cap: Int, padH: CGFloat) -> Bool {
             if hasNotchSplit {
-                fits = fitNotchSplit(pills: pills, cap: mid,
+                return fitNotchSplit(pills: pills, cap: cap,
                                      claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                     padH: padH,
                                      leftSegW: leftSegW, rightSegW: rightSegW) != nil
             } else {
                 let (_, overflowed) = greedyPack(
-                    pills: pills, cap: mid, focused: focused,
+                    pills: pills, cap: cap, focused: focused,
                     claudeAlert: claudeAlert, claudeActive: claudeActive,
+                    padH: padH,
                     row0Width: row0W, fullRowWidth: fullRowW, maxRows: 1)
-                fits = !overflowed
+                return !overflowed
             }
-            if fits { bestCap = mid; lo = mid + 1 } else { hi = mid - 1 }
         }
-        let split = makeSplit([allIndices], cap: bestCap)
-        var fit = FitDecision(rows: 1, rowAssignment: [allIndices], effectiveCap: bestCap,
-                              row0Split: split)
 
-        // Post-layout left relaxation: the global bestCap is constrained by the tighter of the
-        // two segments (usually the right). The left segment normally has slack before the
-        // notch, so grow ONLY the left-segment labels to fill it — purely additive, the split
-        // and right segment are untouched. Skipped when labels are already unlimited (bestCap<0)
-        // or there's nothing on the left.
+        func largestFittingPad(cap: Int, floor: CGFloat, ceiling: CGFloat) -> CGFloat {
+            if fitsOneRow(cap: cap, padH: ceiling) { return ceiling }
+            guard fitsOneRow(cap: cap, padH: floor) else { return floor }
+
+            var lo = floor
+            var hi = ceiling
+            var best = floor
+            for _ in 0..<24 {
+                let mid = (lo + hi) / 2
+                if fitsOneRow(cap: cap, padH: mid) {
+                    best = mid
+                    lo = mid
+                } else {
+                    hi = mid
+                }
+            }
+            return best
+        }
+
+        let bestCap: Int
+        let bestPad: CGFloat
+        if fitsOneRow(cap: maxCap, padH: maxPad) {
+            bestCap = maxCap
+            bestPad = maxPad
+        } else if fitsOneRow(cap: maxCap, padH: minPad) {
+            bestCap = maxCap
+            bestPad = largestFittingPad(cap: maxCap, floor: minPad, ceiling: maxPad)
+        } else {
+            bestPad = minPad
+            var lo = 0, hi = maxCap
+            var cap = 0
+            while lo <= hi {
+                let mid = (lo + hi) / 2
+                if fitsOneRow(cap: mid, padH: minPad) {
+                    cap = mid
+                    lo = mid + 1
+                } else {
+                    hi = mid - 1
+                }
+            }
+            bestCap = cap
+        }
+
+        let split = makeSplit([allIndices], cap: bestCap, padH: bestPad)
+        var fit = FitDecision(rows: 1, rowAssignment: [allIndices], effectiveCap: bestCap,
+                              effectivePadH: bestPad, row0Split: split)
+
+        func relaxedPad(pills segmentPills: [(ws: String, fullName: String, isFocused: Bool)],
+                        cap: Int,
+                        segmentWidth: CGFloat) -> CGFloat {
+            guard bestPad < maxPad else { return bestPad }
+            let maxWidth = stripWidth(pills: segmentPills, cap: cap, focused: focused,
+                                      claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                      padH: maxPad)
+            if maxWidth <= segmentWidth { return maxPad }
+
+            var lo = bestPad
+            var hi = maxPad
+            var relaxed = bestPad
+            for _ in 0..<24 {
+                let mid = (lo + hi) / 2
+                let w = stripWidth(pills: segmentPills, cap: cap, focused: focused,
+                                   claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                   padH: mid)
+                if w <= segmentWidth {
+                    relaxed = mid
+                    lo = mid
+                } else {
+                    hi = mid
+                }
+            }
+            return relaxed
+        }
+
+        // Post-layout left relaxation: the global fit is constrained by the tighter of the
+        // two segments. Grow only the already-assigned side: first restore padding toward the
+        // preferred value, then relax labels as before. The split and opposite segment are
+        // untouched.
         if hasNotchSplit, let split = split, split > 0, bestCap >= 0 {
             let leftPills = Array(pills[0..<min(split, pills.count)])
+            let bestLeftPad = relaxedPad(pills: leftPills, cap: bestCap, segmentWidth: leftSegW)
             var bestLeftCap = bestCap
             var llo = bestCap + 1, lhi = maxCap
             while llo <= lhi {
                 let mid = (llo + lhi) / 2
                 let w = stripWidth(pills: leftPills, cap: mid, focused: focused,
-                                   claudeAlert: claudeAlert, claudeActive: claudeActive)
+                                   claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                   padH: bestLeftPad)
                 if w <= leftSegW { bestLeftCap = mid; llo = mid + 1 } else { lhi = mid - 1 }
             }
-            if bestLeftCap > bestCap {
+            if bestLeftPad > bestPad + 0.01 || bestLeftCap > bestCap {
+                if bestLeftPad > bestPad + 0.01 { fit.leftPadH = bestLeftPad }
                 fit.leftCap = bestLeftCap
                 fit.leftWsIDs = Set(leftPills.map { $0.ws })
             }
@@ -763,15 +862,18 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
         // already-assigned right-side labels up to the right segment's available width.
         if hasNotchSplit, let split = split, split < pills.count, bestCap >= 0 {
             let rightPills = Array(pills[min(split, pills.count)...])
+            let bestRightPad = relaxedPad(pills: rightPills, cap: bestCap, segmentWidth: rightSegW)
             var bestRightCap = bestCap
             var rlo = bestCap + 1, rhi = maxCap
             while rlo <= rhi {
                 let mid = (rlo + rhi) / 2
                 let w = stripWidth(pills: rightPills, cap: mid, focused: focused,
-                                   claudeAlert: claudeAlert, claudeActive: claudeActive)
+                                   claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                   padH: bestRightPad)
                 if w <= rightSegW { bestRightCap = mid; rlo = mid + 1 } else { rhi = mid - 1 }
             }
-            if bestRightCap > bestCap {
+            if bestRightPad > bestPad + 0.01 || bestRightCap > bestCap {
+                if bestRightPad > bestPad + 0.01 { fit.rightPadH = bestRightPad }
                 fit.rightCap = bestRightCap
                 fit.rightWsIDs = Set(rightPills.map { $0.ws })
             }
@@ -781,36 +883,57 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
     case .expand:
         // Full labels (cap = -1). Grow rows 1..FIT_MAX_ROWS until it fits; apply hysteresis.
         let cap = -1
-        for r in 1...FIT_MAX_ROWS {
-            let (_, overflowed) = greedyPack(
+        let minPad = pillPadH
+        let maxPad = preferredPillPadH()
+
+        func pack(rows: Int, padH: CGFloat) -> (assignment: [[Int]], overflowed: Bool) {
+            greedyPack(
                 pills: pills, cap: cap, focused: focused,
                 claudeAlert: claudeAlert, claudeActive: claudeActive,
-                row0Width: row0W, fullRowWidth: fullRowW, maxRows: r)
+                padH: padH,
+                row0Width: row0W, fullRowWidth: fullRowW, maxRows: rows)
+        }
+
+        func largestFittingPad(rows: Int) -> CGFloat {
+            if !pack(rows: rows, padH: maxPad).overflowed { return maxPad }
+            guard !pack(rows: rows, padH: minPad).overflowed else { return minPad }
+
+            var lo = minPad
+            var hi = maxPad
+            var best = minPad
+            for _ in 0..<24 {
+                let mid = (lo + hi) / 2
+                if !pack(rows: rows, padH: mid).overflowed {
+                    best = mid
+                    lo = mid
+                } else {
+                    hi = mid
+                }
+            }
+            return best
+        }
+
+        for r in 1...FIT_MAX_ROWS {
+            let (_, overflowed) = pack(rows: r, padH: minPad)
             if !overflowed {
                 let effectiveRows: Int
                 if r < lastRows {
-                    let (_, stillOverflows) = greedyPack(
-                        pills: pills, cap: cap, focused: focused,
-                        claudeAlert: claudeAlert, claudeActive: claudeActive,
-                        row0Width: row0W, fullRowWidth: fullRowW, maxRows: lastRows - 1)
+                    let (_, stillOverflows) = pack(rows: lastRows - 1, padH: minPad)
                     effectiveRows = stillOverflows ? lastRows : r
                 } else { effectiveRows = r }
-                let (finalAssignment, _) = greedyPack(
-                    pills: pills, cap: cap, focused: focused,
-                    claudeAlert: claudeAlert, claudeActive: claudeActive,
-                    row0Width: row0W, fullRowWidth: fullRowW, maxRows: effectiveRows)
+                let padH = largestFittingPad(rows: effectiveRows)
+                let (finalAssignment, _) = pack(rows: effectiveRows, padH: padH)
                 return FitDecision(rows: effectiveRows, rowAssignment: finalAssignment,
                                    effectiveCap: cap,
-                                   row0Split: makeSplit(finalAssignment, cap: cap))
+                                   effectivePadH: padH,
+                                   row0Split: makeSplit(finalAssignment, cap: cap, padH: padH))
             }
         }
         // Still overflows at FIT_MAX_ROWS: park overflow in the last row (ellipsized by per-pill maxwidth).
-        let (asgn, _) = greedyPack(
-            pills: pills, cap: cap, focused: focused,
-            claudeAlert: claudeAlert, claudeActive: claudeActive,
-            row0Width: row0W, fullRowWidth: fullRowW, maxRows: FIT_MAX_ROWS)
+        let (asgn, _) = pack(rows: FIT_MAX_ROWS, padH: minPad)
         return FitDecision(rows: FIT_MAX_ROWS, rowAssignment: asgn, effectiveCap: cap,
-                           row0Split: makeSplit(asgn, cap: cap))
+                           effectivePadH: minPad,
+                           row0Split: makeSplit(asgn, cap: cap, padH: minPad))
     }
 }
 
@@ -886,6 +1009,7 @@ class WorkspacePill: NSView {
     var cappedNameText: String = ""
     var canExpandOnHover: Bool = false
     var showDotState: Bool = false
+    var padHState: CGFloat = pillPadH
     var widthConstraint: NSLayoutConstraint?
     var onHoverChanged: ((String, Bool) -> Void)?
     private var isHovered = false
@@ -896,6 +1020,8 @@ class WorkspacePill: NSView {
     private let nameField = NSTextField(labelWithString: "")
     let dotView = NSView()
     private let innerStack = NSStackView()
+    private var innerLeadingConstraint: NSLayoutConstraint?
+    private var innerTrailingConstraint: NSLayoutConstraint?
     var onPress: (() -> Void)?
 
     // Track hover for click areas
@@ -950,6 +1076,11 @@ class WorkspacePill: NSView {
         innerView.addSubview(innerStack)
         addSubview(innerView)
 
+        let innerLeading = innerStack.leadingAnchor.constraint(equalTo: innerView.leadingAnchor, constant: pillPadH)
+        let innerTrailing = innerStack.trailingAnchor.constraint(equalTo: innerView.trailingAnchor, constant: -pillPadH)
+        innerLeadingConstraint = innerLeading
+        innerTrailingConstraint = innerTrailing
+
         NSLayoutConstraint.activate([
             innerView.leadingAnchor.constraint(equalTo: leadingAnchor),
             innerView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -957,8 +1088,8 @@ class WorkspacePill: NSView {
             innerView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             innerStack.centerYAnchor.constraint(equalTo: innerView.centerYAnchor),
-            innerStack.leadingAnchor.constraint(equalTo: innerView.leadingAnchor, constant: pillPadH),
-            innerStack.trailingAnchor.constraint(equalTo: innerView.trailingAnchor, constant: -pillPadH),
+            innerLeading,
+            innerTrailing,
 
             dotView.widthAnchor.constraint(equalToConstant: 6),
             dotView.heightAnchor.constraint(equalToConstant: 6),
@@ -977,6 +1108,12 @@ class WorkspacePill: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func mouseDown(with event: NSEvent) { onPress?() }
+
+    func setPadding(_ padH: CGFloat) {
+        padHState = padH
+        innerLeadingConstraint?.constant = padH
+        innerTrailingConstraint?.constant = -padH
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -1624,12 +1761,14 @@ class HubBarWindow: NSWindow {
 
             // Left-segment pills may use a relaxed cap (capFor); everyone else uses effectiveCap.
             let cap = fit.capFor(ws)
+            let padH = fit.padFor(ws)
             let (idxStr, cappedName) = state.spansFor(ws: ws, cap: cap)
             let fullName = state.spansFor(ws: ws, cap: -1).1
             let canExpandOnHover = !fullName.isEmpty && cappedName != fullName
             let showExpandedName = hoveredWs == ws && !fullName.isEmpty
             let displayName = showExpandedName ? fullName : cappedName
 
+            pill.setPadding(padH)
             pill.fullNameText = fullName
             pill.cappedNameText = cappedName
             pill.canExpandOnHover = canExpandOnHover
@@ -1748,13 +1887,15 @@ class HubBarWindow: NSWindow {
                         idx: pill.wsID,
                         fullName: pill.fullNameText,
                         cappedName: pill.cappedNameText,
-                        showDot: pill.showDotState)
+                        showDot: pill.showDotState,
+                        padH: pill.padHState)
                 } else {
                     targetWidths[pill.wsID] = normalPillWidth(
                         idx: pill.wsID,
                         fullName: pill.fullNameText,
                         displayName: pill.cappedNameText,
-                        showDot: pill.showDotState)
+                        showDot: pill.showDotState,
+                        padH: pill.padHState)
                 }
             }
 
@@ -1765,7 +1906,7 @@ class HubBarWindow: NSWindow {
                     .filter { $0.wsID != hoveredPill!.wsID }
                     .map { pill -> (pill: WorkspacePill, minWidth: CGFloat, shrinkable: CGFloat) in
                         let current = targetWidths[pill.wsID] ?? 0
-                        let minW = analyticalPillWidth(idx: pill.wsID, name: "", showDot: pill.showDotState)
+                        let minW = analyticalPillWidth(idx: pill.wsID, name: "", showDot: pill.showDotState, padH: pill.padHState)
                         return (pill, minW, max(0, current - minW))
                     }
 

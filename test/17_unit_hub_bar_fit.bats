@@ -52,6 +52,76 @@ let screenW: CGFloat = 1512
 let notchMinX: CGFloat = 675
 let notchMaxX: CGFloat = 850
 let rightSegW = max(0, (screenW - 8) - (notchMaxX + 2))
+let preferredPad = preferredPillPadH()
+
+guard preferredPad > pillPadH else {
+    fail("expected preferred padding \(preferredPad) to exceed minimum padding \(pillPadH)")
+}
+
+let paddingPills: [(ws: String, fullName: String, isFocused: Bool)] = [
+    ("1", "centerpad", false),
+    ("2", "workspace", true),
+    ("3", "notch", false),
+]
+let paddingMaxCap = 60
+let preferredFullWidth = stripWidth(pills: paddingPills, cap: paddingMaxCap, focused: "2",
+                                    claudeAlert: [], claudeActive: [], padH: preferredPad)
+let minimumFullWidth = stripWidth(pills: paddingPills, cap: paddingMaxCap, focused: "2",
+                                  claudeAlert: [], claudeActive: [], padH: pillPadH)
+
+let roomyFit = decideFit(
+    pills: paddingPills,
+    screenW: preferredFullWidth + 16,
+    notchMinX: nil,
+    notchMaxX: nil,
+    isFullscreen: false,
+    focused: "2",
+    claudeAlert: [],
+    claudeActive: [],
+    mode: .shrink,
+    lastRows: 1)
+guard roomyFit.effectivePadH == preferredPad else {
+    fail("expected roomy layout to use preferred padding \(preferredPad), got \(roomyFit.effectivePadH)")
+}
+guard roomyFit.effectiveCap == paddingMaxCap else {
+    fail("expected roomy layout to keep max cap \(paddingMaxCap), got \(roomyFit.effectiveCap)")
+}
+
+let mediumFit = decideFit(
+    pills: paddingPills,
+    screenW: preferredFullWidth + 16 - 10,
+    notchMinX: nil,
+    notchMaxX: nil,
+    isFullscreen: false,
+    focused: "2",
+    claudeAlert: [],
+    claudeActive: [],
+    mode: .shrink,
+    lastRows: 1)
+guard mediumFit.effectivePadH < preferredPad && mediumFit.effectivePadH > pillPadH else {
+    fail("expected medium layout to reduce padding within bounds, got \(mediumFit.effectivePadH)")
+}
+guard mediumFit.effectiveCap == paddingMaxCap else {
+    fail("expected medium layout to keep labels uncapped while shrinking padding, got cap \(mediumFit.effectiveCap)")
+}
+
+let tightFit = decideFit(
+    pills: paddingPills,
+    screenW: minimumFullWidth + 16 - 8,
+    notchMinX: nil,
+    notchMaxX: nil,
+    isFullscreen: false,
+    focused: "2",
+    claudeAlert: [],
+    claudeActive: [],
+    mode: .shrink,
+    lastRows: 1)
+guard tightFit.effectivePadH == pillPadH else {
+    fail("expected tight layout to reach minimum padding \(pillPadH), got \(tightFit.effectivePadH)")
+}
+guard tightFit.effectiveCap < paddingMaxCap else {
+    fail("expected tight layout to reduce cap only after reaching minimum padding, got \(tightFit.effectiveCap)")
+}
 
 let fit = decideFit(
     pills: pills,
@@ -71,8 +141,10 @@ guard fit.rows == 1 else {
 guard let split = fit.row0Split, split > 0, split < pills.count else {
     fail("expected a two-sided notch split, got \(String(describing: fit.row0Split))")
 }
-guard let rightCap = fit.rightCap, rightCap > fit.effectiveCap else {
-    fail("expected right segment to relax beyond global cap \(fit.effectiveCap), got \(String(describing: fit.rightCap))")
+let rightPad = fit.rightPadH ?? fit.effectivePadH
+let rightCap = fit.rightCap ?? fit.effectiveCap
+guard rightPad > fit.effectivePadH || rightCap > fit.effectiveCap else {
+    fail("expected right segment to relax beyond global padding/cap \(fit.effectivePadH)/\(fit.effectiveCap), got \(rightPad)/\(rightCap)")
 }
 
 let rightPills = Array(pills[split...])
@@ -82,9 +154,9 @@ guard fit.rightWsIDs == expectedRightIDs else {
 }
 
 let baseWidth = stripWidth(pills: rightPills, cap: fit.effectiveCap, focused: "3",
-                           claudeAlert: [], claudeActive: [])
+                           claudeAlert: [], claudeActive: [], padH: fit.effectivePadH)
 let relaxedWidth = stripWidth(pills: rightPills, cap: rightCap, focused: "3",
-                              claudeAlert: [], claudeActive: [])
+                              claudeAlert: [], claudeActive: [], padH: rightPad)
 guard relaxedWidth > baseWidth else {
     fail("expected relaxed right width \(relaxedWidth) to exceed base width \(baseWidth)")
 }
@@ -96,19 +168,25 @@ let previousRefreshFit = FitDecision(
     rows: 1,
     rowAssignment: [[0, 1, 2]],
     effectiveCap: 8,
+    effectivePadH: pillPadH,
     row0Split: 1,
     leftCap: nil,
+    leftPadH: nil,
     leftWsIDs: [],
     rightCap: 14,
+    rightPadH: nil,
     rightWsIDs: Set(["2", "3"]))
 let afterDeletionFit = FitDecision(
     rows: 1,
     rowAssignment: [[0, 1]],
     effectiveCap: 8,
+    effectivePadH: pillPadH,
     row0Split: 1,
     leftCap: nil,
+    leftPadH: nil,
     leftWsIDs: [],
     rightCap: 18,
+    rightPadH: nil,
     rightWsIDs: Set(["3"]))
 
 let rebuildAfterDeletion = refreshRequiresRebuild(
@@ -123,6 +201,34 @@ let rebuildAfterDeletion = refreshRequiresRebuild(
     newFit: afterDeletionFit)
 guard rebuildAfterDeletion else {
     fail("expected deletion of an existing visible pill to rebuild notch row stacks")
+}
+
+let previousPaddingFit = FitDecision(
+    rows: 1,
+    rowAssignment: [[0, 1]],
+    effectiveCap: 60,
+    effectivePadH: pillPadH,
+    row0Split: nil,
+    leftCap: nil,
+    leftPadH: nil,
+    leftWsIDs: [],
+    rightCap: nil,
+    rightPadH: nil,
+    rightWsIDs: [])
+let afterPaddingFit = FitDecision(
+    rows: 1,
+    rowAssignment: [[0, 1]],
+    effectiveCap: 60,
+    effectivePadH: pillPadH + 1,
+    row0Split: nil,
+    leftCap: nil,
+    leftPadH: nil,
+    leftWsIDs: [],
+    rightCap: nil,
+    rightPadH: nil,
+    rightWsIDs: [])
+guard !fitStructureMatchesForRefresh(previousPaddingFit, afterPaddingFit) else {
+    fail("expected padding-only fit changes to refresh workspace widths")
 }
 SWIFT
 

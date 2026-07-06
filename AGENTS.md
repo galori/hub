@@ -63,19 +63,21 @@ This is a simple repo. Use a concise title and one-paragraph body; no ticket num
 - **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command. Commands without full flags show a GUI dialog; with all flags + `-y`, they execute silently. The same code path runs from both CLI and keybinding.
 - **Single-binary Swift UIs**: GUI elements are standalone Swift files compiled with `swiftc -O -framework Cocoa`. No Xcode project, no storyboards.
 - **Config is deployed, not symlinked**: `hub install` deploys configs to their destinations. `aerospace.toml` uses an `__HUB_SCRIPT__` placeholder substituted via sed.
-- **Worktree-safe development**: Unit and stubbed command tests must run against the worktree copy via `./scripts/hub`, isolated `HUB_CONFIG_DIR` / `HUB_RUNTIME_DIR`, and stubbed system tools. Live install/reload checks belong in the opt-in integration suite.
+- **Worktree-safe development**: Unit and stubbed command tests must run against the worktree copy via `./scripts/hub`, isolated `HUB_CONFIG_DIR` / `HUB_RUNTIME_DIR`, and stubbed system tools. Do not validate worktree changes by reloading, screenshotting, or otherwise exercising the currently running Hub on a development laptop; live Hub behavior is covered by GitHub integration tests on the dedicated macOS runner.
 - **Harmless deploy**: Running `./scripts/hub install` is intended to be idempotent, but it deploys configs, compiles binaries, and may reload the running Hub. Do not use it as a routine local validation step from a worktree.
 - **Responsiveness first**: UI actions must feel instant. Never block the user waiting for background work (app teardown, window closing, etc.) to complete. Move slow work off the critical path — fire-and-forget or background subshells — so the visible state updates immediately.
 - **Dismissable HUDs**: Every floating/always-on-top HUD whose lifetime is tied to an external process (banners, progress overlays — anything launched as a background Swift binary fed via stdin/FIFO) MUST render a manual ✕ dismiss button. If the launching process crashes or is `^C`'d before it sends `QUIT`, the button is the user's only escape hatch. Such windows must set `ignoresMouseEvents = false`. Reuse the `ClickView` dismiss-button pattern in `lib/progress_banner.swift` (hover states + `onPress = { dismiss() }`). Modal overlays that auto-dismiss on a deterministic, short-lived action via `start_overlay` / `stop_overlay` are exempt.
 
 ## Agent Tools
 
-- `agents/bin/screenshot-bar` - Captures a screenshot of just the Hub Bar region (top of screen). **MUST be used to visually confirm the Hub Bar looks correct after any Hub Bar-related change** — layout, icons, spacing, colors. Run it, read the PNG, and verify before committing. Outputs a PNG path: `agents/bin/screenshot-bar [output.png]`
-- `./scripts/hub testing-banner start|stop|run` - Raise/dismiss a small top-right "stand by" HUD so the user knows not to interact with the UI while you're testing. MUST be used before triggering transient UI, timing-sensitive screenshots, or focus-dependent flows. Always pair `start` with `stop`, even on failure paths.
+- `agents/bin/screenshot-bar` - Captures a screenshot of just the Hub Bar region (top of screen). Use only when intentionally debugging the installed/running Hub outside ordinary worktree validation, such as on the dedicated integration runner. Do not use it to validate routine worktree changes on a development laptop.
+- `./scripts/hub testing-banner start|stop|run` - Raise/dismiss a small top-right "stand by" HUD so the user knows not to interact with the UI while intentionally testing the installed/running Hub. Do not use it for routine worktree validation. Always pair `start` with `stop`, even on failure paths.
 
 ## Testing Live UI
 
-Only raise the testing banner when your actions will visibly affect the user's screen or could disrupt their work. The banner itself is disruptive, so use it only when necessary.
+Ordinary worktree validation must not touch the currently running Hub on a development laptop. Use worktree-safe tests locally and rely on the GitHub integration workflow on the dedicated macOS runner for live Hub behavior.
+
+Only raise the testing banner when you are intentionally testing the installed/running Hub in an environment where that is expected. The banner itself is disruptive, so use it only when necessary.
 
 Raise the banner for:
 
@@ -86,7 +88,6 @@ Raise the banner for:
 
 Do not raise the banner for:
 
-- Taking screenshots with `agents/bin/screenshot-bar` because it is passive
 - Editing files, compiling, reading logs, or running shell commands the user will not see or feel
 - Running `./scripts/hub install --no-reload` only when it will not restart visible services
 
