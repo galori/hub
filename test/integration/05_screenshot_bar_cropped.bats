@@ -90,12 +90,20 @@ osascript_with_timeout() {
 
 hub_bar_top_y() {
     swift -e 'import Cocoa
+let pidPath = NSHomeDirectory() + "/.config/hub/hub_bar.pid"
+let hubPID = (try? String(contentsOfFile: pidPath, encoding: .utf8))
+    .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
 let options: CGWindowListOption = [.excludeDesktopElements, .optionOnScreenOnly]
 let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
 for window in list {
-    guard let owner = window[kCGWindowOwnerName as String] as? String, owner.contains("hub_bar"),
+    let owner = window[kCGWindowOwnerName as String] as? String ?? ""
+    let ownerPID = (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue
+    guard (hubPID != nil && ownerPID == hubPID) || owner.contains("hub_bar"),
           let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+          let x = bounds["X"] as? NSNumber,
+          let width = bounds["Width"] as? NSNumber,
           let y = bounds["Y"] as? NSNumber else { continue }
+    guard x.doubleValue <= 600 && x.doubleValue + width.doubleValue >= 660 else { continue }
     print(Int(y.doubleValue))
     exit(0)
 }
@@ -225,7 +233,9 @@ non_solid_pixel_count() {
     [[ "$hub_top" =~ ^[0-9]+$ ]]
     crop_y1=$((hub_top - 6))
     [[ "$crop_y1" -lt 0 ]] && crop_y1=0
-    crop_y2=$((hub_top + 10))
+    # Sample only the seam and the top few pixels of the bar. Workspace pills start
+    # lower inside the bar, and their adaptive widths can legitimately occupy this x range.
+    crop_y2=$((hub_top + 3))
 
     run "$repo_dir/agents/bin/screenshot-bar-cropped" 600 "$crop_y1" 660 "$crop_y2" "$screenshot"
     echo "# status: $status" >&3
