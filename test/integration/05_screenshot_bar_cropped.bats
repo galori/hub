@@ -90,29 +90,24 @@ osascript_with_timeout() {
 
 hub_bar_top_y() {
     swift -e 'import Cocoa
+let pidPath = NSHomeDirectory() + "/.config/hub/hub_bar.pid"
+let hubPID = (try? String(contentsOfFile: pidPath, encoding: .utf8))
+    .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
 let options: CGWindowListOption = [.excludeDesktopElements, .optionOnScreenOnly]
 let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
 for window in list {
-    guard let owner = window[kCGWindowOwnerName as String] as? String, owner.contains("hub_bar"),
+    let owner = window[kCGWindowOwnerName as String] as? String ?? ""
+    let ownerPID = (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue
+    guard (hubPID != nil && ownerPID == hubPID) || owner.contains("hub_bar"),
           let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+          let x = bounds["X"] as? NSNumber,
+          let width = bounds["Width"] as? NSNumber,
           let y = bounds["Y"] as? NSNumber else { continue }
+    guard x.doubleValue <= 600 && x.doubleValue + width.doubleValue >= 660 else { continue }
     print(Int(y.doubleValue))
     exit(0)
 }
 exit(1)'
-}
-
-hub_bar_top_y_from_metrics() {
-    local outer_top visual_height
-    outer_top="$(cat "$HOME/.config/hub/hub_bar_outer_top" 2>/dev/null || true)"
-
-    [[ "$outer_top" =~ ^[0-9]+$ ]] || return 1
-    # hub_bar_height is an AeroSpace clearance metric, not the visual bar height.
-    # This test forces normal one-row mode, whose visual Hub Bar height is 40px.
-    visual_height=40
-    [[ "$outer_top" -ge "$visual_height" ]] || return 1
-
-    echo $((outer_top - visual_height))
 }
 
 save_desktop_pictures() {
@@ -231,12 +226,8 @@ non_solid_pixel_count() {
         "[[ \"\$(menu_bar_auto_hide_value)\" == \"Never\" ]]"
 
     if ! hub_top="$(hub_bar_top_y 2>/dev/null)"; then
-        if hub_top="$(hub_bar_top_y_from_metrics 2>/dev/null)"; then
-            echo "# hub bar top y lookup failed; using metrics fallback: $hub_top" >&3
-        else
-            hub_top=24
-            echo "# hub bar top y lookup failed; using default: $hub_top" >&3
-        fi
+        hub_top=24
+        echo "# hub bar top y lookup failed; using default: $hub_top" >&3
     fi
     echo "# hub bar top y: $hub_top" >&3
     [[ "$hub_top" =~ ^[0-9]+$ ]]
