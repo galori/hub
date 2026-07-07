@@ -103,6 +103,12 @@ JSON
     [[ "$output" == *"hello from /tmp/main"* ]]
 }
 
+@test "hub actions slug executes matching action directly" {
+    run "$HUB" actions hello
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"hello from /tmp/main"* ]]
+}
+
 @test "hub actions run missing slug fails cleanly" {
     run "$HUB" actions run missing
     [[ "$status" -ne 0 ]]
