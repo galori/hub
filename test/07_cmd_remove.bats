@@ -10,17 +10,18 @@ setup() {
     setup_stubs
 
     export WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
+    export HUB_LOG_FILE="$HOME/.config/hub/hub.log"
     export STUB_CALLS="$HOME/stub_calls"
 
     # Workspace removal calls aerospace: stub it to record calls + succeed
     make_stub_recording aerospace "" 0
     export STUB_CALLS
 
-    cat > "$WORKSPACES_FILE" <<'JSON'
+    cat > "$WORKSPACES_FILE" <<JSON
 [
-  {"name":"Alpha","path":"/tmp/alpha","root_repo":"/tmp/alpha","workspace_id":"1"},
-  {"name":"Beta","path":"/tmp/beta/worktree","root_repo":"/tmp/beta","workspace_id":"2"},
-  {"name":"General","path":"/tmp","root_repo":"","workspace_id":"Z"}
+  {"name":"Alpha","path":"$HUB_TEST_DIR/alpha","root_repo":"$HUB_TEST_DIR/alpha","workspace_id":"1"},
+  {"name":"Beta","path":"$HUB_TEST_DIR/beta/worktree","root_repo":"$HUB_TEST_DIR/beta","workspace_id":"2"},
+  {"name":"General","path":"$HUB_TEST_DIR","root_repo":"","workspace_id":"Z"}
 ]
 JSON
 }
@@ -61,6 +62,20 @@ teardown() {
         grep -q 'workspace Z' "$HOME/stub_calls" 2>/dev/null || true
     # Just verify the command ran successfully — aerospace is stubbed
     [[ "$status" -eq 0 ]]
+}
+
+@test "hub remove worktree logs background teardown command" {
+    mkdir -p "$HUB_TEST_DIR/beta/worktree" "$HUB_TEST_DIR/beta/.superset"
+    cat > "$HUB_TEST_DIR/beta/.superset/config.json" <<'JSON'
+{"teardown":["scripts/teardown-worktree"]}
+JSON
+
+    run "$HUB" remove 2 -y
+
+    [[ "$status" -eq 0 ]]
+    grep -q "remove workspace 'Beta' (id=2, worktree=true)" "$HUB_LOG_FILE"
+    grep -q "workspace teardown for 'Beta':" "$HUB_LOG_FILE"
+    grep -q "scripts/teardown-worktree" "$HUB_LOG_FILE"
 }
 
 @test "hub remove without -y and without confirm_dialog exits non-zero" {

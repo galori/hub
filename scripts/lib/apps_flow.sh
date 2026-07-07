@@ -259,6 +259,13 @@ apps_save_slot() {
            + (if $first_prompt_launch != "" then {first_prompt_launch: $first_prompt_launch} else {} end)
          )
        ' "$APPS_FILE" > "$tmp" && mv "$tmp" "$APPS_FILE" || { rm -f "$tmp"; return 1; }
+    hub_log_if_available "INPUT" "save app slot $slot: $name"
+    hub_log_if_available "CMD" "app slot $slot launch: $launch"
+    [[ -n "$first_launch" ]] && hub_log_if_available "CMD" "app slot $slot first_launch: $first_launch"
+    [[ -n "$url_launch" ]] && hub_log_if_available "CMD" "app slot $slot url_launch: $url_launch"
+    [[ -n "$first_url_launch" ]] && hub_log_if_available "CMD" "app slot $slot first_url_launch: $first_url_launch"
+    [[ -n "$prompt_launch" ]] && hub_log_if_available "CMD" "app slot $slot prompt_launch: $prompt_launch"
+    [[ -n "$first_prompt_launch" ]] && hub_log_if_available "CMD" "app slot $slot first_prompt_launch: $first_prompt_launch"
     success "Saved slot $slot: $name"
     apps_refresh
     if [[ "$slot" == "2" ]] && command -v build_http_handler >/dev/null 2>&1; then
@@ -276,6 +283,7 @@ apps_remove_slot() {
     jq --argjson idx "$idx" '
        if length > $idx then del(.[$idx]) else . end
        ' "$APPS_FILE" > "$tmp" && mv "$tmp" "$APPS_FILE" || { rm -f "$tmp"; return 1; }
+    hub_log_if_available "INPUT" "remove app slot $slot"
     success "Removed slot $slot"
     apps_refresh
     if [[ "$slot" == "2" ]] && command -v build_http_handler >/dev/null 2>&1; then
