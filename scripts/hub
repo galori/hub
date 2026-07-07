@@ -59,10 +59,13 @@ HUB_BROWSER_ID="sh.hub.http-handler"
 : "${WORKSPACES_FILE:=$HUB_CONFIG_DIR/workspaces.json}"
 : "${RECENT_REPOS_FILE:=$HUB_CONFIG_DIR/recent_repos.json}"
 : "${APPS_FILE:=$HUB_CONFIG_DIR/apps.json}"
+: "${ACTIONS_FILE:=$HUB_CONFIG_DIR/actions.json}"
 : "${HUB_CONFIG_FILE:=$HUB_CONFIG_DIR/config.json}"
 : "${ICONS_DIR:=$HUB_CONFIG_DIR/icons}"
 APP_PRESETS_SRC="$CONFIG_DIR/app_presets.json"
 : "${APP_PRESETS_FILE:=$HUB_CONFIG_DIR/app_presets.json}"
+ACTION_PRESETS_SRC="$CONFIG_DIR/action_presets.json"
+: "${ACTION_PRESETS_FILE:=$HUB_CONFIG_DIR/action_presets.json}"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 LOG_VIEWER_SRC="$LIB_DIR/log_viewer.swift"
 : "${LOG_VIEWER_BIN:=$HUB_CONFIG_DIR/log_viewer}"
@@ -76,7 +79,7 @@ LOG_VIEWER_SRC="$LIB_DIR/log_viewer.swift"
 : "${HUB_OVERLAY_PIDFILE:=$HUB_CONFIG_DIR/overlay.pid}"
 export HUB_HOME HUB_CONFIG_DIR HUB_RUNTIME_DIR HUB_APPLICATIONS_DIR
 export HUB_NEW_WORKSPACE_RESULT HUB_RENAME_RESULT HUB_CONFIRM_STATE APP_SWITCHER_RESULT
-export APPS_FILE ICONS_DIR
+export APPS_FILE ACTIONS_FILE ACTION_PRESETS_FILE ICONS_DIR
 
 # Hub Bar heights (px) — MUST match barHeightNormal/barHeightTall in lib/hub_bar.swift.
 HUB_BAR_HEIGHT_NORMAL=40
@@ -116,6 +119,7 @@ print_usage() {
     echo "  remove        Remove a workspace (current or by ID)"
     echo "  rename        Rename a workspace (current or by ID)"
     echo "  apps          Manage configured app launcher slots (list/add/edit/remove/reset)"
+    echo "  actions       Manage custom actions shown in the Hub Bar overlay"
   echo "  open          Open configured apps in current workspace"
     echo "  app-switcher  Cmd-Tab-style cycle over launch-bar apps (Alt-N; hold Alt, tap N)"
     echo "  keys          List all AeroSpace key bindings (main and service mode)"
@@ -160,6 +164,7 @@ print_usage() {
     echo "  Use 'hub apps' to manage up to 5 slots. Slot 1 = terminal, slot 2 = browser."
     echo "  Presets auto-wire prompt_launch (for 'hub new --prompt') and url_launch (for URL handling)."
     echo "  Placeholders: {path} = workspace folder, {workspace} = workspace ID."
+    echo "  Use 'hub actions' to manage text-slug actions in the Hub Bar overlay."
 }
 
 success() { echo -e "  ${green}✓${reset} $1"; }
@@ -941,6 +946,8 @@ pin_hub_dock_icon() {
 
 APPS_FLOW_LIB="$SCRIPT_DIR/lib/apps_flow.sh"
 [ -f "$APPS_FLOW_LIB" ] && source "$APPS_FLOW_LIB"
+ACTIONS_FLOW_LIB="$SCRIPT_DIR/lib/actions_flow.sh"
+[ -f "$ACTIONS_FLOW_LIB" ] && source "$ACTIONS_FLOW_LIB"
 
 # --- Commands ---
 
@@ -1044,6 +1051,25 @@ deploy_app_presets() {
                 warn "Could not update Ghostty app slot"
             fi
         fi
+    fi
+}
+
+deploy_action_presets() {
+    mkdir -p "$(dirname "$ACTIONS_FILE")"
+    if [[ -f "$ACTION_PRESETS_SRC" ]]; then
+        cp "$ACTION_PRESETS_SRC" "$ACTION_PRESETS_FILE"
+        success "Action presets deployed to $ACTION_PRESETS_FILE"
+    fi
+
+    if [[ ! -f "$ACTIONS_FILE" ]]; then
+        if command -v actions_default_json >/dev/null 2>&1; then
+            actions_default_json > "$ACTIONS_FILE"
+        else
+            echo "[]" > "$ACTIONS_FILE"
+        fi
+        success "Created default actions.json"
+    else
+        info "actions.json already exists — manage actions with: hub actions list / add / edit / remove"
     fi
 }
 
@@ -1223,6 +1249,9 @@ cmd_install() {
 
     # --- Deploy app presets database ---
     deploy_app_presets
+
+    # --- Deploy action presets database ---
+    deploy_action_presets
 
     # --- Configure app launcher slots ---
     if [[ ! -f "$APPS_FILE" ]]; then
@@ -3554,6 +3583,145 @@ cmd_apps() {
     esac
 }
 
+cmd_actions() {
+    local sub="${1:-list}"
+    shift || true
+
+    case "$sub" in
+        ls|list|"")
+            actions_list
+            ;;
+        presets)
+            actions_list_presets
+            ;;
+        add)
+            local slug="${1:-}" command="" description="" assume_yes=false
+            [[ -n "$slug" ]] && shift || true
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --command)
+                        [[ $# -ge 2 ]] || { fail "--command requires a value"; return 1; }
+                        command="$2"; shift 2 ;;
+                    --command=*)
+                        command="${1#--command=}"; shift ;;
+                    --description)
+                        [[ $# -ge 2 ]] || { fail "--description requires a value"; return 1; }
+                        description="$2"; shift 2 ;;
+                    --description=*)
+                        description="${1#--description=}"; shift ;;
+                    -y|--yes)
+                        assume_yes=true; shift ;;
+                    *)
+                        fail "Unknown actions add flag: $1"
+                        return 1 ;;
+                esac
+            done
+            if [[ -z "$slug" ]]; then
+                fail "Usage: hub actions add <slug> [--command <command>] [--description <text>] [-y]"
+                return 1
+            fi
+            if [[ -n "$command" ]]; then
+                actions_save "$slug" "$command" "$description" "$assume_yes"
+            else
+                actions_add_from_preset "$slug" "$assume_yes"
+            fi
+            ;;
+        edit)
+            local slug="${1:-}" command="" description="" assume_yes=true
+            [[ -n "$slug" ]] && shift || true
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --command)
+                        [[ $# -ge 2 ]] || { fail "--command requires a value"; return 1; }
+                        command="$2"; shift 2 ;;
+                    --command=*)
+                        command="${1#--command=}"; shift ;;
+                    --description)
+                        [[ $# -ge 2 ]] || { fail "--description requires a value"; return 1; }
+                        description="$2"; shift 2 ;;
+                    --description=*)
+                        description="${1#--description=}"; shift ;;
+                    *)
+                        fail "Unknown actions edit flag: $1"
+                        return 1 ;;
+                esac
+            done
+            if [[ -z "$slug" || -z "$command" ]]; then
+                fail "Usage: hub actions edit <slug> --command <command> [--description <text>]"
+                return 1
+            fi
+            actions_save "$slug" "$command" "$description" "$assume_yes"
+            ;;
+        rm|remove)
+            local slug="${1:-}" assume_yes=false
+            shift || true
+            for arg in "$@"; do
+                [[ "$arg" == "-y" || "$arg" == "--yes" ]] && assume_yes=true
+            done
+            if [[ -z "$slug" ]]; then
+                fail "Usage: hub actions remove <slug> [-y]"
+                return 1
+            fi
+            if ! $assume_yes; then
+                local yn
+                read -rp "Remove action '$slug'? [y/N] " yn
+                [[ "$yn" =~ ^[Yy] ]] || { info "Cancelled."; return; }
+            fi
+            actions_remove "$slug"
+            ;;
+        reset)
+            local assume_yes=false defaults=false
+            for arg in "$@"; do
+                case "$arg" in
+                    -y|--yes) assume_yes=true ;;
+                    --defaults) defaults=true ;;
+                    *) fail "Unknown actions reset flag: $arg"; return 1 ;;
+                esac
+            done
+            if ! $assume_yes; then
+                local label="Remove ALL actions"
+                $defaults && label="Restore default actions"
+                local yn
+                read -rp "$label? [y/N] " yn
+                [[ "$yn" =~ ^[Yy] ]] || { info "Cancelled."; return; }
+            fi
+            if $defaults; then
+                actions_reset_defaults
+            else
+                actions_reset_empty
+            fi
+            ;;
+        run)
+            local slug="${1:-}"
+            if [[ -z "$slug" ]]; then
+                fail "Usage: hub actions run <slug>"
+                return 1
+            fi
+            actions_run "$slug"
+            ;;
+        help|-h|--help)
+            echo -e "${bold}Usage:${reset} hub actions <subcommand>"
+            echo
+            echo "  list                  Show configured actions (default)"
+            echo "  presets               List shipped action presets"
+            echo "  add <slug>            Add an action from a preset"
+            echo "  add <slug> --command  Add a custom action command"
+            echo "  edit <slug> --command Replace an action command"
+            echo "  remove <slug>         Remove an action"
+            echo "  reset                 Clear all actions"
+            echo "  reset --defaults      Restore pr, jira, and web"
+            echo "  run <slug>            Run an action from the focused workspace"
+            echo
+            echo "Placeholders: {path} = workspace folder, {workspace} = workspace ID."
+            ;;
+        *)
+            fail "Unknown subcommand: $sub"
+            echo "Run: hub actions help"
+            return 1
+            ;;
+    esac
+}
+
 # --- Claude notification hooks ---
 
 cmd_claude_hooks() {
@@ -3732,6 +3900,7 @@ hub_main() {
         next)     cmd_next ;;
         prev)     cmd_prev ;;
         apps)     cmd_apps "$@" ;;
+        actions)  cmd_actions "$@" ;;
         open)     cmd_open "$@" ;;
         open-url) cmd_open_url "$@" ;;
         app-switcher) cmd_app_switcher "$@" ;;

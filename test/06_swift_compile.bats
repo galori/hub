@@ -91,3 +91,8 @@ compile_cli_file() {
     run compile_cli_file "$LIB_DIR/hub_toggle_app.swift"
     [[ "$status" -eq 0 ]]
 }
+
+@test "hub_bar.swift compiles without errors" {
+    run compile_ui_file "$LIB_DIR/hub_bar.swift"
+    [[ "$status" -eq 0 ]]
+}

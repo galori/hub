@@ -14,6 +14,8 @@ setup() {
     export AEROSPACE_CONFIG="$HOME/.aerospace.toml"
     export WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
     export APPS_FILE="$HOME/.config/hub/apps.json"
+    export ACTIONS_FILE="$HOME/.config/hub/actions.json"
+    export ACTION_PRESETS_FILE="$HOME/.config/hub/action_presets.json"
     export APP_PRESETS_FILE="$HOME/.config/hub/app_presets.json"
     export KEYS_CACHE="$HOME/.config/hub/keys_cache"
     export STUB_CALLS="$HOME/stub_calls"
@@ -137,6 +139,27 @@ APPS_EOF
 ]
 JSON
     jq . "$APPS_FILE" >/dev/null 2>&1
+}
+
+@test "install creates default actions.json when absent" {
+    [[ ! -f "$ACTIONS_FILE" ]]
+    run env HUB_NONINTERACTIVE=1 "$HUB_SCRIPT" install --no-reload --no-shell-integration --no-launch-services --no-default-browser-change
+    [[ "$status" -eq 0 ]]
+    [[ -f "$ACTIONS_FILE" ]]
+    jq . "$ACTIONS_FILE" >/dev/null 2>&1
+    [[ "$(jq -r 'map(.slug) | join(",")' "$ACTIONS_FILE")" == "pr,jira,web" ]]
+}
+
+@test "install preserves existing actions.json" {
+    mkdir -p "$(dirname "$ACTIONS_FILE")"
+    cat > "$ACTIONS_FILE" <<'JSON'
+[
+  {"slug":"custom","description":"Keep me","command":"echo custom"}
+]
+JSON
+    run env HUB_NONINTERACTIVE=1 "$HUB_SCRIPT" install --no-reload --no-shell-integration --no-launch-services --no-default-browser-change
+    [[ "$status" -eq 0 ]]
+    [[ "$(jq -r 'map(.slug) | join(",")' "$ACTIONS_FILE")" == "custom" ]]
 }
 
 @test "install isolated flags avoid live reloads and shell integration" {
