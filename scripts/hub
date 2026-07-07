@@ -3729,13 +3729,18 @@ cmd_actions() {
             echo "  reset                 Clear all actions"
             echo "  reset --defaults      Restore pr, jira, and web"
             echo "  run <slug>            Run an action from the focused workspace"
+            echo "  <slug>                Shortcut for run <slug>"
             echo
             echo "Placeholders: {path} = workspace folder, {workspace} = workspace ID."
             ;;
         *)
-            fail "Unknown subcommand: $sub"
-            echo "Run: hub actions help"
-            return 1
+            if [[ $# -eq 0 ]]; then
+                actions_run "$sub"
+            else
+                fail "Unknown subcommand: $sub"
+                echo "Run: hub actions help"
+                return 1
+            fi
             ;;
     esac
 }
