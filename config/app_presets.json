@@ -37,7 +37,7 @@
   },
   "dev.zed.Zed": {
     "name": "Zed",
-    "launch": "zed {path} --new",
+    "launch": "zed --new {path}",
     "description": "Opens the workspace path in a new Zed window (requires `zed` on PATH)"
   },
   "com.todesktop.230313mzl4w4u92": {
