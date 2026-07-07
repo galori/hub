@@ -302,6 +302,7 @@ struct HubBarState {
     var monitorWorkspaces: [Int: Set<String>] = [:]
     var currentWindows: [(id: Int, app: String)] = []
     var apps: [[String: String]] = []
+    var actions: [[String: String]] = []
     var repoPrefix: Bool = false
     var serviceMode: Bool = false
     var claudeAlert: Set<String> = []
@@ -355,6 +356,13 @@ struct HubBarState {
         if let d = try? Data(contentsOf: URL(fileURLWithPath: appsFile)),
            let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]] {
             s.apps = arr.map { dict in dict.mapValues { "\($0)" } }
+        }
+
+        // actions.json
+        let actionsFile = hub + "/actions.json"
+        if let d = try? Data(contentsOf: URL(fileURLWithPath: actionsFile)),
+           let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]] {
+            s.actions = arr.map { dict in dict.mapValues { "\($0)" } }
         }
 
         // repo_prefix
@@ -1224,6 +1232,43 @@ class AppSlotView: HubBarClickView {
     func setIconByName(_ appName: String) {
         imageView.image = NSWorkspace.shared.icon(forFile: "/Applications/\(appName).app")
     }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MARK: – ActionSlotView (text launcher)
+// ──────────────────────────────────────────────────────────────────────────────
+
+class ActionSlotView: HubBarClickView {
+    let label = NSTextField(labelWithString: "")
+
+    init(slug: String) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.masksToBounds = true
+        normalBG = .clear
+
+        label.stringValue = slug
+        label.font = monoFont12
+        label.textColor = NSColor(argb: C_WHITE)
+        label.alignment = .center
+        label.lineBreakMode = .byTruncatingTail
+        label.isEditable = false
+        label.isBordered = false
+        label.backgroundColor = .clear
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+
+        let width = max(CGFloat(slug.count * 8 + 14), 30)
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: min(width, 58)),
+            heightAnchor.constraint(equalToConstant: appIconSize + 4),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2196,6 +2241,12 @@ class ClusterOverlayWindow: NSWindow {
             stack.addArrangedSubview(group)
         }
 
+        if !state.actions.isEmpty {
+            let group = buildActionGroup(state: state)
+            group.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(group)
+        }
+
         // Volume + battery + clock — always present in the overlay.
         stack.addArrangedSubview(makeHSpacer(4))
         buildVolumeInto(stack)
@@ -2294,6 +2345,46 @@ class ClusterOverlayWindow: NSWindow {
             wsWinSlots.append(slot)
             inner.addArrangedSubview(slot)
         }
+        return group
+    }
+
+    private func buildActionGroup(state: HubBarState) -> NSView {
+        let group = NSView()
+        group.wantsLayer = true
+        group.layer?.backgroundColor = NSColor(argb: APPGRP_BG).cgColor
+        group.layer?.cornerRadius = APPGRP_RADIUS
+        group.layer?.masksToBounds = true
+        group.layer?.borderWidth = 1
+        group.layer?.borderColor = NSColor(argb: APPGRP_BORDER).cgColor
+        group.setContentHuggingPriority(.required, for: .horizontal)
+
+        let inner = NSStackView()
+        inner.orientation = .horizontal; inner.spacing = appGroupGap; inner.alignment = .centerY
+        inner.translatesAutoresizingMaskIntoConstraints = false
+        group.addSubview(inner)
+        NSLayoutConstraint.activate([
+            inner.centerYAnchor.constraint(equalTo: group.centerYAnchor),
+            inner.leadingAnchor.constraint(equalTo: group.leadingAnchor, constant: 10),
+            inner.trailingAnchor.constraint(equalTo: group.trailingAnchor, constant: -10),
+            group.heightAnchor.constraint(equalToConstant: pillH + 8),
+        ])
+
+        let hub = hubScriptPath() ?? ""
+        for action in state.actions {
+            guard let slug = action["slug"], !slug.isEmpty else { continue }
+            guard slug.range(of: "^[A-Za-z0-9_-]{1,21}$", options: .regularExpression) != nil else { continue }
+            let sv = ActionSlotView(slug: slug)
+            sv.translatesAutoresizingMaskIntoConstraints = false
+            sv.onPress = { [weak sv] in
+                guard !hub.isEmpty else { return }
+                Process.launchedProcess(launchPath: "/bin/sh",
+                    arguments: ["-c", "'\(hub)' actions run '\(slug)' >/dev/null 2>&1 &"])
+                sv?.layer?.backgroundColor = NSColor(argb: CLICK_BG).withAlphaComponent(0.3).cgColor
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { sv?.layer?.backgroundColor = nil }
+            }
+            inner.addArrangedSubview(sv)
+        }
+
         return group
     }
 

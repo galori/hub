@@ -11,6 +11,8 @@ setup_stubs() {
     export HUB_RUNTIME_DIR="$HUB_TEST_DIR/runtime"
     export HUB_APPLICATIONS_DIR="$HOME/Applications"
     export APPS_FILE="$HUB_CONFIG_DIR/apps.json"
+    export ACTIONS_FILE="$HUB_CONFIG_DIR/actions.json"
+    export ACTION_PRESETS_FILE="$HUB_CONFIG_DIR/action_presets.json"
     export ICONS_DIR="$HUB_CONFIG_DIR/icons"
     export AEROSPACE_CONFIG="$HOME/.aerospace.toml"
     mkdir -p "$HUB_CONFIG_DIR" "$HUB_RUNTIME_DIR" "$HUB_APPLICATIONS_DIR" "$ICONS_DIR"

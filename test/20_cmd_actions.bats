@@ -1,0 +1,116 @@
+#!/usr/bin/env bats
+# Stubbed command tests for custom action management and dispatch.
+
+load helpers/stubs
+
+REPO_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+HUB="$REPO_DIR/scripts/hub"
+
+setup() {
+    setup_stubs
+
+    export WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
+    export ACTIONS_FILE="$HOME/.config/hub/actions.json"
+    export ACTION_PRESETS_FILE="$HOME/.config/hub/action_presets.json"
+    export STUB_CALLS="$HOME/stub_calls"
+
+    cat > "$WORKSPACES_FILE" <<'JSON'
+[{"name":"Main","path":"/tmp/main","root_repo":"/tmp/main","workspace_id":"1"}]
+JSON
+
+    mkdir -p /tmp/main
+
+    cat > "$ACTION_PRESETS_FILE" <<'JSON'
+{
+  "hello": {"slug":"hello","description":"Test preset","command":"printf 'hello from %s\\n' \"$PWD\""}
+}
+JSON
+
+    cat > "$ACTIONS_FILE" <<'JSON'
+[
+  {"slug":"hello","description":"Test action","command":"printf 'hello from %s\\n' \"$PWD\""}
+]
+JSON
+
+    cat > "$STUB_BIN/aerospace" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+    "list-workspaces --focused") echo "1" ;;
+    *) exit 0 ;;
+esac
+SH
+    chmod +x "$STUB_BIN/aerospace"
+}
+
+teardown() {
+    teardown_stubs
+}
+
+@test "hub actions list shows configured actions" {
+    run "$HUB" actions list
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"hello"* ]]
+    [[ "$output" == *"Test action"* ]]
+}
+
+@test "hub actions presets shows available presets" {
+    run "$HUB" actions presets
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"hello"* ]]
+    [[ "$output" == *"Test preset"* ]]
+}
+
+@test "hub actions add preset writes action JSON" {
+    echo "[]" > "$ACTIONS_FILE"
+    run "$HUB" actions add hello -y
+    [[ "$status" -eq 0 ]]
+    [[ "$(jq -r '.[0].slug' "$ACTIONS_FILE")" == "hello" ]]
+    [[ "$(jq -r '.[0].command' "$ACTIONS_FILE")" == *"hello from"* ]]
+}
+
+@test "hub actions add custom command writes action JSON" {
+    echo "[]" > "$ACTIONS_FILE"
+    run "$HUB" actions add custom --command "echo custom" --description "Custom action"
+    [[ "$status" -eq 0 ]]
+    [[ "$(jq -r '.[0].slug' "$ACTIONS_FILE")" == "custom" ]]
+    [[ "$(jq -r '.[0].command' "$ACTIONS_FILE")" == "echo custom" ]]
+    [[ "$(jq -r '.[0].description' "$ACTIONS_FILE")" == "Custom action" ]]
+}
+
+@test "hub actions remove deletes matching slug" {
+    run "$HUB" actions remove hello -y
+    [[ "$status" -eq 0 ]]
+    [[ "$(jq 'length' "$ACTIONS_FILE")" == "0" ]]
+}
+
+@test "hub actions reset --defaults restores shipped actions" {
+    cat > "$ACTION_PRESETS_FILE" <<'JSON'
+{
+  "pr": {"slug":"pr","description":"Open PR","command":"echo pr"},
+  "jira": {"slug":"jira","description":"Open Jira","command":"echo jira"},
+  "web": {"slug":"web","description":"Open web","command":"echo web"}
+}
+JSON
+    echo "[]" > "$ACTIONS_FILE"
+    run "$HUB" actions reset --defaults -y
+    [[ "$status" -eq 0 ]]
+    [[ "$(jq -r 'map(.slug) | join(",")' "$ACTIONS_FILE")" == "pr,jira,web" ]]
+}
+
+@test "hub actions run executes from focused workspace path" {
+    run "$HUB" actions run hello
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"hello from /tmp/main"* ]]
+}
+
+@test "hub actions run missing slug fails cleanly" {
+    run "$HUB" actions run missing
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"No action configured for slug: missing"* ]]
+}
+
+@test "hub actions add rejects invalid slugs" {
+    run "$HUB" actions add "bad slug" --command "echo bad"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Invalid action slug"* ]]
+}
