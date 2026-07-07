@@ -192,6 +192,11 @@ hub_log() {
         "$ts" "$kind" "$msg" >> "$HUB_LOG_FILE"
 }
 
+hub_log_if_available() {
+    command -v hub_log >/dev/null 2>&1 || return 0
+    hub_log "$@"
+}
+
 read_superset_config() {
     local repo_root="$1" key="$2"
     local cfg="$repo_root/.superset/config.json"
@@ -1418,14 +1423,18 @@ _git_worktree_add() {
     local repo_root="$1" branch="$2" wt_path="$3"
     local git_err
     if git -C "$repo_root" rev-parse --verify "refs/heads/$branch" >/dev/null 2>&1; then
+        hub_log "CMD" "git worktree add existing branch '$branch' at '$wt_path' (repo $repo_root)"
         git_err="$(git -C "$repo_root" worktree add "$wt_path" "$branch" 2>&1)" || {
+            hub_log "ERR" "git worktree add failed for '$branch' at '$wt_path': $git_err"
             echo "$git_err"; return 1
         }
     else
         local base_branch base_ref has_origin=false
         if git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
             has_origin=true
+            hub_log "CMD" "git fetch before worktree add (repo $repo_root)"
             git_err="$(git -C "$repo_root" fetch 2>&1)" || {
+                hub_log "ERR" "git fetch failed before worktree add (repo $repo_root): $git_err"
                 echo "$git_err"; return 1
             }
         fi
@@ -1436,19 +1445,25 @@ _git_worktree_add() {
             if [[ "$has_origin" == "true" ]]; then
                 base_ref="origin/$base_branch"
                 if ! git -C "$repo_root" rev-parse --verify "refs/remotes/$base_ref" >/dev/null 2>&1; then
+                    hub_log "ERR" "origin/$base_branch not found after git fetch (repo $repo_root)"
                     echo "origin/$base_branch not found after git fetch"
                     return 1
                 fi
             fi
+            hub_log "CMD" "git worktree add new branch '$branch' at '$wt_path' from '$base_ref' (repo $repo_root)"
             git_err="$(git -C "$repo_root" worktree add -b "$branch" "$wt_path" "$base_ref" 2>&1)" || {
+                hub_log "ERR" "git worktree add failed for '$branch' at '$wt_path': $git_err"
                 echo "$git_err"; return 1
             }
         else
+            hub_log "CMD" "git worktree add new branch '$branch' at '$wt_path' (repo $repo_root)"
             git_err="$(git -C "$repo_root" worktree add -b "$branch" "$wt_path" 2>&1)" || {
+                hub_log "ERR" "git worktree add failed for '$branch' at '$wt_path': $git_err"
                 echo "$git_err"; return 1
             }
         fi
     fi
+    hub_log "OUT" "git worktree added '$branch' at '$wt_path'"
 }
 
 _create_workspace() {
@@ -1580,6 +1595,7 @@ _create_workspace() {
         progress_step "Setting up worktree…"
         local full_setup_cmd="$ws_root/$ws_setup_cmd"
         local _wrap="source \"\$HOME/.zshrc\" 2>/dev/null; cd $(printf '%q' "$ws_path") && $full_setup_cmd"
+        hub_log "CMD" "workspace setup for '$ws_name': $_wrap"
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
             ( set +e; /bin/zsh --no-rcs -c "$_wrap" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Setting up workspace $ws_name" &
             disown
@@ -2322,6 +2338,7 @@ cmd_remove() {
         if [[ "$delete_branch" == "true" && -n "$ws_branch" ]]; then
             bg_script+=" ; git -C $(printf '%q' "$ws_root") branch -D $(printf '%q' "$ws_branch") 2>/dev/null"
         fi
+        hub_log "CMD" "workspace teardown for '$ws_name': $bg_script"
 
         if [[ -x "$OUTPUT_WINDOW_BIN" ]]; then
             ( set +e; /bin/zsh --no-rcs -c "$bg_script" 2>&1; echo "EXIT:$?" ) | "$OUTPUT_WINDOW_BIN" "Hub: Removing workspace $ws_name" &
@@ -3557,6 +3574,7 @@ cmd_apps() {
                 [[ "$yn" =~ ^[Yy] ]] || { info "Cancelled."; return; }
             fi
             echo "[]" > "$APPS_FILE"
+            hub_log "INPUT" "clear app slots"
             success "Cleared all app slots"
             apps_refresh
             build_http_handler

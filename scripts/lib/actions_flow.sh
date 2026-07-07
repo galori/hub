@@ -117,6 +117,8 @@ actions_save() {
            command: $command
          } + (if $description != "" then {description: $description} else {} end)]
        ' "$ACTIONS_FILE" > "$tmp" && mv "$tmp" "$ACTIONS_FILE" || { rm -f "$tmp"; return 1; }
+    hub_log_if_available "INPUT" "save action $slug"
+    hub_log_if_available "CMD" "action $slug command: $command"
     success "Saved action: $slug"
     actions_refresh
 }
@@ -139,6 +141,7 @@ actions_remove() {
     local tmp
     tmp="$(mktemp "${ACTIONS_FILE}.XXXXXX")"
     jq --arg slug "$slug" 'map(select(.slug != $slug))' "$ACTIONS_FILE" > "$tmp" && mv "$tmp" "$ACTIONS_FILE" || { rm -f "$tmp"; return 1; }
+    hub_log_if_available "INPUT" "remove action $slug"
     success "Removed action: $slug"
     actions_refresh
 }
@@ -146,6 +149,7 @@ actions_remove() {
 actions_reset_empty() {
     mkdir -p "$(dirname "$ACTIONS_FILE")"
     echo "[]" > "$ACTIONS_FILE"
+    hub_log_if_available "INPUT" "clear actions"
     success "Cleared all actions"
     actions_refresh
 }
@@ -153,6 +157,7 @@ actions_reset_empty() {
 actions_reset_defaults() {
     mkdir -p "$(dirname "$ACTIONS_FILE")"
     actions_default_json > "$ACTIONS_FILE"
+    hub_log_if_available "INPUT" "restore default actions"
     success "Restored default actions"
     actions_refresh
 }
@@ -185,5 +190,16 @@ actions_run() {
     action_cmd="${action_cmd//\{path\}/$ws_path}"
     action_cmd="${action_cmd//\{workspace\}/$ws_id}"
 
-    ( cd "$ws_path" && bash -c "$action_cmd" )
+    hub_log_if_available "INPUT" "run action $slug on workspace ${ws_id:-unknown} path $ws_path"
+    hub_log_if_available "CMD" "action $slug: $action_cmd"
+
+    local rc
+    if ( cd "$ws_path" && bash -c "$action_cmd" ); then
+        hub_log_if_available "OUT" "action $slug completed with exit 0"
+        return 0
+    else
+        rc=$?
+        hub_log_if_available "ERR" "action $slug failed with exit $rc"
+        return "$rc"
+    fi
 }

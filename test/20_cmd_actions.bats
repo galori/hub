@@ -12,6 +12,7 @@ setup() {
     export WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
     export ACTIONS_FILE="$HOME/.config/hub/actions.json"
     export ACTION_PRESETS_FILE="$HOME/.config/hub/action_presets.json"
+    export HUB_LOG_FILE="$HOME/.config/hub/hub.log"
     export STUB_CALLS="$HOME/stub_calls"
 
     cat > "$WORKSPACES_FILE" <<'JSON'
@@ -77,10 +78,24 @@ teardown() {
     [[ "$(jq -r '.[0].description' "$ACTIONS_FILE")" == "Custom action" ]]
 }
 
+@test "hub actions add custom command logs saved action" {
+    echo "[]" > "$ACTIONS_FILE"
+    run "$HUB" actions add custom --command "echo custom" --description "Custom action"
+    [[ "$status" -eq 0 ]]
+    grep -q "save action custom" "$HUB_LOG_FILE"
+    grep -q "action custom command: echo custom" "$HUB_LOG_FILE"
+}
+
 @test "hub actions remove deletes matching slug" {
     run "$HUB" actions remove hello -y
     [[ "$status" -eq 0 ]]
     [[ "$(jq 'length' "$ACTIONS_FILE")" == "0" ]]
+}
+
+@test "hub actions remove logs removed action" {
+    run "$HUB" actions remove hello -y
+    [[ "$status" -eq 0 ]]
+    grep -q "remove action hello" "$HUB_LOG_FILE"
 }
 
 @test "hub actions reset --defaults restores shipped actions" {
@@ -97,10 +112,39 @@ JSON
     [[ "$(jq -r 'map(.slug) | join(",")' "$ACTIONS_FILE")" == "pr,jira,web" ]]
 }
 
+@test "hub actions reset logs default restore" {
+    echo "[]" > "$ACTIONS_FILE"
+    run "$HUB" actions reset --defaults -y
+    [[ "$status" -eq 0 ]]
+    grep -q "restore default actions" "$HUB_LOG_FILE"
+}
+
 @test "hub actions run executes from focused workspace path" {
     run "$HUB" actions run hello
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"hello from /tmp/main"* ]]
+}
+
+@test "hub actions run logs command attempt and success" {
+    run "$HUB" actions run hello
+    [[ "$status" -eq 0 ]]
+    grep -q "run action hello on workspace 1 path /tmp/main" "$HUB_LOG_FILE"
+    grep -q "action hello: printf 'hello from %s" "$HUB_LOG_FILE"
+    grep -q "action hello completed with exit 0" "$HUB_LOG_FILE"
+}
+
+@test "hub actions run logs command failure" {
+    cat > "$ACTIONS_FILE" <<'JSON'
+[
+  {"slug":"fail","description":"Fail action","command":"echo before-fail; exit 7"}
+]
+JSON
+    run "$HUB" actions run fail
+    [[ "$status" -eq 7 ]]
+    [[ "$output" == *"before-fail"* ]]
+    grep -q "run action fail on workspace 1 path /tmp/main" "$HUB_LOG_FILE"
+    grep -q "action fail: echo before-fail; exit 7" "$HUB_LOG_FILE"
+    grep -q "action fail failed with exit 7" "$HUB_LOG_FILE"
 }
 
 @test "hub actions run missing slug fails cleanly" {

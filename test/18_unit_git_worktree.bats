@@ -16,6 +16,7 @@ source_hub_and_add_worktree() {
     REPO_ROOT="$repo_root" \
     BRANCH="$branch" \
     WORKTREE_PATH="$worktree_path" \
+    HUB_LOG_FILE="$BATS_TEST_TMPDIR/hub.log" \
     bash -c '
         set --
         source "$HUB_SCRIPT" >/dev/null 2>&1
@@ -52,4 +53,7 @@ source_hub_and_add_worktree() {
     [[ "$status" -eq 0 ]]
     [[ -f "$worktree/remote-only.txt" ]]
     [[ "$(git -C "$worktree" branch --show-current)" == "feature-from-origin" ]]
+    grep -q "git fetch before worktree add" "$BATS_TEST_TMPDIR/hub.log"
+    grep -q "git worktree add new branch 'feature-from-origin'" "$BATS_TEST_TMPDIR/hub.log"
+    grep -q "git worktree added 'feature-from-origin'" "$BATS_TEST_TMPDIR/hub.log"
 }

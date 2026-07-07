@@ -123,6 +123,27 @@ PLIST
     [[ "$(grep -c '^build_http_handler$' "$STUB_CALLS")" -eq 2 ]]
 }
 
+@test "apps_save_slot logs launch command details" {
+    run run_hub_eval "
+        apps_save_slot 1 iTerm2 'echo terminal {path}' iTerm2 '' 'echo prompt {prompt_cmd}' >/dev/null
+    "
+
+    [[ "$status" -eq 0 ]]
+    grep -q "save app slot 1: iTerm2" "$HOME/.config/hub/hub.log"
+    grep -q "app slot 1 launch: echo terminal {path}" "$HOME/.config/hub/hub.log"
+    grep -q "app slot 1 prompt_launch: echo prompt {prompt_cmd}" "$HOME/.config/hub/hub.log"
+}
+
+@test "apps_remove_slot logs removed slot" {
+    run run_hub_eval "
+        apps_save_slot 1 iTerm2 'echo terminal' iTerm2 >/dev/null
+        apps_remove_slot 1 >/dev/null
+    "
+
+    [[ "$status" -eq 0 ]]
+    grep -q "remove app slot 1" "$HOME/.config/hub/hub.log"
+}
+
 @test "apps reset refreshes http handler" {
     seed_apps "iTerm2:echo terminal" "Safari:echo browser"
 
@@ -136,6 +157,20 @@ PLIST
 
     [[ "$status" -eq 0 ]]
     assert_called "^build_http_handler$"
+}
+
+@test "apps reset logs cleared slots" {
+    seed_apps "iTerm2:echo terminal" "Safari:echo browser"
+
+    run bash -c "
+        export HOME='$HOME'
+        source '$HUB_SCRIPT' >/dev/null 2>&1
+        build_http_handler() { :; }
+        cmd_apps reset -y
+    " 2>/dev/null
+
+    [[ "$status" -eq 0 ]]
+    grep -q "clear app slots" "$HOME/.config/hub/hub.log"
 }
 
 @test "hub up browser save stores a non-hub default browser before switching" {
