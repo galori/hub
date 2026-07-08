@@ -120,6 +120,35 @@ hub_bar_clearance_for_mode() {
 }
 
 # ---------------------------------------------------------------------------
+# fullscreen_revealed_menu_bar_clearance
+#
+# Returns the top outer gap expected while Hub fullscreen is active and the
+# auto-hidden macOS menu bar is revealed. This is independent of Hub's metric
+# files so it catches stale/under-sized transient padding.
+# ---------------------------------------------------------------------------
+fullscreen_revealed_menu_bar_clearance() {
+    swift -e 'import Cocoa
+let gap = 15
+let barHeight: CGFloat = 40
+guard let screen = NSScreen.screens.first else { exit(1) }
+let sf = screen.frame
+let vf = screen.visibleFrame
+let visibleInset = sf.maxY - vf.maxY
+let inset: CGFloat
+if visibleInset > 1 {
+    inset = visibleInset
+} else if #available(macOS 12.0, *), let left = screen.auxiliaryTopLeftArea, left.height > 1 {
+    inset = left.height
+} else if #available(macOS 12.0, *), let right = screen.auxiliaryTopRightArea, right.height > 1 {
+    inset = right.height
+} else {
+    let statusBarInset = NSStatusBar.system.thickness
+    inset = statusBarInset > 1 ? statusBarInset : 24
+}
+print(Int(ceil(barHeight + inset)) + gap)'
+}
+
+# ---------------------------------------------------------------------------
 # move_cursor_to_main_display_top_edge
 #
 # Moves the real cursor to the top of the main display, which reveals the

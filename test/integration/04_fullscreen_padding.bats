@@ -44,34 +44,30 @@ assert_outer_top_clears_hub_bar() {
     [[ "$actual" -eq "$required" ]]
 }
 
-assert_outer_top_clears_hub_bar_window() {
+assert_outer_top_clears_revealed_menu_bar_and_hub_bar() {
     local description="$1"
-    local bounds top height required actual
+    local bounds top height required actual transient
 
     if ! wait_for 15 "$description" \
-        'bounds="$(hub_bar_primary_bounds)"; top="${bounds%% *}"; height="${bounds##* }"; actual="$(aerospace_outer_top)"; [[ "$top" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ && "$actual" =~ ^[0-9]+$ ]] && [[ "$actual" -eq $((top + height + 15)) ]]'; then
-        bounds="$(hub_bar_primary_bounds 2>/dev/null || true)"
-        top="${bounds%% *}"
-        height="${bounds##* }"
+        'required="$(fullscreen_revealed_menu_bar_clearance)"; actual="$(aerospace_outer_top)"; [[ "$required" =~ ^[0-9]+$ && "$actual" =~ ^[0-9]+$ && "$actual" -eq "$required" ]]'; then
+        required="$(fullscreen_revealed_menu_bar_clearance 2>/dev/null || true)"
         actual="$(aerospace_outer_top)"
-        if [[ "$top" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]]; then
-            required=$((top + height + 15))
-        else
-            required="unknown"
-        fi
-        echo "# failed $description; bounds='$bounds'; required=$required; actual=$actual" >&3
+        transient="$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || true)"
+        bounds="$(hub_bar_primary_bounds 2>/dev/null || true)"
+        echo "# failed $description; expected clearance=$required; actual=$actual; transient=$transient; bounds='$bounds'" >&3
         return 1
     fi
 
+    required="$(fullscreen_revealed_menu_bar_clearance)"
     actual="$(aerospace_outer_top)"
+    transient="$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || true)"
     bounds="$(hub_bar_primary_bounds 2>/dev/null || true)"
     top="${bounds%% *}"
     height="${bounds##* }"
     if [[ "$top" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]]; then
-        required=$((top + height + 15))
-        echo "# required outer.top from Hub Bar window = $required; actual $actual; bounds top=$top height=$height" >&3
+        echo "# revealed required outer.top = $required; actual $actual; transient=$transient; bounds top=$top height=$height" >&3
     else
-        echo "# $description observed during wait; final Hub Bar bounds unavailable during restart; actual outer.top=$actual" >&3
+        echo "# revealed required outer.top = $required; actual $actual; transient=$transient; Hub Bar bounds unavailable" >&3
     fi
     return 0
 }
@@ -82,6 +78,12 @@ assert_menu_bar_auto_hide_value() {
     actual="$(menu_bar_auto_hide_value)"
     echo "# menu bar auto-hide expected $expected; actual $actual" >&3
     [[ "$actual" == "$expected" ]]
+}
+
+require_macos_tahoe_or_newer() {
+    local major
+    major="$(sw_vers -productVersion | awk -F. '{print $1}')"
+    [[ "$major" -ge 26 ]] || skip "Tahoe-only regression check; runner is macOS $major"
 }
 
 # ---------------------------------------------------------------------------
@@ -99,6 +101,8 @@ assert_menu_bar_auto_hide_value() {
 
 # ---------------------------------------------------------------------------
 @test "hub-full-screen expands AeroSpace top padding while the macOS menu bar is revealed" {
+    require_macos_tahoe_or_newer
+
     move_cursor_to_main_display_center
 
     run "$(hub_bin)" fullscreen on
@@ -109,15 +113,14 @@ assert_menu_bar_auto_hide_value() {
     wait_for 15 "fullscreen state file exists" \
         "[[ -f '$HOME/.config/hub/fullscreen' ]]"
     assert_menu_bar_auto_hide_value Always
-    assert_outer_top_clears_hub_bar_window "AeroSpace outer.top clears Hub Bar before menu reveal"
+    assert_outer_top_clears_hub_bar fullscreen
 
     move_cursor_to_main_display_top_edge
     wait_for 5 "cursor reaches main display top edge" \
         'cursor_is_at_main_display_top_edge'
 
-    wait_for 15 "Hub Bar moves below revealed macOS menu bar" \
-        'bounds="$(hub_bar_primary_bounds)"; top="${bounds%% *}"; [[ "$top" =~ ^[0-9]+$ && "$top" -gt 0 ]]'
-    assert_outer_top_clears_hub_bar_window "AeroSpace outer.top clears revealed menu bar and Hub Bar"
+    assert_outer_top_clears_revealed_menu_bar_and_hub_bar \
+        "AeroSpace outer.top clears revealed menu bar and Hub Bar"
 
     move_cursor_to_main_display_center
 }
