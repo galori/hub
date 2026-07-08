@@ -2,7 +2,8 @@
 # Integration test: hub fullscreen padding
 #
 # Toggles real Hub fullscreen state and verifies AeroSpace's top outer gap
-# keeps tiled windows below the native Hub Bar in both modes.
+# keeps tiled windows below the native Hub Bar in both modes, including while
+# the auto-hidden macOS menu bar is revealed by moving the cursor to the top.
 
 # shellcheck disable=SC2034
 BATS_TEST_DIRNAME="${BATS_TEST_DIRNAME:-$(dirname "$0")}"
@@ -43,6 +44,22 @@ assert_outer_top_clears_hub_bar() {
     [[ "$actual" -eq "$required" ]]
 }
 
+assert_outer_top_clears_hub_bar_window() {
+    local description="$1"
+    local bounds top height required actual
+
+    wait_for 15 "$description" \
+        'bounds="$(hub_bar_primary_bounds)"; top="${bounds%% *}"; height="${bounds##* }"; actual="$(aerospace_outer_top)"; [[ "$top" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ && "$actual" =~ ^[0-9]+$ ]] && [[ "$actual" -eq $((top + height + 15)) ]]'
+
+    bounds="$(hub_bar_primary_bounds)"
+    top="${bounds%% *}"
+    height="${bounds##* }"
+    required=$((top + height + 15))
+    actual="$(aerospace_outer_top)"
+    echo "# required outer.top from Hub Bar window = $required; actual $actual; bounds top=$top height=$height" >&3
+    [[ "$actual" -eq "$required" ]]
+}
+
 assert_menu_bar_auto_hide_value() {
     local expected="$1"
     local actual
@@ -62,6 +79,29 @@ assert_menu_bar_auto_hide_value() {
         "[[ -f '$HOME/.config/hub/fullscreen' ]]"
     assert_menu_bar_auto_hide_value Always
     assert_outer_top_clears_hub_bar fullscreen
+}
+
+# ---------------------------------------------------------------------------
+@test "hub-full-screen expands AeroSpace top padding while the macOS menu bar is revealed" {
+    move_cursor_to_main_display_center
+
+    run "$(hub_bin)" fullscreen on
+    echo "# status: $status" >&3
+    echo "# output: $output" >&3
+    [[ "$status" -eq 0 ]]
+
+    wait_for 15 "fullscreen state file exists" \
+        "[[ -f '$HOME/.config/hub/fullscreen' ]]"
+    assert_menu_bar_auto_hide_value Always
+    assert_outer_top_clears_hub_bar_window "AeroSpace outer.top clears Hub Bar before menu reveal"
+
+    move_cursor_to_main_display_top_edge
+
+    wait_for 15 "Hub Bar moves below revealed macOS menu bar" \
+        'bounds="$(hub_bar_primary_bounds)"; top="${bounds%% *}"; [[ "$top" =~ ^[0-9]+$ && "$top" -gt 0 ]]'
+    assert_outer_top_clears_hub_bar_window "AeroSpace outer.top clears revealed menu bar and Hub Bar"
+
+    move_cursor_to_main_display_center
 }
 
 # ---------------------------------------------------------------------------

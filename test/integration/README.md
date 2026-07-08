@@ -86,7 +86,7 @@ never touch `test/integration/`.
 | `01_install_up.bats` | `hub install` (non-interactive) + `hub up` — services start, Hub Bar running, hub_bar_labels file created |
 | `02_new_workspace.bats` | `hub new` — worktree created, workspaces.json entry, `hub list`, hub_bar_labels entry |
 | `03_new_workspace_custom_setup.bats` | Same + `.superset/config.json` `"setup"` hook writes a marker file in the worktree |
-| `04_fullscreen_padding.bats` | `hub fullscreen on/off` — AeroSpace `outer.top` keeps tiled windows below the Hub Bar in both modes |
+| `04_fullscreen_padding.bats` | `hub fullscreen on/off` — AeroSpace `outer.top` keeps tiled windows below the Hub Bar, including while the auto-hidden macOS menu bar is revealed |
 | `05_screenshot_bar_cropped.bats` | macOS Sequoia only — `screenshot-bar-cropped` does not leak green desktop pixels in normal mode |
 
 ---

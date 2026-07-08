@@ -120,6 +120,65 @@ hub_bar_clearance_for_mode() {
 }
 
 # ---------------------------------------------------------------------------
+# move_cursor_to_main_display_top_edge
+#
+# Moves the real cursor to the top of the main display, which reveals the
+# auto-hidden macOS menu bar in Hub fullscreen mode.
+# ---------------------------------------------------------------------------
+move_cursor_to_main_display_top_edge() {
+    swift -e 'import CoreGraphics
+let display = CGMainDisplayID()
+let width = CGFloat(CGDisplayPixelsWide(display))
+CGDisplayMoveCursorToPoint(display, CGPoint(x: width / 2, y: 1))
+CGAssociateMouseAndMouseCursorPosition(1)'
+}
+
+# ---------------------------------------------------------------------------
+# move_cursor_to_main_display_center
+#
+# Moves the real cursor away from the menu-bar reveal zone.
+# ---------------------------------------------------------------------------
+move_cursor_to_main_display_center() {
+    swift -e 'import CoreGraphics
+let display = CGMainDisplayID()
+let width = CGFloat(CGDisplayPixelsWide(display))
+let height = CGFloat(CGDisplayPixelsHigh(display))
+CGDisplayMoveCursorToPoint(display, CGPoint(x: width / 2, y: height / 2))
+CGAssociateMouseAndMouseCursorPosition(1)'
+}
+
+# ---------------------------------------------------------------------------
+# hub_bar_primary_bounds
+#
+# Prints "<top-y> <height>" for the Hub Bar window on the main screen using
+# CoreGraphics top-left-origin window bounds.
+# ---------------------------------------------------------------------------
+hub_bar_primary_bounds() {
+    swift -e 'import Cocoa
+let pidPath = NSHomeDirectory() + "/.config/hub/hub_bar.pid"
+let hubPID = (try? String(contentsOfFile: pidPath, encoding: .utf8))
+    .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+guard let mainFrame = NSScreen.screens.first?.frame else { exit(1) }
+let options: CGWindowListOption = [.excludeDesktopElements, .optionOnScreenOnly]
+let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
+for window in list {
+    let owner = window[kCGWindowOwnerName as String] as? String ?? ""
+    let ownerPID = (window[kCGWindowOwnerPID as String] as? NSNumber)?.intValue
+    guard (hubPID != nil && ownerPID == hubPID) || owner.contains("hub_bar"),
+          let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+          let x = bounds["X"] as? NSNumber,
+          let width = bounds["Width"] as? NSNumber,
+          let y = bounds["Y"] as? NSNumber,
+          let height = bounds["Height"] as? NSNumber else { continue }
+    guard abs(x.doubleValue - mainFrame.minX) < 4,
+          abs(width.doubleValue - mainFrame.width) < 8 else { continue }
+    print("\(Int(y.doubleValue)) \(Int(height.doubleValue))")
+    exit(0)
+}
+exit(1)'
+}
+
+# ---------------------------------------------------------------------------
 # unique_ws_name
 #
 # Emits a workspace name that is unique per test run to prevent collisions on
