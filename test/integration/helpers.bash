@@ -127,10 +127,13 @@ hub_bar_clearance_for_mode() {
 # ---------------------------------------------------------------------------
 move_cursor_to_main_display_top_edge() {
     swift -e 'import CoreGraphics
+import Darwin
 let display = CGMainDisplayID()
-let width = CGFloat(CGDisplayPixelsWide(display))
-CGDisplayMoveCursorToPoint(display, CGPoint(x: width / 2, y: 1))
-CGAssociateMouseAndMouseCursorPosition(1)'
+let bounds = CGDisplayBounds(display)
+let point = CGPoint(x: bounds.midX, y: bounds.minY)
+let error = CGWarpMouseCursorPosition(point)
+CGAssociateMouseAndMouseCursorPosition(1)
+exit(error == .success ? 0 : 1)'
 }
 
 # ---------------------------------------------------------------------------
@@ -140,11 +143,29 @@ CGAssociateMouseAndMouseCursorPosition(1)'
 # ---------------------------------------------------------------------------
 move_cursor_to_main_display_center() {
     swift -e 'import CoreGraphics
+import Darwin
 let display = CGMainDisplayID()
-let width = CGFloat(CGDisplayPixelsWide(display))
-let height = CGFloat(CGDisplayPixelsHigh(display))
-CGDisplayMoveCursorToPoint(display, CGPoint(x: width / 2, y: height / 2))
-CGAssociateMouseAndMouseCursorPosition(1)'
+let bounds = CGDisplayBounds(display)
+let point = CGPoint(x: bounds.midX, y: bounds.midY)
+let error = CGWarpMouseCursorPosition(point)
+CGAssociateMouseAndMouseCursorPosition(1)
+exit(error == .success ? 0 : 1)'
+}
+
+# ---------------------------------------------------------------------------
+# cursor_is_at_main_display_top_edge
+#
+# Returns success when the real cursor has reached the main display's top edge.
+# ---------------------------------------------------------------------------
+cursor_is_at_main_display_top_edge() {
+    swift -e 'import CoreGraphics
+import Darwin
+let display = CGMainDisplayID()
+let bounds = CGDisplayBounds(display)
+guard let location = CGEvent(source: nil)?.location else { exit(1) }
+let onDisplayX = location.x >= bounds.minX && location.x <= bounds.maxX
+let atTop = location.y >= bounds.minY && location.y <= bounds.minY + 2
+exit(onDisplayX && atTop ? 0 : 1)'
 }
 
 # ---------------------------------------------------------------------------
@@ -159,6 +180,7 @@ let pidPath = NSHomeDirectory() + "/.config/hub/hub_bar.pid"
 let hubPID = (try? String(contentsOfFile: pidPath, encoding: .utf8))
     .flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
 guard let mainFrame = NSScreen.screens.first?.frame else { exit(1) }
+let mainMidX = mainFrame.midX
 let options: CGWindowListOption = [.excludeDesktopElements, .optionOnScreenOnly]
 let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
 for window in list {
@@ -170,8 +192,10 @@ for window in list {
           let width = bounds["Width"] as? NSNumber,
           let y = bounds["Y"] as? NSNumber,
           let height = bounds["Height"] as? NSNumber else { continue }
-    guard abs(x.doubleValue - mainFrame.minX) < 4,
-          abs(width.doubleValue - mainFrame.width) < 8 else { continue }
+    let minX = x.doubleValue
+    let maxX = minX + width.doubleValue
+    guard minX <= mainMidX && maxX >= mainMidX,
+          height.doubleValue >= 20 && height.doubleValue <= 200 else { continue }
     print("\(Int(y.doubleValue)) \(Int(height.doubleValue))")
     exit(0)
 }

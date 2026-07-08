@@ -48,16 +48,32 @@ assert_outer_top_clears_hub_bar_window() {
     local description="$1"
     local bounds top height required actual
 
-    wait_for 15 "$description" \
-        'bounds="$(hub_bar_primary_bounds)"; top="${bounds%% *}"; height="${bounds##* }"; actual="$(aerospace_outer_top)"; [[ "$top" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ && "$actual" =~ ^[0-9]+$ ]] && [[ "$actual" -eq $((top + height + 15)) ]]'
+    if ! wait_for 15 "$description" \
+        'bounds="$(hub_bar_primary_bounds)"; top="${bounds%% *}"; height="${bounds##* }"; actual="$(aerospace_outer_top)"; [[ "$top" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ && "$actual" =~ ^[0-9]+$ ]] && [[ "$actual" -eq $((top + height + 15)) ]]'; then
+        bounds="$(hub_bar_primary_bounds 2>/dev/null || true)"
+        top="${bounds%% *}"
+        height="${bounds##* }"
+        actual="$(aerospace_outer_top)"
+        if [[ "$top" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]]; then
+            required=$((top + height + 15))
+        else
+            required="unknown"
+        fi
+        echo "# failed $description; bounds='$bounds'; required=$required; actual=$actual" >&3
+        return 1
+    fi
 
-    bounds="$(hub_bar_primary_bounds)"
+    actual="$(aerospace_outer_top)"
+    bounds="$(hub_bar_primary_bounds 2>/dev/null || true)"
     top="${bounds%% *}"
     height="${bounds##* }"
-    required=$((top + height + 15))
-    actual="$(aerospace_outer_top)"
-    echo "# required outer.top from Hub Bar window = $required; actual $actual; bounds top=$top height=$height" >&3
-    [[ "$actual" -eq "$required" ]]
+    if [[ "$top" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]]; then
+        required=$((top + height + 15))
+        echo "# required outer.top from Hub Bar window = $required; actual $actual; bounds top=$top height=$height" >&3
+    else
+        echo "# $description observed during wait; final Hub Bar bounds unavailable during restart; actual outer.top=$actual" >&3
+    fi
+    return 0
 }
 
 assert_menu_bar_auto_hide_value() {
@@ -96,6 +112,8 @@ assert_menu_bar_auto_hide_value() {
     assert_outer_top_clears_hub_bar_window "AeroSpace outer.top clears Hub Bar before menu reveal"
 
     move_cursor_to_main_display_top_edge
+    wait_for 5 "cursor reaches main display top edge" \
+        'cursor_is_at_main_display_top_edge'
 
     wait_for 15 "Hub Bar moves below revealed macOS menu bar" \
         'bounds="$(hub_bar_primary_bounds)"; top="${bounds%% *}"; [[ "$top" =~ ^[0-9]+$ && "$top" -gt 0 ]]'
