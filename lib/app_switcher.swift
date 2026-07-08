@@ -15,6 +15,7 @@ import Cocoa
 let resultPath = ProcessInfo.processInfo.environment["APP_SWITCHER_RESULT"] ?? "/tmp/hub-app-switcher-result"
 let hubConfigDir = ProcessInfo.processInfo.environment["HUB_CONFIG_DIR"] ?? ("~/.config/hub" as NSString).expandingTildeInPath
 let appsPath = ProcessInfo.processInfo.environment["APPS_FILE"] ?? (hubConfigDir as NSString).appendingPathComponent("apps.json")
+let actionsPath = ProcessInfo.processInfo.environment["ACTIONS_FILE"] ?? (hubConfigDir as NSString).appendingPathComponent("actions.json")
 let iconsDir = ProcessInfo.processInfo.environment["ICONS_DIR"] ?? (hubConfigDir as NSString).appendingPathComponent("icons")
 
 // ── App loading ──────────────────────────────────────────────────────────────
@@ -33,8 +34,41 @@ func loadApps() -> [AppEntry] {
     }
 }
 
+func loadActionSlugs() -> [String] {
+    guard let data = FileManager.default.contents(atPath: actionsPath),
+          let json = try? JSONSerialization.jsonObject(with: data),
+          let arr = json as? [[String: Any]] else { return [] }
+    return arr.compactMap { e -> String? in
+        guard let slug = e["slug"] as? String,
+              slug.range(of: "^[A-Za-z0-9_-]{1,21}$", options: .regularExpression) != nil else { return nil }
+        return slug
+    }
+}
+
+// ── Switcher items (apps first, then custom actions) ──────────────────────────
+
+enum TileContent {
+    case image(NSImage)
+    case text(String)
+}
+
+struct SwitcherItem {
+    let name: String
+    let content: TileContent
+    let token: String   // written to resultPath on commit
+}
+
 let apps = loadApps()
-if apps.isEmpty {
+let actionSlugs = loadActionSlugs()
+
+var items: [SwitcherItem] = apps.enumerated().map { (i, entry) in
+    SwitcherItem(name: entry.name, content: .image(iconImage(for: entry)), token: "\(i + 1)")
+}
+items += actionSlugs.map { slug in
+    SwitcherItem(name: slug, content: .text(slug), token: "action:\(slug)")
+}
+
+if items.isEmpty {
     try? FileManager.default.removeItem(atPath: resultPath)
     exit(1)
 }
@@ -79,7 +113,7 @@ let hintGap:     CGFloat = 10    // gap below card before hint
 let monoFont   = Theme.Font.mono(13)
 let monoFontSm = Theme.Font.mono(11)
 
-let count        = apps.count
+let count        = items.count
 let cancelIndex  = count
 let tileCount    = count + 1
 let innerW       = CGFloat(tileCount) * tileSize + CGFloat(tileCount - 1) * tileGap
@@ -132,9 +166,8 @@ class KeycapView: NSView {
 class Tile: NSView {
     let isCancel: Bool
     private let innerView  = NSView()
-    private let imageView  = NSImageView()
 
-    init(image: NSImage, isCancel: Bool = false) {
+    init(content: TileContent, isCancel: Bool = false) {
         self.isCancel = isCancel
         super.init(frame: .zero)
 
@@ -149,23 +182,43 @@ class Tile: NSView {
         innerView.layer?.masksToBounds = true
         innerView.layer?.backgroundColor = NSColor.clear.cgColor
         innerView.translatesAutoresizingMaskIntoConstraints = false
-
-        imageView.image = image
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-
-        innerView.addSubview(imageView)
         addSubview(innerView)
         NSLayoutConstraint.activate([
             innerView.leadingAnchor.constraint(equalTo: leadingAnchor),
             innerView.trailingAnchor.constraint(equalTo: trailingAnchor),
             innerView.topAnchor.constraint(equalTo: topAnchor),
             innerView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            imageView.centerXAnchor.constraint(equalTo: innerView.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: innerView.centerYAnchor),
-            imageView.widthAnchor.constraint(equalToConstant: iconSize),
-            imageView.heightAnchor.constraint(equalToConstant: iconSize),
         ])
+
+        switch content {
+        case .image(let image):
+            let imageView = NSImageView()
+            imageView.image = image
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            innerView.addSubview(imageView)
+            NSLayoutConstraint.activate([
+                imageView.centerXAnchor.constraint(equalTo: innerView.centerXAnchor),
+                imageView.centerYAnchor.constraint(equalTo: innerView.centerYAnchor),
+                imageView.widthAnchor.constraint(equalToConstant: iconSize),
+                imageView.heightAnchor.constraint(equalToConstant: iconSize),
+            ])
+        case .text(let text):
+            let lbl = NSTextField(labelWithString: text)
+            lbl.font = monoFont
+            lbl.textColor = TITLE_COLOR
+            lbl.alignment = .center
+            lbl.lineBreakMode = .byTruncatingTail
+            lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
+            lbl.translatesAutoresizingMaskIntoConstraints = false
+            innerView.addSubview(lbl)
+            NSLayoutConstraint.activate([
+                lbl.centerXAnchor.constraint(equalTo: innerView.centerXAnchor),
+                lbl.centerYAnchor.constraint(equalTo: innerView.centerYAnchor),
+                lbl.leadingAnchor.constraint(greaterThanOrEqualTo: innerView.leadingAnchor, constant: 6),
+                lbl.trailingAnchor.constraint(lessThanOrEqualTo: innerView.trailingAnchor, constant: -6),
+            ])
+        }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -217,7 +270,7 @@ wv.addSubview(cardView)
 
 // ── Title label (inside card, top-centered) ───────────────────────────────────
 
-let nameLabel = NSTextField(labelWithString: apps[0].name)
+let nameLabel = NSTextField(labelWithString: items[0].name)
 nameLabel.translatesAutoresizingMaskIntoConstraints = false
 nameLabel.font      = monoFont
 nameLabel.textColor = TITLE_COLOR
@@ -234,8 +287,8 @@ row.spacing      = tileGap
 row.translatesAutoresizingMaskIntoConstraints = false
 
 var tiles: [Tile] = []
-for entry in apps {
-    let t = Tile(image: iconImage(for: entry))
+for item in items {
+    let t = Tile(content: item.content)
     t.translatesAutoresizingMaskIntoConstraints = false
     t.widthAnchor.constraint(equalToConstant: tileSize).isActive  = true
     t.heightAnchor.constraint(equalToConstant: tileSize).isActive = true
@@ -258,7 +311,7 @@ func cancelImage() -> NSImage {
     return img
 }
 
-let cancelTile = Tile(image: cancelImage(), isCancel: true)
+let cancelTile = Tile(content: .image(cancelImage()), isCancel: true)
 cancelTile.translatesAutoresizingMaskIntoConstraints = false
 cancelTile.widthAnchor.constraint(equalToConstant: tileSize).isActive  = true
 cancelTile.heightAnchor.constraint(equalToConstant: tileSize).isActive = true
@@ -320,7 +373,7 @@ func setHighlight(_ index: Int) {
         nameLabel.stringValue = "Cancel"
         nameLabel.textColor   = Theme.Color.textMuted
     } else {
-        nameLabel.stringValue = apps[index].name
+        nameLabel.stringValue = items[index].name
         nameLabel.textColor   = TITLE_COLOR
     }
 }
@@ -333,8 +386,7 @@ func commit() {
     if finished { return }
     finished = true
     if selected != cancelIndex {
-        let slot = selected + 1
-        try? "\(slot)".write(toFile: resultPath, atomically: true, encoding: .utf8)
+        try? items[selected].token.write(toFile: resultPath, atomically: true, encoding: .utf8)
     } else {
         try? FileManager.default.removeItem(atPath: resultPath)
     }

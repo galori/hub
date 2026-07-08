@@ -121,7 +121,7 @@ print_usage() {
     echo "  apps          Manage configured app launcher slots (list/add/edit/remove/reset)"
     echo "  actions       Manage custom actions shown in the Hub Bar overlay"
   echo "  open          Open configured apps in current workspace"
-    echo "  app-switcher  Cmd-Tab-style cycle over launch-bar apps (Alt-N; hold Alt, tap N)"
+    echo "  app-switcher  Cmd-Tab-style cycle over launch-bar apps and custom actions (Alt-N; hold Alt, tap N)"
     echo "  keys          List all AeroSpace key bindings (main and service mode)"
     echo "  dashboard     Show status and key bindings in a full-screen modal"
     echo "  bar-layout    Pills shrink to fit one row, or expand bar height (shrink/expand/toggle)"
@@ -403,11 +403,11 @@ progress_banner_stop()   { progress_stop; }
 # The atomic mkdir lock both prevents a second modal and stores the modal's pid.
 cmd_app_switcher() {
     [[ -x "$APP_SWITCHER_BIN" ]] || return 0
-    [[ -f "$APPS_FILE" ]] || return 0
-    # No apps configured → nothing to switch between.
-    local app_count
-    app_count="$(jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)"
-    [[ "$app_count" -gt 0 ]] || return 0
+    # Nothing configured (no apps, no actions) → nothing to switch between.
+    local app_count action_count
+    app_count="$([[ -f "$APPS_FILE" ]] && jq 'length' "$APPS_FILE" 2>/dev/null || echo 0)"
+    action_count="$([[ -f "$ACTIONS_FILE" ]] && jq 'length' "$ACTIONS_FILE" 2>/dev/null || echo 0)"
+    [[ "$app_count" -gt 0 || "$action_count" -gt 0 ]] || return 0
 
     # Try to become the owner. If mkdir fails, a modal is already running.
     if ! mkdir "$APP_SWITCHER_LOCK_DIR" 2>/dev/null; then
@@ -445,7 +445,9 @@ cmd_app_switcher() {
     rm -rf "$APP_SWITCHER_LOCK_DIR"
     rm -f "$APP_SWITCHER_RESULT"
 
-    if [[ -n "$slot" ]]; then
+    if [[ "$slot" == action:* ]]; then
+        actions_run "${slot#action:}"
+    elif [[ -n "$slot" ]]; then
         cmd_open "$slot" --force --workspace "$launch_ws_id"
     fi
 }
