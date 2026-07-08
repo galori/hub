@@ -2,7 +2,8 @@
 # Integration test: hub fullscreen padding
 #
 # Toggles real Hub fullscreen state and verifies AeroSpace's top outer gap
-# keeps tiled windows below the native Hub Bar in both modes.
+# keeps tiled windows below the native Hub Bar in both modes, including while
+# the auto-hidden macOS menu bar is revealed by moving the cursor to the top.
 
 # shellcheck disable=SC2034
 BATS_TEST_DIRNAME="${BATS_TEST_DIRNAME:-$(dirname "$0")}"
@@ -43,12 +44,46 @@ assert_outer_top_clears_hub_bar() {
     [[ "$actual" -eq "$required" ]]
 }
 
+assert_outer_top_clears_revealed_menu_bar_and_hub_bar() {
+    local description="$1"
+    local bounds top height required actual transient
+
+    if ! wait_for 15 "$description" \
+        'required="$(fullscreen_revealed_menu_bar_clearance)"; actual="$(aerospace_outer_top)"; [[ "$required" =~ ^[0-9]+$ && "$actual" =~ ^[0-9]+$ && "$actual" -eq "$required" ]]'; then
+        required="$(fullscreen_revealed_menu_bar_clearance 2>/dev/null || true)"
+        actual="$(aerospace_outer_top)"
+        transient="$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || true)"
+        bounds="$(hub_bar_primary_bounds 2>/dev/null || true)"
+        echo "# failed $description; expected clearance=$required; actual=$actual; transient=$transient; bounds='$bounds'" >&3
+        return 1
+    fi
+
+    required="$(fullscreen_revealed_menu_bar_clearance)"
+    actual="$(aerospace_outer_top)"
+    transient="$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || true)"
+    bounds="$(hub_bar_primary_bounds 2>/dev/null || true)"
+    top="${bounds%% *}"
+    height="${bounds##* }"
+    if [[ "$top" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]]; then
+        echo "# revealed required outer.top = $required; actual $actual; transient=$transient; bounds top=$top height=$height" >&3
+    else
+        echo "# revealed required outer.top = $required; actual $actual; transient=$transient; Hub Bar bounds unavailable" >&3
+    fi
+    return 0
+}
+
 assert_menu_bar_auto_hide_value() {
     local expected="$1"
     local actual
     actual="$(menu_bar_auto_hide_value)"
     echo "# menu bar auto-hide expected $expected; actual $actual" >&3
     [[ "$actual" == "$expected" ]]
+}
+
+require_macos_tahoe_or_newer() {
+    local major
+    major="$(sw_vers -productVersion | awk -F. '{print $1}')"
+    [[ "$major" -ge 26 ]] || skip "Tahoe-only regression check; runner is macOS $major"
 }
 
 # ---------------------------------------------------------------------------
@@ -62,6 +97,32 @@ assert_menu_bar_auto_hide_value() {
         "[[ -f '$HOME/.config/hub/fullscreen' ]]"
     assert_menu_bar_auto_hide_value Always
     assert_outer_top_clears_hub_bar fullscreen
+}
+
+# ---------------------------------------------------------------------------
+@test "hub-full-screen expands AeroSpace top padding while the macOS menu bar is revealed" {
+    require_macos_tahoe_or_newer
+
+    move_cursor_to_main_display_center
+
+    run "$(hub_bin)" fullscreen on
+    echo "# status: $status" >&3
+    echo "# output: $output" >&3
+    [[ "$status" -eq 0 ]]
+
+    wait_for 15 "fullscreen state file exists" \
+        "[[ -f '$HOME/.config/hub/fullscreen' ]]"
+    assert_menu_bar_auto_hide_value Always
+    assert_outer_top_clears_hub_bar fullscreen
+
+    move_cursor_to_main_display_top_edge
+    wait_for 5 "cursor reaches main display top edge" \
+        'cursor_is_at_main_display_top_edge'
+
+    assert_outer_top_clears_revealed_menu_bar_and_hub_bar \
+        "AeroSpace outer.top clears revealed menu bar and Hub Bar"
+
+    move_cursor_to_main_display_center
 }
 
 # ---------------------------------------------------------------------------

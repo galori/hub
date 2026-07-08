@@ -70,6 +70,12 @@ let completeNameSlack:  CGFloat = 8     // Prevent AppKit from re-ellipsizing la
 let hoverExpandedSlack: CGFloat = 4     // Small buffer for the full label during hover expansion
 let shortNameNoTruncateLimit = 4        // Ellipsizing tiny names saves little space and hurts scanability
 
+func fullscreenTransientAerospaceMetric(rows: Int, menuBarRevealInset: CGFloat) -> Int {
+    let rowCount = max(1, rows)
+    let inset = max(0, menuBarRevealInset)
+    return Int(ceil(barHeightNormal * CGFloat(rowCount) + inset))
+}
+
 // ── Fonts ──
 let monoFont11 = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
 let monoFont12 = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
@@ -2645,7 +2651,16 @@ class HubBarController: NSObject {
         }
 
         let rows = windows.map { max(1, $0.lastFitRows) }.max() ?? 1
-        let height = Int(barHeightNormal * CGFloat(rows))
+        let revealInset = windows
+            .filter { $0.menuBarRevealedInFullscreen }
+            .map { window in
+                HubBarWindow.menuBarRevealInset(
+                    screen: window.barScreen,
+                    sf: window.barScreen.frame,
+                    vf: window.barScreen.visibleFrame)
+            }
+            .max() ?? 0
+        let height = fullscreenTransientAerospaceMetric(rows: rows, menuBarRevealInset: revealInset)
         let path = transientBarHeightPath()
         let current = (try? String(contentsOfFile: path, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
