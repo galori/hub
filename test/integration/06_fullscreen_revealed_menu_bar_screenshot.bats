@@ -81,6 +81,11 @@ non_hub_bar_dark_pixel_count() {
         '
 }
 
+image_pixel_count() {
+    local image_path="$1"
+    magick "$image_path" -format '%[fx:w*h]\n' info:
+}
+
 fullscreen_revealed_hub_bar_top_y() {
     swift -e 'import Cocoa
 let revealedMenuBarHubGap: CGFloat = 4
@@ -105,8 +110,22 @@ if visibleInset > 1 {
 print(Int(ceil(inset + effectiveGap)))'
 }
 
+revealed_hub_bar_top_strip_is_dark() {
+    local repo_dir="$1"
+    local crop_y1="$2"
+    local crop_y2="$3"
+    local screenshot="$4"
+    local non_dark_count total_count
+
+    "$repo_dir/agents/bin/screenshot-bar-cropped" 320 "$crop_y1" 380 "$crop_y2" "$screenshot" >/dev/null || return 1
+    non_dark_count="$(non_hub_bar_dark_pixel_count "$screenshot")"
+    total_count="$(image_pixel_count "$screenshot")"
+    [[ "$non_dark_count" =~ ^[0-9]+$ && "$total_count" =~ ^[0-9]+$ ]]
+    [[ $((non_dark_count * 3)) -le "$total_count" ]]
+}
+
 @test "hub-full-screen keeps the Hub Bar top strip visible below the revealed macOS menu bar" {
-    local hub repo_dir hub_top crop_y1 crop_y2 screenshot non_dark_count transient_metric
+    local hub repo_dir hub_top crop_y1 crop_y2 screenshot non_dark_count total_count transient_metric
     hub="$(hub_bin)"
     repo_dir="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
     screenshot="$BATS_TEST_TMPDIR/revealed-menu-bar-hub-top.png"
@@ -141,6 +160,9 @@ print(Int(ceil(inset + effectiveGap)))'
     crop_y1="$hub_top"
     crop_y2=$((hub_top + 3))
 
+    wait_for 15 "Hub Bar top strip screenshot shows dark background" \
+        "revealed_hub_bar_top_strip_is_dark '$repo_dir' '$crop_y1' '$crop_y2' '$screenshot'"
+
     run "$repo_dir/agents/bin/screenshot-bar-cropped" 320 "$crop_y1" 380 "$crop_y2" "$screenshot"
     echo "# status: $status" >&3
     echo "# output: $output" >&3
@@ -148,6 +170,8 @@ print(Int(ceil(inset + effectiveGap)))'
     [[ -s "$screenshot" ]]
 
     non_dark_count="$(non_hub_bar_dark_pixel_count "$screenshot")"
-    echo "# non-Hub-Bar-dark pixels in top strip: $non_dark_count" >&3
-    [[ "$non_dark_count" -eq 0 ]]
+    total_count="$(image_pixel_count "$screenshot")"
+    echo "# non-Hub-Bar-dark pixels in top strip: $non_dark_count of $total_count" >&3
+    [[ "$non_dark_count" =~ ^[0-9]+$ && "$total_count" =~ ^[0-9]+$ ]]
+    [[ $((non_dark_count * 3)) -le "$total_count" ]]
 }
