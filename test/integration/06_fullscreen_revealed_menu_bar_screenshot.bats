@@ -14,7 +14,7 @@ BANNER_STARTED="0"
 
 setup() {
     require_live_session
-    require_macos_sequoia_or_newer
+    require_macos_tahoe_or_newer
     require_imagemagick
 
     if [[ -f "$HOME/.config/hub/fullscreen" ]]; then
@@ -41,10 +41,10 @@ teardown() {
     fi
 }
 
-require_macos_sequoia_or_newer() {
+require_macos_tahoe_or_newer() {
     local major
     major="$(sw_vers -productVersion | awk -F. '{print $1}')"
-    [[ "$major" -ge 15 ]] || skip "This revealed-menu-bar assertion requires macOS Sequoia or newer"
+    [[ "$major" -ge 26 ]] || skip "This revealed-menu-bar screenshot assertion is Tahoe-only"
 }
 
 require_imagemagick() {
