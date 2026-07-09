@@ -81,8 +81,29 @@ non_hub_bar_dark_pixel_count() {
         '
 }
 
+fullscreen_revealed_hub_bar_top_y() {
+    swift -e 'import Cocoa
+let revealedMenuBarHubGap: CGFloat = 4
+guard let screen = NSScreen.screens.first else { exit(1) }
+let sf = screen.frame
+let vf = screen.visibleFrame
+let visibleInset = sf.maxY - vf.maxY
+let inset: CGFloat
+if visibleInset > 1 {
+    inset = visibleInset
+} else if #available(macOS 12.0, *), let left = screen.auxiliaryTopLeftArea, left.height > 1 {
+    inset = left.height
+} else if #available(macOS 12.0, *), let right = screen.auxiliaryTopRightArea, right.height > 1 {
+    inset = right.height
+} else {
+    let statusBarInset = NSStatusBar.system.thickness
+    inset = statusBarInset > 1 ? statusBarInset : 24
+}
+print(Int(ceil(inset + revealedMenuBarHubGap)))'
+}
+
 @test "hub-full-screen keeps the Hub Bar top strip visible below the revealed macOS menu bar" {
-    local hub repo_dir bounds hub_top hub_height crop_y1 crop_y2 screenshot non_dark_count
+    local hub repo_dir hub_top crop_y1 crop_y2 screenshot non_dark_count transient_metric
     hub="$(hub_bin)"
     repo_dir="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
     screenshot="$BATS_TEST_TMPDIR/revealed-menu-bar-hub-top.png"
@@ -104,13 +125,12 @@ non_hub_bar_dark_pixel_count() {
     move_cursor_to_main_display_top_edge
     wait_for 5 "cursor reaches main display top edge" \
         'cursor_is_at_main_display_top_edge'
-    wait_for 15 "Hub Bar has moved below the display top edge" \
-        'bounds="$(hub_bar_primary_bounds)"; top="${bounds%% *}"; [[ "$top" =~ ^[0-9]+$ && "$top" -gt 0 ]]'
+    wait_for 15 "Hub Bar has applied revealed menu-bar transient padding" \
+        'transient="$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || true)"; [[ "$transient" =~ ^[0-9]+$ && "$transient" -gt 40 ]]'
 
-    bounds="$(hub_bar_primary_bounds)"
-    hub_top="${bounds%% *}"
-    hub_height="${bounds##* }"
-    echo "# revealed Hub Bar bounds top=$hub_top height=$hub_height" >&3
+    hub_top="$(fullscreen_revealed_hub_bar_top_y)"
+    transient_metric="$(cat "$HOME/.config/hub/hub_bar_height_transient" 2>/dev/null || true)"
+    echo "# expected revealed Hub Bar top=$hub_top transient=$transient_metric" >&3
     [[ "$hub_top" =~ ^[0-9]+$ ]]
 
     # Sample only the top padding of the Hub Bar. Workspace pills begin lower
@@ -118,7 +138,7 @@ non_hub_bar_dark_pixel_count() {
     crop_y1="$hub_top"
     crop_y2=$((hub_top + 3))
 
-    run "$repo_dir/agents/bin/screenshot-bar-cropped" 80 "$crop_y1" 140 "$crop_y2" "$screenshot"
+    run "$repo_dir/agents/bin/screenshot-bar-cropped" 320 "$crop_y1" 380 "$crop_y2" "$screenshot"
     echo "# status: $status" >&3
     echo "# output: $output" >&3
     [[ "$status" -eq 0 ]]
