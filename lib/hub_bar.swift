@@ -61,6 +61,7 @@ let SERVICE_BG: UInt32 = 0xFFC91B00
 let barHeightNormal: CGFloat = 40
 let normalMenuBarOverlap: CGFloat = 1  // Cover the Sequoia compositor gap below the persistent menu bar.
 let revealedMenuBarHubGap: CGFloat = 4  // Preserve the Hub Bar top padding below the transient macOS menu bar.
+let tahoeRevealedMenuBarHubGap: CGFloat = 8  // Tahoe's taller menu bar needs a little more lower breathing room.
 let pillH:           CGFloat = 32      // Standard pill height
 let pillRadius:      CGFloat = 16      // Pill corner radius
 let pillPadH:        CGFloat = 8       // Horizontal padding in pills
@@ -71,10 +72,20 @@ let completeNameSlack:  CGFloat = 8     // Prevent AppKit from re-ellipsizing la
 let hoverExpandedSlack: CGFloat = 4     // Small buffer for the full label during hover expansion
 let shortNameNoTruncateLimit = 4        // Ellipsizing tiny names saves little space and hurts scanability
 
-func fullscreenTransientAerospaceMetric(rows: Int, menuBarRevealInset: CGFloat) -> Int {
+func revealedMenuBarHubGap(forMajorOSVersion majorVersion: Int) -> CGFloat {
+    majorVersion >= 26 ? tahoeRevealedMenuBarHubGap : revealedMenuBarHubGap
+}
+
+func currentMajorOSVersion() -> Int {
+    ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+}
+
+func fullscreenTransientAerospaceMetric(rows: Int,
+                                        menuBarRevealInset: CGFloat,
+                                        osMajorVersion: Int = currentMajorOSVersion()) -> Int {
     let rowCount = max(1, rows)
     let inset = max(0, menuBarRevealInset)
-    let revealedGap = inset > 0 ? revealedMenuBarHubGap : 0
+    let revealedGap = inset > 0 ? revealedMenuBarHubGap(forMajorOSVersion: osMajorVersion) : 0
     return Int(ceil(barHeightNormal * CGFloat(rowCount) + inset + revealedGap))
 }
 
@@ -1406,7 +1417,7 @@ class HubBarWindow: NSWindow {
 
     static func menuBarRevealClearance(screen: NSScreen, sf: NSRect, vf: NSRect) -> CGFloat {
         let inset = menuBarRevealInset(screen: screen, sf: sf, vf: vf)
-        return inset > 0 ? inset + revealedMenuBarHubGap : 0
+        return inset > 0 ? inset + revealedMenuBarHubGap(forMajorOSVersion: currentMajorOSVersion()) : 0
     }
 
     // Bar top anchor in screen coords.

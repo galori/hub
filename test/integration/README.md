@@ -88,7 +88,7 @@ never touch `test/integration/`.
 | `03_new_workspace_custom_setup.bats` | Same + `.superset/config.json` `"setup"` hook writes a marker file in the worktree |
 | `04_fullscreen_padding.bats` | `hub fullscreen on/off` — AeroSpace `outer.top` keeps tiled windows below the Hub Bar; Tahoe also checks cursor-at-top menu-bar reveal padding |
 | `05_screenshot_bar_cropped.bats` | macOS Sequoia only — `screenshot-bar-cropped` does not leak green desktop pixels in normal mode |
-| `06_fullscreen_revealed_menu_bar_screenshot.bats` | macOS Sequoia+ — screenshot crop verifies the Hub Bar top strip is visible below the revealed menu bar in Hub fullscreen |
+| `06_fullscreen_revealed_menu_bar_screenshot.bats` | macOS Tahoe+ — screenshot crop verifies the Hub Bar top strip is visible below the revealed menu bar in Hub fullscreen |
 
 ---
 
