@@ -34,12 +34,27 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
-let singleRowMetric = fullscreenTransientAerospaceMetric(rows: 1, menuBarRevealInset: 24)
+let singleRowMetric = fullscreenTransientAerospaceMetric(rows: 1, menuBarRevealInset: 24, osMajorVersion: 15)
 guard singleRowMetric == 68 else {
     fail("expected single-row revealed metric to include menu bar and Hub Bar height, got \(singleRowMetric)")
 }
 
-let doubleRowMetric = fullscreenTransientAerospaceMetric(rows: 2, menuBarRevealInset: 24)
+let sequoiaGap = revealedMenuBarHubGap(forMajorOSVersion: 15)
+guard sequoiaGap == 4 else {
+    fail("expected Sequoia revealed menu bar gap to stay at 4pt, got \(sequoiaGap)")
+}
+
+let tahoeGap = revealedMenuBarHubGap(forMajorOSVersion: 26)
+guard tahoeGap == 8 else {
+    fail("expected Tahoe revealed menu bar gap to increase to 8pt, got \(tahoeGap)")
+}
+
+let tahoeMetric = fullscreenTransientAerospaceMetric(rows: 1, menuBarRevealInset: 24, osMajorVersion: 26)
+guard tahoeMetric == 72 else {
+    fail("expected Tahoe single-row revealed metric to include the larger menu-bar gap, got \(tahoeMetric)")
+}
+
+let doubleRowMetric = fullscreenTransientAerospaceMetric(rows: 2, menuBarRevealInset: 24, osMajorVersion: 15)
 guard doubleRowMetric == 108 else {
     fail("expected multi-row revealed metric to include menu bar and all Hub Bar rows, got \(doubleRowMetric)")
 }

@@ -131,6 +131,9 @@ fullscreen_revealed_menu_bar_clearance() {
 let gap = 15
 let barHeight: CGFloat = 40
 let revealedMenuBarHubGap: CGFloat = 4
+let tahoeRevealedMenuBarHubGap: CGFloat = 8
+let osMajorVersion = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+let effectiveGap = osMajorVersion >= 26 ? tahoeRevealedMenuBarHubGap : revealedMenuBarHubGap
 guard let screen = NSScreen.screens.first else { exit(1) }
 let sf = screen.frame
 let vf = screen.visibleFrame
@@ -146,7 +149,7 @@ if visibleInset > 1 {
     let statusBarInset = NSStatusBar.system.thickness
     inset = statusBarInset > 1 ? statusBarInset : 24
 }
-print(Int(ceil(barHeight + inset + revealedMenuBarHubGap)) + gap)'
+print(Int(ceil(barHeight + inset + effectiveGap)) + gap)'
 }
 
 # ---------------------------------------------------------------------------

@@ -84,6 +84,9 @@ non_hub_bar_dark_pixel_count() {
 fullscreen_revealed_hub_bar_top_y() {
     swift -e 'import Cocoa
 let revealedMenuBarHubGap: CGFloat = 4
+let tahoeRevealedMenuBarHubGap: CGFloat = 8
+let osMajorVersion = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+let effectiveGap = osMajorVersion >= 26 ? tahoeRevealedMenuBarHubGap : revealedMenuBarHubGap
 guard let screen = NSScreen.screens.first else { exit(1) }
 let sf = screen.frame
 let vf = screen.visibleFrame
@@ -99,7 +102,7 @@ if visibleInset > 1 {
     let statusBarInset = NSStatusBar.system.thickness
     inset = statusBarInset > 1 ? statusBarInset : 24
 }
-print(Int(ceil(inset + revealedMenuBarHubGap)))'
+print(Int(ceil(inset + effectiveGap)))'
 }
 
 @test "hub-full-screen keeps the Hub Bar top strip visible below the revealed macOS menu bar" {
