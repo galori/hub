@@ -1,6 +1,7 @@
 import Cocoa
 import IOKit.ps
 import CoreAudio
+import Darwin
 
 // Single-file native Swift Hub Bar for hub.
 // Reads state files + aerospace queries on SIGUSR1, re-renders all views.
@@ -2156,6 +2157,67 @@ class HotEdgeView: NSView {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// MARK: – CPU & Memory helpers
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Previous CPU tick snapshot for delta-based instantaneous usage.
+private var prevCPUUser:   Int32 = 0
+private var prevCPUSystem: Int32 = 0
+private var prevCPUIdle:   Int32 = 0
+
+func cpuUsagePercent() -> Int {
+    var numCPUs: natural_t = 0
+    var cpuInfo: processor_info_array_t?
+    var numCPUInfo: mach_msg_type_number_t = 0
+    let err = host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &numCPUs, &cpuInfo, &numCPUInfo)
+    guard err == KERN_SUCCESS, let info = cpuInfo else { return 0 }
+    defer {
+        vm_deallocate(mach_task_self_, vm_address_t(bitPattern: info),
+                      vm_size_t(numCPUInfo) * vm_size_t(MemoryLayout<integer_t>.stride))
+    }
+    var totalUser: Int32 = 0; var totalSystem: Int32 = 0; var totalIdle: Int32 = 0
+    let stride = Int(CPU_STATE_MAX)
+    for i in 0..<Int(numCPUs) {
+        totalUser   += info[i * stride + Int(CPU_STATE_USER)]
+        totalSystem += info[i * stride + Int(CPU_STATE_SYSTEM)]
+        totalIdle   += info[i * stride + Int(CPU_STATE_IDLE)]
+    }
+    let dUser   = totalUser   - prevCPUUser
+    let dSystem = totalSystem - prevCPUSystem
+    let dIdle   = totalIdle   - prevCPUIdle
+    prevCPUUser = totalUser; prevCPUSystem = totalSystem; prevCPUIdle = totalIdle
+    let dTotal = dUser + dSystem + dIdle
+    guard dTotal > 0 else { return 0 }
+    return Int(Double(dUser + dSystem) / Double(dTotal) * 100)
+}
+
+func memoryUsagePercent() -> Int {
+    var vmStats = vm_statistics64_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride)
+    let result = withUnsafeMutablePointer(to: &vmStats) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+        }
+    }
+    guard result == KERN_SUCCESS else { return 0 }
+    let pageSize = UInt64(vm_kernel_page_size)
+    let active   = UInt64(vmStats.active_count)   * pageSize
+    let inactive = UInt64(vmStats.inactive_count) * pageSize
+    let wired    = UInt64(vmStats.wire_count)      * pageSize
+    let free     = UInt64(vmStats.free_count)      * pageSize
+    let compressed = UInt64(vmStats.compressor_page_count) * pageSize
+    let total = active + inactive + wired + free + compressed
+    guard total > 0 else { return 0 }
+    return Int(Double(active + wired + compressed) / Double(total) * 100)
+}
+
+func resourceColor(pct: Int) -> UInt32 {
+    if pct >= 80 { return C_RED }
+    if pct >= 60 { return C_YELLOW }
+    return C_GREEN
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // MARK: – ClusterOverlayWindow (app launcher + widgets, shown on demand)
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -2171,6 +2233,8 @@ class ClusterOverlayWindow: NSWindow {
     var battIcon:   NSTextField?
     var volLabel:   NSTextField?
     var volIcon:    NSTextField?
+    var cpuLabel:   NSTextField?
+    var memLabel:   NSTextField?
     var appSlots:   [AppSlotView]   = []
     var wsWinSlots: [WsWinSlotView] = []
 
@@ -2273,6 +2337,8 @@ class ClusterOverlayWindow: NSWindow {
 
         // Volume + battery + clock — always present in the overlay.
         stack.addArrangedSubview(makeHSpacer(4))
+        buildCPUInto(stack)
+        buildMemInto(stack)
         buildVolumeInto(stack)
         buildBatteryInto(stack)
         buildClockInto(stack)
@@ -2287,7 +2353,7 @@ class ClusterOverlayWindow: NSWindow {
             xBtn.heightAnchor.constraint(equalToConstant: 18),
         ])
 
-        updateVolume(); updateBattery(); updateClock()
+        updateVolume(); updateBattery(); updateClock(); updateCPU(); updateMem()
     }
 
     private func buildAppIconGroup(state: HubBarState) -> NSView {
@@ -2428,6 +2494,44 @@ class ClusterOverlayWindow: NSWindow {
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         volIcon = ic; volLabel = lbl
         stack.addArrangedSubview(s)
+    }
+
+    private func buildCPUInto(_ stack: NSStackView) {
+        let s = NSStackView(); s.orientation = .horizontal; s.spacing = 4; s.alignment = .centerY
+        let ic = NSTextField(labelWithString: "󰘚")
+        ic.font = nerdFont16; ic.textColor = NSColor(argb: C_GREEN)
+        ic.isEditable = false; ic.isBordered = false; ic.backgroundColor = .clear
+        let lbl = NSTextField(labelWithString: "")
+        lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFC9CDD6)
+        lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
+        s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
+        cpuLabel = lbl
+        stack.addArrangedSubview(s)
+    }
+
+    private func buildMemInto(_ stack: NSStackView) {
+        let s = NSStackView(); s.orientation = .horizontal; s.spacing = 4; s.alignment = .centerY
+        let ic = NSTextField(labelWithString: "󰍛")
+        ic.font = nerdFont16; ic.textColor = NSColor(argb: C_GREEN)
+        ic.isEditable = false; ic.isBordered = false; ic.backgroundColor = .clear
+        let lbl = NSTextField(labelWithString: "")
+        lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFC9CDD6)
+        lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
+        s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
+        memLabel = lbl
+        stack.addArrangedSubview(s)
+    }
+
+    func updateCPU() {
+        let pct = cpuUsagePercent()
+        cpuLabel?.stringValue = "\(pct)%"
+        cpuLabel?.textColor = NSColor(argb: resourceColor(pct: pct))
+    }
+
+    func updateMem() {
+        let pct = memoryUsagePercent()
+        memLabel?.stringValue = "\(pct)%"
+        memLabel?.textColor = NSColor(argb: resourceColor(pct: pct))
     }
 
     private func buildBatteryInto(_ stack: NSStackView) {
@@ -2571,6 +2675,7 @@ class HubBarController: NSObject {
     var staleClaudeTimer: Timer?
     var menuBarRevealTimer: Timer?
     var nativeFullscreenTimer: Timer?
+    var cpuMemTimer: Timer?
     var nativeFullscreenDisplayIDs = Set<CGDirectDisplayID>()
     var menuBarRevealGeneration: Int = 0
     var pulseBright = true; var lastState = HubBarState()
@@ -2922,6 +3027,9 @@ class HubBarController: NSObject {
         }
         batteryTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
             self?.windows.forEach { $0.clusterOverlay?.updateBattery() }
+        }
+        cpuMemTimer  = Timer.scheduledTimer(withTimeInterval: 3,   repeats: true) { [weak self] _ in
+            self?.windows.forEach { $0.clusterOverlay?.updateCPU(); $0.clusterOverlay?.updateMem() }
         }
         staleClaudeTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { _ in
             cleanupStaleClaudeActiveFlags()
