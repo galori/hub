@@ -26,6 +26,7 @@ jobs:
         run: |
           brew list bats-core >/dev/null 2>&1 || brew install bats-core
           brew list jq >/dev/null 2>&1 || brew install jq
+          brew list imagemagick >/dev/null 2>&1 || brew install imagemagick
           brew list --cask aerospace >/dev/null 2>&1 || brew install --cask nikitabobko/tap/aerospace
           brew list borders >/dev/null 2>&1 || brew install FelixKratz/formulae/borders
 

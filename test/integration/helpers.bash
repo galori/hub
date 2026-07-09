@@ -130,6 +130,7 @@ fullscreen_revealed_menu_bar_clearance() {
     swift -e 'import Cocoa
 let gap = 15
 let barHeight: CGFloat = 40
+let revealedMenuBarHubGap: CGFloat = 4
 guard let screen = NSScreen.screens.first else { exit(1) }
 let sf = screen.frame
 let vf = screen.visibleFrame
@@ -145,7 +146,7 @@ if visibleInset > 1 {
     let statusBarInset = NSStatusBar.system.thickness
     inset = statusBarInset > 1 ? statusBarInset : 24
 }
-print(Int(ceil(barHeight + inset)) + gap)'
+print(Int(ceil(barHeight + inset + revealedMenuBarHubGap)) + gap)'
 }
 
 # ---------------------------------------------------------------------------

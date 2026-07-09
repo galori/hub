@@ -35,12 +35,12 @@ func fail(_ message: String) -> Never {
 }
 
 let singleRowMetric = fullscreenTransientAerospaceMetric(rows: 1, menuBarRevealInset: 24)
-guard singleRowMetric == 64 else {
+guard singleRowMetric == 68 else {
     fail("expected single-row revealed metric to include menu bar and Hub Bar height, got \(singleRowMetric)")
 }
 
 let doubleRowMetric = fullscreenTransientAerospaceMetric(rows: 2, menuBarRevealInset: 24)
-guard doubleRowMetric == 104 else {
+guard doubleRowMetric == 108 else {
     fail("expected multi-row revealed metric to include menu bar and all Hub Bar rows, got \(doubleRowMetric)")
 }
 
