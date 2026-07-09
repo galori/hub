@@ -22,7 +22,7 @@ acceptable to exercise the installed/running Hub:
 Visible side effects on your screen during the suite:
 - A brief bar reload flicker (test 1)
 - AeroSpace focus switches to the newly created test workspace (tests 2/3), then back after cleanup
-- Hub fullscreen mode is toggled on/off while verifying AeroSpace top padding (test 4)
+- Hub fullscreen mode is toggled on/off while verifying AeroSpace top padding and revealed menu-bar spacing (tests 4/6)
 
 > For routine worktree development, use `make test-fast` or `make test-local`.
 > Live integration is intentionally reserved for CI/PR checks or explicit
@@ -88,6 +88,7 @@ never touch `test/integration/`.
 | `03_new_workspace_custom_setup.bats` | Same + `.superset/config.json` `"setup"` hook writes a marker file in the worktree |
 | `04_fullscreen_padding.bats` | `hub fullscreen on/off` — AeroSpace `outer.top` keeps tiled windows below the Hub Bar; Tahoe also checks cursor-at-top menu-bar reveal padding |
 | `05_screenshot_bar_cropped.bats` | macOS Sequoia only — `screenshot-bar-cropped` does not leak green desktop pixels in normal mode |
+| `06_fullscreen_revealed_menu_bar_screenshot.bats` | macOS Sequoia+ — screenshot crop verifies the Hub Bar top strip is visible below the revealed menu bar in Hub fullscreen |
 
 ---
 

@@ -60,6 +60,7 @@ let SERVICE_BG: UInt32 = 0xFFC91B00
 // ── Geometry ──
 let barHeightNormal: CGFloat = 40
 let normalMenuBarOverlap: CGFloat = 1  // Cover the Sequoia compositor gap below the persistent menu bar.
+let revealedMenuBarHubGap: CGFloat = 4  // Preserve the Hub Bar top padding below the transient macOS menu bar.
 let pillH:           CGFloat = 32      // Standard pill height
 let pillRadius:      CGFloat = 16      // Pill corner radius
 let pillPadH:        CGFloat = 8       // Horizontal padding in pills
@@ -73,7 +74,8 @@ let shortNameNoTruncateLimit = 4        // Ellipsizing tiny names saves little s
 func fullscreenTransientAerospaceMetric(rows: Int, menuBarRevealInset: CGFloat) -> Int {
     let rowCount = max(1, rows)
     let inset = max(0, menuBarRevealInset)
-    return Int(ceil(barHeightNormal * CGFloat(rowCount) + inset))
+    let revealedGap = inset > 0 ? revealedMenuBarHubGap : 0
+    return Int(ceil(barHeightNormal * CGFloat(rowCount) + inset + revealedGap))
 }
 
 // ── Fonts ──
@@ -1402,6 +1404,11 @@ class HubBarWindow: NSWindow {
         return statusBarInset > 1 ? statusBarInset : 24
     }
 
+    static func menuBarRevealClearance(screen: NSScreen, sf: NSRect, vf: NSRect) -> CGFloat {
+        let inset = menuBarRevealInset(screen: screen, sf: sf, vf: vf)
+        return inset > 0 ? inset + revealedMenuBarHubGap : 0
+    }
+
     // Bar top anchor in screen coords.
     // - Normal mode: align to visibleFrame.maxY (below persistent menu bar).
     // - Hub fullscreen + menu bar hidden: align to absolute screen top (sf.maxY).
@@ -1412,7 +1419,7 @@ class HubBarWindow: NSWindow {
         let vf = screen.visibleFrame
         if !isHubFullscreen() { return min(sf.maxY, vf.maxY + normalMenuBarOverlap) }
         if !menuBarRevealedInFullscreen { return sf.maxY }
-        return sf.maxY - menuBarRevealInset(screen: screen, sf: sf, vf: vf)
+        return sf.maxY - menuBarRevealClearance(screen: screen, sf: sf, vf: vf)
     }
 
     func applyWindowLevel(isFullscreen: Bool) {

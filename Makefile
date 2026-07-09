@@ -19,7 +19,7 @@ test-integration:
 	@tmp="$$(mktemp "$${TMPDIR:-/tmp}/hub-integration.XXXXXX")"; \
 	HUB_RUN_INTEGRATION=1 bats --formatter tap test/integration/ >"$$tmp" 2>&1 & pid=$$!; \
 	while kill -0 "$$pid" 2>/dev/null; do \
-		if grep -q 'screenshot-bar-cropped shows only solid strips' "$$tmp"; then \
+		if grep -q 'hub-full-screen keeps the Hub Bar top strip visible below the revealed macOS menu bar' "$$tmp"; then \
 			sleep 2; \
 			if kill -0 "$$pid" 2>/dev/null; then \
 				pkill -TERM -P "$$pid" 2>/dev/null || true; \
