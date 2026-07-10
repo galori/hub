@@ -2855,9 +2855,16 @@ class HubBarController: NSObject {
                     shiftLog("ARMED")
                 }
             }
-        } else if raw != 0 || !mods.isEmpty {
-            shiftLog("DISARMED (raw != 0 or mods not empty)")
-            rightShiftTapArmed = false
+        } else {
+            // Disarm only when a real non-right-shift modifier or key is active.
+            // CGEventFlags includes 0x0100 (nonCoalesced) on key-up which is NOT a modifier;
+            // checking raw != 0 would incorrectly disarm on every key release.
+            let hasOtherMod = !mods.intersection([.control, .option, .command, .capsLock, .function]).isEmpty
+                || (raw & 0x0002) != 0  // left-shift NX bit
+            if hasOtherMod {
+                shiftLog("DISARMED (other modifier active)")
+                rightShiftTapArmed = false
+            }
         }
         rightShiftWasDown = isolatedRightShift
     }
