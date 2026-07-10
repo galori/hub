@@ -236,6 +236,55 @@ exit(1)'
 }
 
 # ---------------------------------------------------------------------------
+# post_right_shift_double_tap [gap_ms] [--with-escape-between]
+#
+# Synthesizes two physical right-shift key-down + key-up pairs, replicating
+# the NX_DEVICERSHIFTKEYMASK bit real keyboard hardware sets (0x0004) that
+# hub_bar.swift's isolated-right-shift detector keys off of. A bare
+# CGEventFlags.maskShift alone is NOT enough — without the device-specific
+# mask, the Hub Bar cannot tell it apart from a left-shift press and the
+# trigger never fires.
+#
+# Both taps (and the optional intervening Escape keystroke) run inside a
+# single Swift process with usleep()-controlled internal timing. Two separate
+# `swift -e` invocations from bash would each pay ~250-300ms of interpreter
+# startup, silently inflating any shell-level `sleep` between them past the
+# 400ms double-tap window this is meant to test.
+#
+#   gap_ms                  milliseconds between the two taps (default 150)
+#   --with-escape-between    inserts a real Escape keystroke between the taps
+# ---------------------------------------------------------------------------
+post_right_shift_double_tap() {
+    local gap_ms="${1:-150}"
+    local with_escape="false"
+    [[ "${2:-}" == "--with-escape-between" ]] && with_escape="true"
+
+    swift -e "import Cocoa
+let src = CGEventSource(stateID: .hidSystemState)
+func tapRightShift() {
+    let down = CGEvent(keyboardEventSource: src, virtualKey: 60, keyDown: true)
+    down?.flags = CGEventFlags(rawValue: 0x20000 | 0x0004)
+    down?.post(tap: .cghidEventTap)
+    usleep(40000)
+    let up = CGEvent(keyboardEventSource: src, virtualKey: 60, keyDown: false)
+    up?.flags = CGEventFlags(rawValue: 0)
+    up?.post(tap: .cghidEventTap)
+}
+func tapEscape() {
+    let down = CGEvent(keyboardEventSource: src, virtualKey: 53, keyDown: true)
+    down?.post(tap: .cghidEventTap)
+    usleep(20000)
+    let up = CGEvent(keyboardEventSource: src, virtualKey: 53, keyDown: false)
+    up?.post(tap: .cghidEventTap)
+}
+tapRightShift()
+usleep(${gap_ms}000 / 2)
+if $with_escape { tapEscape() }
+usleep(${gap_ms}000 / 2)
+tapRightShift()"
+}
+
+# ---------------------------------------------------------------------------
 # unique_ws_name
 #
 # Emits a workspace name that is unique per test run to prevent collisions on

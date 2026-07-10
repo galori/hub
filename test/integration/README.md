@@ -89,6 +89,7 @@ never touch `test/integration/`.
 | `04_fullscreen_padding.bats` | `hub fullscreen on/off` — AeroSpace `outer.top` keeps tiled windows below the Hub Bar; Tahoe also checks cursor-at-top menu-bar reveal padding |
 | `05_screenshot_bar_cropped.bats` | macOS Sequoia only — `screenshot-bar-cropped` does not leak green desktop pixels in normal mode |
 | `06_fullscreen_revealed_menu_bar_screenshot.bats` | macOS Tahoe+ — screenshot crop verifies the Hub Bar top strip is visible below the revealed menu bar in Hub fullscreen |
+| `07_right_shift_fullscreen_toggle.bats` | Synthesizes real right-shift key events — double-tapping right-shift alone toggles `hub fullscreen`; an intervening keystroke or a tap gap over 400ms does not |
 
 ---
 

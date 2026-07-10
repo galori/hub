@@ -176,6 +176,17 @@ enum Aerospace {
     }
 }
 
+func debugLog(_ s: String) {
+    let line = "\(CFAbsoluteTimeGetCurrent()) \(s)\n"
+    if let fh = FileHandle(forWritingAtPath: "/tmp/hubbar_debug.log") {
+        fh.seekToEndOfFile()
+        fh.write(line.data(using: .utf8)!)
+        fh.closeFile()
+    } else {
+        try? line.write(toFile: "/tmp/hubbar_debug.log", atomically: true, encoding: .utf8)
+    }
+}
+
 func hubScriptPath() -> String? {
     let path = NSHomeDirectory() + "/.config/hub/hub_path"
     guard let c = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
@@ -2752,8 +2763,14 @@ class HubBarController: NSObject {
     var menuBarRevealGeneration: Int = 0
     var pulseBright = true; var lastState = HubBarState()
     var rightShiftWasDown = false
-    var rightShiftTapArmed = false
-    var lastRightShiftDownTime: CFAbsoluteTime = 0
+    // Timestamps use NSEvent.timestamp (system uptime at the moment the underlying
+    // HID event occurred), not wall-clock-at-dispatch-time. Global monitors for
+    // different event types are not guaranteed to run in the order their events
+    // actually occurred, so comparing event timestamps — rather than an "armed"
+    // flag toggled by whichever callback happens to run first — keeps the
+    // double-tap-vs-real-keystroke distinction race-free under load.
+    var lastRightShiftDownTimestamp: TimeInterval = 0
+    var lastDisarmingKeyTimestamp: TimeInterval = -1
 
     func start() {
         removeTransientBarHeightOverride(sync: false)
@@ -2788,8 +2805,10 @@ class HubBarController: NSObject {
         // Right-shift double-tap trigger: toggles hub fullscreen. A global keyDown
         // monitor disarms the pending tap whenever a real key is struck in between,
         // so ordinary typing (e.g. Shift for "New York") never fires it.
-        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
-            self?.rightShiftTapArmed = false
+        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] ev in
+            guard let self = self else { return }
+            debugLog("keyDown cb keyCode=\(ev.keyCode) ts=\(ev.timestamp)")
+            self.lastDisarmingKeyTimestamp = max(self.lastDisarmingKeyTimestamp, ev.timestamp)
         }
     }
 
@@ -2801,17 +2820,20 @@ class HubBarController: NSObject {
             && mods.intersection([.control, .option, .command, .capsLock, .function]).isEmpty
         if isolatedRightShift {
             if !rightShiftWasDown {
-                let now = CFAbsoluteTimeGetCurrent()
-                if rightShiftTapArmed && (now - lastRightShiftDownTime) < 0.4 {
-                    rightShiftTapArmed = false
+                let now = ev.timestamp
+                let tappedRecently = (now - lastRightShiftDownTimestamp) < 0.4
+                let disarmedSinceLastTap = lastDisarmingKeyTimestamp > lastRightShiftDownTimestamp
+                debugLog("shift-down cb now=\(now) lastTap=\(lastRightShiftDownTimestamp) lastDisarm=\(lastDisarmingKeyTimestamp) tappedRecently=\(tappedRecently) disarmed=\(disarmedSinceLastTap)")
+                if tappedRecently && !disarmedSinceLastTap && lastRightShiftDownTimestamp > 0 {
+                    lastRightShiftDownTimestamp = 0
+                    debugLog("TRIGGER")
                     triggerFullscreenToggle()
                 } else {
-                    rightShiftTapArmed = true
-                    lastRightShiftDownTime = now
+                    lastRightShiftDownTimestamp = now
                 }
             }
         } else if raw != 0 || !mods.isEmpty {
-            rightShiftTapArmed = false
+            lastDisarmingKeyTimestamp = max(lastDisarmingKeyTimestamp, ev.timestamp)
         }
         rightShiftWasDown = isolatedRightShift
     }
