@@ -2751,6 +2751,9 @@ class HubBarController: NSObject {
     var nativeFullscreenDisplayIDs = Set<CGDirectDisplayID>()
     var menuBarRevealGeneration: Int = 0
     var pulseBright = true; var lastState = HubBarState()
+    var rightShiftWasDown = false
+    var rightShiftTapArmed = false
+    var lastRightShiftDownTime: CFAbsoluteTime = 0
 
     func start() {
         removeTransientBarHeightOverride(sync: false)
@@ -2779,8 +2782,44 @@ class HubBarController: NSObject {
             } else if primaryWindow?.clusterOverlay?.isVisible == true {
                 primaryWindow?.scheduleHideClusterOverlay()
             }
+            self.handleRightShiftTap(ev)
         }
 
+        // Right-shift double-tap trigger: toggles hub fullscreen. A global keyDown
+        // monitor disarms the pending tap whenever a real key is struck in between,
+        // so ordinary typing (e.g. Shift for "New York") never fires it.
+        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
+            self?.rightShiftTapArmed = false
+        }
+    }
+
+    // NX_DEVICELSHIFTKEYMASK = 0x0002, NX_DEVICERSHIFTKEYMASK = 0x0004
+    private func handleRightShiftTap(_ ev: NSEvent) {
+        let raw = ev.modifierFlags.rawValue
+        let mods = ev.modifierFlags
+        let isolatedRightShift = (raw & 0x0004 != 0) && (raw & 0x0002 == 0)
+            && mods.intersection([.control, .option, .command, .capsLock, .function]).isEmpty
+        if isolatedRightShift {
+            if !rightShiftWasDown {
+                let now = CFAbsoluteTimeGetCurrent()
+                if rightShiftTapArmed && (now - lastRightShiftDownTime) < 0.4 {
+                    rightShiftTapArmed = false
+                    triggerFullscreenToggle()
+                } else {
+                    rightShiftTapArmed = true
+                    lastRightShiftDownTime = now
+                }
+            }
+        } else if raw != 0 || !mods.isEmpty {
+            rightShiftTapArmed = false
+        }
+        rightShiftWasDown = isolatedRightShift
+    }
+
+    private func triggerFullscreenToggle() {
+        guard let hub = hubScriptPath() else { return }
+        Process.launchedProcess(launchPath: "/bin/sh",
+            arguments: ["-c", "'\(hub)' fullscreen toggle >/dev/null 2>&1 &"])
     }
 
     func installNotificationMonitor() {
