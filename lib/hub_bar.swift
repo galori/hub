@@ -2824,24 +2824,39 @@ class HubBarController: NSObject {
         }
     }
 
+    private func shiftLog(_ msg: String) {
+        let logPath = NSHomeDirectory() + "/.config/hub/hub.log"
+        let line = "[shift-debug] \(msg)\n"
+        if let data = line.data(using: .utf8),
+           let fh = FileHandle(forWritingAtPath: logPath) {
+            fh.seekToEndOfFile(); fh.write(data); fh.closeFile()
+        }
+    }
+
     // NX_DEVICELSHIFTKEYMASK = 0x0002, NX_DEVICERSHIFTKEYMASK = 0x0004
     private func handleRightShiftTap(_ ev: NSEvent) {
         let raw = ev.modifierFlags.rawValue
         let mods = ev.modifierFlags
         let isolatedRightShift = (raw & 0x0004 != 0) && (raw & 0x0002 == 0)
             && mods.intersection([.control, .option, .command, .capsLock, .function]).isEmpty
+        shiftLog(String(format: "raw=0x%08x rShift=%d lShift=%d isolated=%d wasDown=%d armed=%d",
+            raw, (raw & 0x0004) != 0 ? 1 : 0, (raw & 0x0002) != 0 ? 1 : 0,
+            isolatedRightShift ? 1 : 0, rightShiftWasDown ? 1 : 0, rightShiftTapArmed ? 1 : 0))
         if isolatedRightShift {
             if !rightShiftWasDown {
                 let now = CFAbsoluteTimeGetCurrent()
                 if rightShiftTapArmed && (now - lastRightShiftDownTime) < 0.4 {
                     rightShiftTapArmed = false
+                    shiftLog("FIRE triggerFullscreenToggle")
                     triggerFullscreenToggle()
                 } else {
                     rightShiftTapArmed = true
                     lastRightShiftDownTime = now
+                    shiftLog("ARMED")
                 }
             }
         } else if raw != 0 || !mods.isEmpty {
+            shiftLog("DISARMED (raw != 0 or mods not empty)")
             rightShiftTapArmed = false
         }
         rightShiftWasDown = isolatedRightShift
