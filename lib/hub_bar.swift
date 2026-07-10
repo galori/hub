@@ -2754,6 +2754,7 @@ class HubBarController: NSObject {
     var rightShiftWasDown = false
     var rightShiftTapArmed = false
     var lastRightShiftDownTime: CFAbsoluteTime = 0
+    var flagsChangedEventTap: CFMachPort?
 
     func start() {
         removeTransientBarHeightOverride(sync: false)
@@ -2767,22 +2768,52 @@ class HubBarController: NSObject {
     }
 
     func installClusterTriggers() {
-        // Both-shift trigger: hold left-shift (keycode 56) AND right-shift (keycode 60) simultaneously.
-        // Uses device-independent NX flag masks to detect left/right shift separately.
+        // Both-shift trigger and right-shift double-tap trigger via CGEventTap.
+        // NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) is silently broken on
+        // macOS 26 (Tahoe) even with Input Monitoring granted; CGEventTap works reliably.
         // NX_DEVICELSHIFTKEYMASK = 0x0002, NX_DEVICERSHIFTKEYMASK = 0x0004
-        // Note: global flagsChanged monitors may require Input Monitoring permission on some
-        // OS versions. If this fails silently, the hot-right-edge trigger still works.
-        NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] ev in
-            let raw = ev.modifierFlags.rawValue
-            let bothShift = (raw & 0x0002 != 0) && (raw & 0x0004 != 0)
-            guard let self = self else { return }
-            let primaryWindow = self.windows.first
-            if bothShift {
-                primaryWindow?.showClusterOverlay()
-            } else if primaryWindow?.clusterOverlay?.isVisible == true {
-                primaryWindow?.scheduleHideClusterOverlay()
+        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
+        let tapMask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
+        flagsChangedEventTap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: tapMask,
+            callback: { _, _, event, userInfo -> Unmanaged<CGEvent>? in
+                if let userInfo = userInfo, let nsEv = NSEvent(cgEvent: event) {
+                    let ctrl = Unmanaged<HubBarController>.fromOpaque(userInfo).takeUnretainedValue()
+                    let raw = nsEv.modifierFlags.rawValue
+                    let bothShift = (raw & 0x0002 != 0) && (raw & 0x0004 != 0)
+                    let primaryWindow = ctrl.windows.first
+                    if bothShift {
+                        primaryWindow?.showClusterOverlay()
+                    } else if primaryWindow?.clusterOverlay?.isVisible == true {
+                        primaryWindow?.scheduleHideClusterOverlay()
+                    }
+                    ctrl.handleRightShiftTap(nsEv)
+                }
+                return Unmanaged.passRetained(event)
+            },
+            userInfo: selfPtr
+        )
+        if let tap = flagsChangedEventTap {
+            let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+            CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
+            CGEvent.tapEnable(tap: tap, enable: true)
+        } else {
+            // Fallback: NSEvent monitor (works on pre-Tahoe without Input Monitoring issues)
+            NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] ev in
+                let raw = ev.modifierFlags.rawValue
+                let bothShift = (raw & 0x0002 != 0) && (raw & 0x0004 != 0)
+                guard let self = self else { return }
+                let primaryWindow = self.windows.first
+                if bothShift {
+                    primaryWindow?.showClusterOverlay()
+                } else if primaryWindow?.clusterOverlay?.isVisible == true {
+                    primaryWindow?.scheduleHideClusterOverlay()
+                }
+                self.handleRightShiftTap(ev)
             }
-            self.handleRightShiftTap(ev)
         }
 
         // Right-shift double-tap trigger: toggles AeroSpace fullscreen. A global keyDown
