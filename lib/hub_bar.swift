@@ -2785,7 +2785,7 @@ class HubBarController: NSObject {
             self.handleRightShiftTap(ev)
         }
 
-        // Right-shift double-tap trigger: toggles hub fullscreen. A global keyDown
+        // Right-shift double-tap trigger: toggles AeroSpace fullscreen. A global keyDown
         // monitor disarms the pending tap whenever a real key is struck in between,
         // so ordinary typing (e.g. Shift for "New York") never fires it.
         NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
@@ -2817,9 +2817,9 @@ class HubBarController: NSObject {
     }
 
     private func triggerFullscreenToggle() {
-        guard let hub = hubScriptPath() else { return }
-        Process.launchedProcess(launchPath: "/bin/sh",
-            arguments: ["-c", "'\(hub)' fullscreen toggle >/dev/null 2>&1 &"])
+        let aerospace = FileManager.default.fileExists(atPath: "/opt/homebrew/bin/aerospace")
+            ? "/opt/homebrew/bin/aerospace" : "/usr/local/bin/aerospace"
+        Process.launchedProcess(launchPath: aerospace, arguments: ["fullscreen"])
     }
 
     func installNotificationMonitor() {
