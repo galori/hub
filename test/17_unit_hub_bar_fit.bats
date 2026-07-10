@@ -230,6 +230,51 @@ let afterPaddingFit = FitDecision(
 guard !fitStructureMatchesForRefresh(previousPaddingFit, afterPaddingFit) else {
     fail("expected padding-only fit changes to refresh workspace widths")
 }
+
+let expandPills: [(ws: String, fullName: String, isFocused: Bool)] = [
+    ("1", "dgapp", false),
+    ("2", "code-reviews", false),
+    ("3", "custom-taxonomy", false),
+    ("4", "review-finder-dbapprovers", false),
+    ("6", "review-finder-bug", false),
+    ("7", "custom-bins", false),
+    ("8", "visual-explainer", false),
+    ("9", "my-prs-auto", false),
+    ("A", "sentries", false),
+    ("C", "dg-shell-utils", false),
+    ("E", "base_taxonomy_duplicate_cleanup", false),
+    ("Z", "General", true),
+]
+
+let expandScreenW: CGFloat = 2048
+let expandNotchMinX: CGFloat = 1024
+let expandNotchMaxX: CGFloat = 1156
+let expandRightSegW = max(0, (expandScreenW - 8) - (expandNotchMaxX + 2))
+let expandFit = decideFit(
+    pills: expandPills,
+    screenW: expandScreenW,
+    notchMinX: expandNotchMinX,
+    notchMaxX: expandNotchMaxX,
+    isFullscreen: true,
+    focused: "Z",
+    claudeAlert: [],
+    claudeActive: [],
+    mode: .expand,
+    lastRows: 1)
+
+guard expandFit.rows == 2 else {
+    fail("expected expanded layout to fit in two rows, got \(expandFit.rows)")
+}
+guard let expandSplit = expandFit.row0Split else {
+    fail("expected expanded fullscreen layout to split row 0 around the notch")
+}
+let expandRow0Pills = expandFit.rowAssignment[0].map { expandPills[$0] }
+let expandRightPills = Array(expandRow0Pills[min(expandSplit, expandRow0Pills.count)...])
+let expandRightWidth = stripWidth(pills: expandRightPills, cap: expandFit.effectiveCap, focused: "Z",
+                                  claudeAlert: [], claudeActive: [], padH: expandFit.effectivePadH)
+guard expandRightWidth <= expandRightSegW else {
+    fail("expected expanded row-0 right segment width \(expandRightWidth) to fit \(expandRightSegW); row0=\(expandRow0Pills.map { $0.ws }) split=\(expandSplit)")
+}
 SWIFT
 
     swiftc -D HUB_BAR_TEST -O -o "$COMPILE_OUT/hub_bar_fit" \
@@ -237,6 +282,6 @@ SWIFT
     "$COMPILE_OUT/hub_bar_fit"
 }
 
-@test "fullscreen notch shrink relaxes right-side labels when left segment constrains global cap" {
+@test "fullscreen notch fit handles shrink relaxation and expanded row packing" {
     compile_and_run_harness
 }

@@ -710,6 +710,70 @@ private func fitNotchSplit(
     return leftCount
 }
 
+// Greedy packing for expanded fullscreen notch layouts. Row 0 is physically two
+// separate segments, so a combined-width row can still clip on the right side.
+private func greedyPackNotchRows(
+    pills: [(ws: String, fullName: String, isFocused: Bool)],
+    cap: Int,
+    focused: String,
+    claudeAlert: Set<String>, claudeActive: Set<String>,
+    padH: CGFloat,
+    leftSegW: CGFloat, rightSegW: CGFloat,
+    fullRowWidth: CGFloat,
+    maxRows: Int) -> (assignment: [[Int]], overflowed: Bool) {
+    var rows: [[Int]] = Array(repeating: [], count: maxRows)
+    var used: [CGFloat] = Array(repeating: 0, count: maxRows)
+    var overflowed = false
+
+    guard maxRows > 0 else { return (rows, !pills.isEmpty) }
+
+    var row0Count = 0
+    if !pills.isEmpty {
+        for end in 1...pills.count {
+            let candidate = Array(pills[0..<end])
+            if fitNotchSplit(pills: candidate, cap: cap,
+                             claudeAlert: claudeAlert, claudeActive: claudeActive,
+                             padH: padH,
+                             leftSegW: leftSegW, rightSegW: rightSegW) != nil {
+                row0Count = end
+            } else {
+                break
+            }
+        }
+    }
+    rows[0] = Array(0..<row0Count)
+
+    var r = 1
+    for i in row0Count..<pills.count {
+        if r >= maxRows {
+            overflowed = true
+            rows[maxRows - 1].append(i)
+            continue
+        }
+
+        let p = pills[i]
+        let showDot = claudeAlert.contains(p.ws) || claudeActive.contains(p.ws)
+        let pw = normalPillWidth(idx: p.ws, fullName: p.fullName, cap: cap, showDot: showDot, padH: padH)
+        let gap: CGFloat = rows[r].isEmpty ? 0 : pillGap
+
+        if used[r] + gap + pw <= fullRowWidth {
+            used[r] += gap + pw
+            rows[r].append(i)
+        } else {
+            r += 1
+            if r >= maxRows {
+                overflowed = true
+                rows[maxRows - 1].append(i)
+            } else {
+                used[r] = pw
+                rows[r].append(i)
+            }
+        }
+    }
+
+    return (rows, overflowed)
+}
+
 // Pure fit decision: given pill data, screen geometry, and layout mode — returns layout.
 // `lastRows` is the only retained state (hysteresis for expand mode). Pass 1 on first call.
 // Modes:
@@ -915,7 +979,15 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
         let maxPad = preferredPillPadH()
 
         func pack(rows: Int, padH: CGFloat) -> (assignment: [[Int]], overflowed: Bool) {
-            greedyPack(
+            if hasNotchSplit {
+                return greedyPackNotchRows(
+                    pills: pills, cap: cap, focused: focused,
+                    claudeAlert: claudeAlert, claudeActive: claudeActive,
+                    padH: padH,
+                    leftSegW: leftSegW, rightSegW: rightSegW,
+                    fullRowWidth: fullRowW, maxRows: rows)
+            }
+            return greedyPack(
                 pills: pills, cap: cap, focused: focused,
                 claudeAlert: claudeAlert, claudeActive: claudeActive,
                 padH: padH,
