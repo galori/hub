@@ -1734,6 +1734,7 @@ class HubBarWindow: NSWindow {
 
         // Hot right-edge zone: hover into the rightmost 8px of the bar to reveal the cluster overlay.
         // Uses a hover-only NSView (hitTest returns nil so clicks pass through to pills/service pill).
+        // Spans every row, not just row 0, so it also triggers when hovering rows 1+.
         let hotEdge = HotEdgeView()
         hotEdge.translatesAutoresizingMaskIntoConstraints = false
         hotEdge.onEnter = { [weak self] in self?.showClusterOverlay() }
@@ -1742,7 +1743,7 @@ class HubBarWindow: NSWindow {
         NSLayoutConstraint.activate([
             hotEdge.trailingAnchor.constraint(equalTo: cv.trailingAnchor),
             hotEdge.topAnchor.constraint(equalTo: cv.topAnchor),
-            hotEdge.bottomAnchor.constraint(equalTo: cv.topAnchor, constant: rowH),
+            hotEdge.bottomAnchor.constraint(equalTo: cv.topAnchor, constant: rowH * CGFloat(rows)),
             hotEdge.widthAnchor.constraint(equalToConstant: 8),
         ])
     }
@@ -2196,7 +2197,7 @@ class HubBarWindow: NSWindow {
 
     func scheduleHideClusterOverlay() {
         clusterHideTimer?.invalidate()
-        clusterHideTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { [weak self] _ in
+        clusterHideTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
             self?.hideClusterOverlay()
         }
     }
