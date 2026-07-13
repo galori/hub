@@ -277,6 +277,7 @@ class ClickView: NSView {
     var onPress: (() -> Void)?
     var normalColor: CGColor? { didSet { layer?.backgroundColor = normalColor } }
     var hoverColor:  CGColor?
+    private var hoverTrackingArea: NSTrackingArea?
 
     override func mouseDown(with event: NSEvent) { onPress?() }
     override func mouseEntered(with event: NSEvent) {
@@ -288,10 +289,12 @@ class ClickView: NSView {
     override var acceptsFirstResponder: Bool { false }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        addTrackingArea(NSTrackingArea(
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(
             rect: bounds,
             options: [.mouseEnteredAndExited, .activeAlways],
-            owner: self, userInfo: nil))
+            owner: self, userInfo: nil)
+        hoverTrackingArea = area
+        addTrackingArea(area)
     }
 }

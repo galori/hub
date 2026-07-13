@@ -1087,6 +1087,7 @@ class HubBarClickView: NSView {
     var onPress: (() -> Void)?
     var hoverBG: NSColor = NSColor(argb: HOVER_BG)
     var normalBG: NSColor = .clear
+    private var hoverTrackingArea: NSTrackingArea?
 
     override func mouseDown(with event: NSEvent) { onPress?() }
     override func mouseEntered(with event: NSEvent) { layer?.backgroundColor = hoverBG.cgColor }
@@ -1094,9 +1095,11 @@ class HubBarClickView: NSView {
     override var acceptsFirstResponder: Bool { false }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        addTrackingArea(NSTrackingArea(rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil))
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        hoverTrackingArea = area
+        addTrackingArea(area)
     }
 }
 
@@ -1185,7 +1188,7 @@ class OverlayTooltipPresenter: NSObject {
     }
 }
 
-class OverlayTooltipAttachment: NSObject {
+class OverlayTooltipAttachment: NSResponder {
     weak var view: NSView?
     weak var presenter: OverlayTooltipPresenter?
     let text: String
@@ -1203,6 +1206,7 @@ class OverlayTooltipAttachment: NSObject {
         trackingArea = area
         view.addTrackingArea(area)
     }
+    required init?(coder: NSCoder) { fatalError() }
 
     deinit {
         if let area = trackingArea {
@@ -1210,12 +1214,12 @@ class OverlayTooltipAttachment: NSObject {
         }
     }
 
-    func mouseEntered(with event: NSEvent) {
+    override func mouseEntered(with event: NSEvent) {
         guard let view = view else { return }
         presenter?.show(text: text, for: view)
     }
 
-    func mouseExited(with event: NSEvent) {
+    override func mouseExited(with event: NSEvent) {
         presenter?.hide()
     }
 }
