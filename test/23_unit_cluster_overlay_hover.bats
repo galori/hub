@@ -55,5 +55,28 @@
     local install_count
     install_count="$(grep -c 'installTooltip(on:' <<<"$overlay_body")"
     [[ "$install_count" -ge 9 ]]
-    grep -q 'installTooltip(on: click, text: targetMode == .shrink ? "Switch to compact bar" : "Switch to expanded bar")' <<<"$overlay_body"
+    grep -q 'installTooltip(on: click, text: useful' <<<"$overlay_body"
+}
+
+@test "mini status uses native symbols and resource-pressure thresholds" {
+    local source_file="$BATS_TEST_DIRNAME/../lib/hub_bar.swift"
+
+    grep -q 'makeSymbolImageView(systemName:' "$source_file"
+    grep -q 'fileURLWithPath: "/usr/bin/memory_pressure"' "$source_file"
+    grep -q 'process.arguments = \["-Q"\]' "$source_file"
+    grep -q 'func cpuResourceColor(pct: Int)' "$source_file"
+    grep -q 'func memoryResourceColor(pct: Int)' "$source_file"
+    ! grep -q 'labelWithString: "󰆚"' "$source_file"
+    ! grep -q 'labelWithString: "󰍛"' "$source_file"
+}
+
+@test "action controls and layout toggle use available overlay space" {
+    local source_file="$BATS_TEST_DIRNAME/../lib/hub_bar.swift"
+    local action_body toggle_body
+    action_body="$(sed -n '/class ActionSlotView:/,/MARK: – WsWinSlotView/p' "$source_file")"
+    toggle_body="$(sed -n '/Layout mode toggle/,/App icon group/p' "$source_file")"
+
+    [[ "$action_body" != *'min(width, 58)'* ]]
+    [[ "$toggle_body" == *'click.layer?.borderWidth = 1'* ]]
+    [[ "$toggle_body" == *'layoutToggleIsUseful'* ]]
 }

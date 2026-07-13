@@ -34,6 +34,20 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
+guard parseMemoryPressureLoad("System-wide memory free percentage: 69%\n") == 31 else {
+    fail("expected memory pressure output to convert free percent into load percent")
+}
+guard cpuResourceColor(pct: 69) == C_GREEN,
+      cpuResourceColor(pct: 70) == C_YELLOW,
+      cpuResourceColor(pct: 90) == C_RED else {
+    fail("unexpected CPU resource thresholds")
+}
+guard memoryResourceColor(pct: 69) == C_GREEN,
+      memoryResourceColor(pct: 70) == C_YELLOW,
+      memoryResourceColor(pct: 85) == C_RED else {
+    fail("unexpected memory resource thresholds")
+}
+
 let pills: [(ws: String, fullName: String, isFocused: Bool)] = [
     ("1", "dgapp", false),
     ("2", "custom-bins", false),
