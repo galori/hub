@@ -1101,6 +1101,126 @@ class HubBarClickView: NSView {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// MARK: – OverlayTooltipPresenter
+// ──────────────────────────────────────────────────────────────────────────────
+
+private var overlayTooltipAttachmentKey: UInt8 = 0
+
+class OverlayTooltipPresenter: NSObject {
+    private let panel: NSPanel
+    private let label = NSTextField(labelWithString: "")
+
+    override init() {
+        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 120, height: 28),
+                        styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered,
+                        defer: false)
+        super.init()
+        panel.level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 2)
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.isReleasedWhenClosed = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+
+        let content = NSView()
+        content.wantsLayer = true
+        content.layer?.backgroundColor = NSColor(argb: 0xF022242B).cgColor
+        content.layer?.cornerRadius = 6
+        content.layer?.borderWidth = 1
+        content.layer?.borderColor = NSColor(argb: 0x28FFFFFF).cgColor
+
+        label.font = monoFont12
+        label.textColor = NSColor(argb: 0xFFE8EAF0)
+        label.lineBreakMode = .byTruncatingTail
+        label.isEditable = false
+        label.isBordered = false
+        label.backgroundColor = .clear
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        content.addSubview(label)
+        panel.contentView = content
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -8),
+            label.topAnchor.constraint(equalTo: content.topAnchor, constant: 5),
+            label.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -5),
+        ])
+    }
+
+    func attach(to view: NSView, text: String) {
+        let attachment = OverlayTooltipAttachment(view: view, text: text, presenter: self)
+        objc_setAssociatedObject(view, &overlayTooltipAttachmentKey, attachment, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
+    func show(text: String, for view: NSView) {
+        guard let hostWindow = view.window else { return }
+        label.stringValue = text
+        label.preferredMaxLayoutWidth = 300
+        let labelSize = label.intrinsicContentSize
+        let w = min(max(labelSize.width + 16, 36), 316)
+        let h = labelSize.height + 10
+
+        let rectInWindow = view.convert(view.bounds, to: nil)
+        let rectOnScreen = hostWindow.convertToScreen(rectInWindow)
+        let screenFrame = (hostWindow.screen ?? NSScreen.main)?.frame ?? rectOnScreen
+        var x = rectOnScreen.midX - w / 2
+        var y = rectOnScreen.minY - h - 6
+
+        x = min(max(x, screenFrame.minX + 4), screenFrame.maxX - w - 4)
+        if y < screenFrame.minY + 4 {
+            y = rectOnScreen.maxY + 6
+        }
+        if y + h > screenFrame.maxY - 4 {
+            y = rectOnScreen.minY - h - 6
+        }
+
+        panel.setFrame(NSRect(x: x, y: y, width: w, height: h), display: true)
+        panel.orderFrontRegardless()
+    }
+
+    func hide() {
+        panel.orderOut(nil)
+    }
+}
+
+class OverlayTooltipAttachment: NSObject {
+    weak var view: NSView?
+    weak var presenter: OverlayTooltipPresenter?
+    let text: String
+    private var trackingArea: NSTrackingArea?
+
+    init(view: NSView, text: String, presenter: OverlayTooltipPresenter) {
+        self.view = view
+        self.text = text
+        self.presenter = presenter
+        super.init()
+        let area = NSTrackingArea(rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil)
+        trackingArea = area
+        view.addTrackingArea(area)
+    }
+
+    deinit {
+        if let area = trackingArea {
+            view?.removeTrackingArea(area)
+        }
+    }
+
+    func mouseEntered(with event: NSEvent) {
+        guard let view = view else { return }
+        presenter?.show(text: text, for: view)
+    }
+
+    func mouseExited(with event: NSEvent) {
+        presenter?.hide()
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // MARK: – WorkspacePill (two-span idx + name + optional dot, with glow)
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -2303,6 +2423,7 @@ class ClusterOverlayWindow: NSWindow {
     var dismissAction: (() -> Void)?
     var onMouseEnteredOverlay: (() -> Void)?
     var onMouseExitedOverlay:  (() -> Void)?
+    private let tooltipPresenter = OverlayTooltipPresenter()
 
     // Widget refs for periodic updates
     var clockLabel: NSTextField?
@@ -2343,6 +2464,11 @@ class ClusterOverlayWindow: NSWindow {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    override func close() {
+        tooltipPresenter.hide()
+        super.close()
+    }
+
     private func buildContent(state: HubBarState) {
         let cv = contentView!
         cv.wantsLayer = true
@@ -2372,11 +2498,12 @@ class ClusterOverlayWindow: NSWindow {
         // (expand-icon while shrink, compress-icon while expand), not the current state.
         do {
             let targetMode: HubBarState.LayoutMode = state.layoutMode == .expand ? .shrink : .expand
-            let icon = NSTextField(labelWithString: targetMode == .shrink ? "\u{F066}" : "\u{F065}")
-            icon.font = nerdFont13; icon.textColor = NSColor(argb: C_ORANGE)
+            let icon = NSTextField(labelWithString: targetMode == .shrink ? "\u{F066}" : "\u{2922}")
+            icon.font = targetMode == .shrink ? nerdFont13 : monoFont16
+            icon.textColor = NSColor(argb: C_ORANGE)
             icon.isEditable = false; icon.isBordered = false; icon.backgroundColor = .clear
             let click = HubBarClickView(frame: .zero)
-            click.toolTip = targetMode == .shrink ? "Switch to compact bar" : "Switch to expanded bar"
+            installTooltip(on: click, text: targetMode == .shrink ? "Switch to compact bar" : "Switch to expanded bar")
             click.onPress = { [weak self] in
                 guard let hub = hubScriptPath() else { return }
                 Process.launchedProcess(launchPath: "/bin/sh",
@@ -2425,7 +2552,7 @@ class ClusterOverlayWindow: NSWindow {
 
         // ✕ dismiss button (AGENTS.md "Dismissable HUDs" pattern — uses Theme.makeDismissButton)
         let xBtn = Theme.makeDismissButton(onPress: { [weak self] in self?.dismiss() })
-        xBtn.toolTip = "Close"
+        installTooltip(on: xBtn, text: "Close")
         cv.addSubview(xBtn)
         NSLayoutConstraint.activate([
             xBtn.topAnchor.constraint(equalTo: cv.topAnchor, constant: 4),
@@ -2435,6 +2562,10 @@ class ClusterOverlayWindow: NSWindow {
         ])
 
         updateVolume(); updateBattery(); updateClock(); updateCPU(); updateMem()
+    }
+
+    private func installTooltip(on view: NSView, text: String) {
+        tooltipPresenter.attach(to: view, text: text)
     }
 
     private func buildAppIconGroup(state: HubBarState) -> NSView {
@@ -2476,7 +2607,7 @@ class ClusterOverlayWindow: NSWindow {
             }
             let appName = app["name"] ?? ""
             sv.dotView.isHidden = !state.currentWindows.contains { $0.app == appName }
-            sv.toolTip = appName.isEmpty ? "Slot \(slot)" : "\(appName) (slot \(slot))"
+            installTooltip(on: sv, text: appName.isEmpty ? "Slot \(slot)" : "\(appName) (slot \(slot))")
             sv.onPress = { [weak sv] in
                 guard !hub.isEmpty else { return }
                 let mods = NSEvent.modifierFlags
@@ -2507,7 +2638,7 @@ class ClusterOverlayWindow: NSWindow {
             slot.widthAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
             slot.heightAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
             slot.windowIDs = entry.ids
-            slot.toolTip = entry.app
+            installTooltip(on: slot, text: entry.app)
             let appPath = "/Applications/\(entry.app).app"
             if FileManager.default.fileExists(atPath: appPath) {
                 slot.imageView.image = NSWorkspace.shared.icon(forFile: appPath)
@@ -2549,7 +2680,7 @@ class ClusterOverlayWindow: NSWindow {
             let sv = ActionSlotView(slug: slug)
             sv.translatesAutoresizingMaskIntoConstraints = false
             let description = action["description"] ?? ""
-            sv.toolTip = description.isEmpty ? slug : "\(slug) — \(description)"
+            installTooltip(on: sv, text: description.isEmpty ? slug : "\(slug) — \(description)")
             sv.onPress = { [weak sv] in
                 guard !hub.isEmpty else { return }
                 Process.launchedProcess(launchPath: "/bin/sh",
@@ -2578,7 +2709,7 @@ class ClusterOverlayWindow: NSWindow {
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         volIcon = ic; volLabel = lbl
-        s.toolTip = "Output volume"
+        installTooltip(on: s, text: "Output volume")
         stack.addArrangedSubview(s)
     }
 
@@ -2592,7 +2723,7 @@ class ClusterOverlayWindow: NSWindow {
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         cpuLabel = lbl
-        s.toolTip = "CPU usage"
+        installTooltip(on: s, text: "CPU usage")
         stack.addArrangedSubview(s)
     }
 
@@ -2606,7 +2737,7 @@ class ClusterOverlayWindow: NSWindow {
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         memLabel = lbl
-        s.toolTip = "Memory usage"
+        installTooltip(on: s, text: "Memory usage")
         stack.addArrangedSubview(s)
     }
 
@@ -2632,7 +2763,7 @@ class ClusterOverlayWindow: NSWindow {
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         battIcon = ic; battLabel = lbl
-        s.toolTip = "Battery"
+        installTooltip(on: s, text: "Battery")
         stack.addArrangedSubview(s)
     }
 
@@ -2664,7 +2795,7 @@ class ClusterOverlayWindow: NSWindow {
             pill.heightAnchor.constraint(equalToConstant: pillH),
         ])
         pill.translatesAutoresizingMaskIntoConstraints = false
-        pill.toolTip = "Current date and time"
+        installTooltip(on: pill, text: "Current date and time")
         stack.addArrangedSubview(pill)
     }
 
@@ -2732,6 +2863,7 @@ class ClusterOverlayWindow: NSWindow {
         }
     }
     func dismiss() {
+        tooltipPresenter.hide()
         if let m = globalMouseMonitor { NSEvent.removeMonitor(m); globalMouseMonitor = nil }
         dismissAction?()
         orderOut(nil)

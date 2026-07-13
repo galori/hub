@@ -20,3 +20,25 @@
     [[ -n "$schedule_hide_body" ]]
     [[ "$schedule_hide_body" == *'withTimeInterval: 15.0'* ]]
 }
+
+@test "cluster overlay uses its own always-on-top tooltip presenter" {
+    local source_file="$BATS_TEST_DIRNAME/../lib/hub_bar.swift"
+
+    grep -q 'class OverlayTooltipPresenter' "$source_file"
+    grep -q 'level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 2)' "$source_file"
+    grep -q 'options: \[.mouseEnteredAndExited, .activeAlways, .inVisibleRect\]' "$source_file"
+}
+
+@test "cluster overlay routes every mini control tooltip through presenter" {
+    local source_file="$BATS_TEST_DIRNAME/../lib/hub_bar.swift"
+    local overlay_body
+    overlay_body="$(sed -n '/class ClusterOverlayWindow: NSWindow/,/MARK: – Volume slider target/p' "$source_file")"
+
+    [[ -n "$overlay_body" ]]
+    [[ "$overlay_body" != *'.toolTip ='* ]]
+
+    local install_count
+    install_count="$(grep -c 'installTooltip(on:' <<<"$overlay_body")"
+    [[ "$install_count" -ge 9 ]]
+    grep -q 'installTooltip(on: click, text: targetMode == .shrink ? "Switch to compact bar" : "Switch to expanded bar")' <<<"$overlay_body"
+}
