@@ -1160,9 +1160,9 @@ class OverlayTooltipPresenter: NSObject {
     func show(text: String, for view: NSView) {
         guard let hostWindow = view.window else { return }
         label.stringValue = text
-        label.preferredMaxLayoutWidth = 300
+        label.preferredMaxLayoutWidth = 600
         let labelSize = label.intrinsicContentSize
-        let w = min(max(labelSize.width + 16, 36), 316)
+        let w = min(max(labelSize.width + 16, 36), 616)
         let h = labelSize.height + 10
 
         let rectInWindow = view.convert(view.bounds, to: nil)
@@ -1479,9 +1479,9 @@ class ActionSlotView: HubBarClickView {
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
 
-        let width = max(CGFloat(slug.count * 8 + 14), 30)
+        let width = max(ceil(label.intrinsicContentSize.width) + 14, 30)
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: min(width, 58)),
+            widthAnchor.constraint(equalToConstant: width),
             heightAnchor.constraint(equalToConstant: appIconSize + 4),
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5),
@@ -2365,6 +2365,8 @@ class HotEdgeView: NSView {
 private var prevCPUUser:   Int32 = 0
 private var prevCPUSystem: Int32 = 0
 private var prevCPUIdle:   Int32 = 0
+private var hasCPUSnapshot = false
+private var recentCPUSamples: [Int] = []
 
 func cpuUsagePercent() -> Int {
     var numCPUs: natural_t = 0
@@ -2387,35 +2389,65 @@ func cpuUsagePercent() -> Int {
     let dSystem = totalSystem - prevCPUSystem
     let dIdle   = totalIdle   - prevCPUIdle
     prevCPUUser = totalUser; prevCPUSystem = totalSystem; prevCPUIdle = totalIdle
+    guard hasCPUSnapshot else { hasCPUSnapshot = true; return 0 }
     let dTotal = dUser + dSystem + dIdle
     guard dTotal > 0 else { return 0 }
-    return Int(Double(dUser + dSystem) / Double(dTotal) * 100)
+    let sample = Int(Double(dUser + dSystem) / Double(dTotal) * 100)
+    recentCPUSamples.append(sample)
+    if recentCPUSamples.count > 3 { recentCPUSamples.removeFirst() }
+    return recentCPUSamples.reduce(0, +) / recentCPUSamples.count
 }
 
-func memoryUsagePercent() -> Int {
-    var vmStats = vm_statistics64_data_t()
-    var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride)
-    let result = withUnsafeMutablePointer(to: &vmStats) {
-        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-            host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
-        }
+func parseMemoryPressureLoad(_ output: String) -> Int? {
+    guard let match = output.range(of: #"System-wide memory free percentage:\s*([0-9]+)%"#,
+                                   options: .regularExpression) else { return nil }
+    let line = String(output[match])
+    guard let free = line.split(whereSeparator: { !$0.isNumber }).last.flatMap({ Int($0) }) else { return nil }
+    return min(100, max(0, 100 - free))
+}
+
+func memoryPressureLoadPercent(_ completion: @escaping (Int?) -> Void) {
+    let process = Process()
+    let pipe = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/memory_pressure")
+    process.arguments = ["-Q"]
+    process.standardOutput = pipe
+    process.standardError = pipe
+    process.environment = ["LC_ALL": "C", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+    process.terminationHandler = { _ in
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let pct = String(data: data, encoding: .utf8).flatMap(parseMemoryPressureLoad)
+        DispatchQueue.main.async { completion(pct) }
     }
-    guard result == KERN_SUCCESS else { return 0 }
-    let pageSize = UInt64(vm_kernel_page_size)
-    let active   = UInt64(vmStats.active_count)   * pageSize
-    let inactive = UInt64(vmStats.inactive_count) * pageSize
-    let wired    = UInt64(vmStats.wire_count)      * pageSize
-    let free     = UInt64(vmStats.free_count)      * pageSize
-    let compressed = UInt64(vmStats.compressor_page_count) * pageSize
-    let total = active + inactive + wired + free + compressed
-    guard total > 0 else { return 0 }
-    return Int(Double(active + wired + compressed) / Double(total) * 100)
+    do { try process.run() } catch { completion(nil) }
 }
 
-func resourceColor(pct: Int) -> UInt32 {
-    if pct >= 80 { return C_RED }
-    if pct >= 60 { return C_YELLOW }
+func cpuResourceColor(pct: Int) -> UInt32 {
+    if pct >= 90 { return C_RED }
+    if pct >= 70 { return C_YELLOW }
     return C_GREEN
+}
+
+func memoryResourceColor(pct: Int) -> UInt32 {
+    if pct >= 85 { return C_RED }
+    if pct >= 70 { return C_YELLOW }
+    return C_GREEN
+}
+
+func layoutToggleIsUseful(mode: HubBarState.LayoutMode, fit: FitDecision?) -> Bool {
+    guard let fit else { return false }
+    return mode == .shrink ? fit.effectiveCap < 60 : fit.rows > 1
+}
+
+func makeSymbolImageView(systemName: String, color: NSColor, size: CGFloat = 15) -> NSImageView {
+    let view = NSImageView()
+    view.image = NSImage(systemSymbolName: systemName, accessibilityDescription: nil)
+    view.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: size, weight: .medium)
+    view.contentTintColor = color
+    view.translatesAutoresizingMaskIntoConstraints = false
+    view.widthAnchor.constraint(equalToConstant: size + 3).isActive = true
+    view.heightAnchor.constraint(equalToConstant: size + 3).isActive = true
+    return view
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2432,9 +2464,9 @@ class ClusterOverlayWindow: NSWindow {
     // Widget refs for periodic updates
     var clockLabel: NSTextField?
     var battLabel:  NSTextField?
-    var battIcon:   NSTextField?
+    var battIcon:   NSImageView?
     var volLabel:   NSTextField?
-    var volIcon:    NSTextField?
+    var volIcon:    NSImageView?
     var cpuLabel:   NSTextField?
     var memLabel:   NSTextField?
     var appSlots:   [AppSlotView]   = []
@@ -2454,7 +2486,7 @@ class ClusterOverlayWindow: NSWindow {
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
 
-        buildContent(state: state)
+        buildContent(state: state, fit: barWindow.lastFitDecision)
 
         // Resize to natural content width now that labels are populated.
         contentView?.layoutSubtreeIfNeeded()
@@ -2473,7 +2505,7 @@ class ClusterOverlayWindow: NSWindow {
         super.close()
     }
 
-    private func buildContent(state: HubBarState) {
+    private func buildContent(state: HubBarState, fit: FitDecision?) {
         let cv = contentView!
         cv.wantsLayer = true
         cv.layer?.cornerRadius = cornerRadius
@@ -2502,13 +2534,20 @@ class ClusterOverlayWindow: NSWindow {
         // (expand-icon while shrink, compress-icon while expand), not the current state.
         do {
             let targetMode: HubBarState.LayoutMode = state.layoutMode == .expand ? .shrink : .expand
-            let icon = NSTextField(labelWithString: targetMode == .shrink ? "\u{F066}" : "\u{2922}")
-            icon.font = targetMode == .shrink ? nerdFont13 : monoFont16
-            icon.textColor = NSColor(argb: C_ORANGE)
-            icon.isEditable = false; icon.isBordered = false; icon.backgroundColor = .clear
+            let useful = layoutToggleIsUseful(mode: state.layoutMode, fit: fit)
+            let icon = makeSymbolImageView(
+                systemName: targetMode == .shrink ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                color: NSColor(argb: useful ? C_ORANGE : 0xFF666A73))
             let click = HubBarClickView(frame: .zero)
-            installTooltip(on: click, text: targetMode == .shrink ? "Switch to compact bar" : "Switch to expanded bar")
+            click.wantsLayer = true
+            click.layer?.cornerRadius = 6
+            click.layer?.borderWidth = 1
+            click.layer?.borderColor = NSColor(argb: useful ? APPGRP_BORDER : 0x0AFFFFFF).cgColor
+            installTooltip(on: click, text: useful
+                ? (targetMode == .shrink ? "Switch to compact bar" : "Switch to expanded bar")
+                : "All workspaces already fit")
             click.onPress = { [weak self] in
+                guard useful else { return }
                 guard let hub = hubScriptPath() else { return }
                 Process.launchedProcess(launchPath: "/bin/sh",
                     arguments: ["-c", "'\(hub)' bar-layout \(targetMode.rawValue) >/dev/null 2>&1 &"])
@@ -2528,6 +2567,8 @@ class ClusterOverlayWindow: NSWindow {
                 click.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
                 click.topAnchor.constraint(equalTo: wrap.topAnchor),
                 click.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
+                wrap.widthAnchor.constraint(equalToConstant: appIconSize + 4),
+                wrap.heightAnchor.constraint(equalToConstant: appIconSize + 4),
             ])
             stack.addArrangedSubview(wrap)
         }
@@ -2705,9 +2746,7 @@ class ClusterOverlayWindow: NSWindow {
 
     private func buildVolumeInto(_ stack: NSStackView) {
         let s = NSStackView(); s.orientation = .horizontal; s.spacing = 4; s.alignment = .centerY
-        let ic = NSTextField(labelWithString: "󰕾")
-        ic.font = nerdFont16; ic.textColor = NSColor(argb: C_BLUE)
-        ic.isEditable = false; ic.isBordered = false; ic.backgroundColor = .clear
+        let ic = makeSymbolImageView(systemName: "speaker.wave.2.fill", color: NSColor(argb: C_BLUE))
         let lbl = NSTextField(labelWithString: "")
         lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFC9CDD6)
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
@@ -2719,49 +2758,45 @@ class ClusterOverlayWindow: NSWindow {
 
     private func buildCPUInto(_ stack: NSStackView) {
         let s = NSStackView(); s.orientation = .horizontal; s.spacing = 4; s.alignment = .centerY
-        let ic = NSTextField(labelWithString: "󰘚")
-        ic.font = nerdFont16; ic.textColor = NSColor(argb: C_GREEN)
-        ic.isEditable = false; ic.isBordered = false; ic.backgroundColor = .clear
+        let ic = makeSymbolImageView(systemName: "cpu", color: NSColor(argb: C_GREEN))
         let lbl = NSTextField(labelWithString: "")
         lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFC9CDD6)
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         cpuLabel = lbl
-        installTooltip(on: s, text: "CPU usage")
+        installTooltip(on: s, text: "CPU usage (9-second average)")
         stack.addArrangedSubview(s)
     }
 
     private func buildMemInto(_ stack: NSStackView) {
         let s = NSStackView(); s.orientation = .horizontal; s.spacing = 4; s.alignment = .centerY
-        let ic = NSTextField(labelWithString: "󰍛")
-        ic.font = nerdFont16; ic.textColor = NSColor(argb: C_GREEN)
-        ic.isEditable = false; ic.isBordered = false; ic.backgroundColor = .clear
+        let ic = makeSymbolImageView(systemName: "memorychip", color: NSColor(argb: C_GREEN))
         let lbl = NSTextField(labelWithString: "")
         lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFC9CDD6)
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         memLabel = lbl
-        installTooltip(on: s, text: "Memory usage")
+        installTooltip(on: s, text: "Memory load")
         stack.addArrangedSubview(s)
     }
 
     func updateCPU() {
         let pct = cpuUsagePercent()
         cpuLabel?.stringValue = "\(pct)%"
-        cpuLabel?.textColor = NSColor(argb: resourceColor(pct: pct))
+        cpuLabel?.textColor = NSColor(argb: cpuResourceColor(pct: pct))
     }
 
     func updateMem() {
-        let pct = memoryUsagePercent()
-        memLabel?.stringValue = "\(pct)%"
-        memLabel?.textColor = NSColor(argb: resourceColor(pct: pct))
+        memoryPressureLoadPercent { [weak self] pct in
+            guard let self, let pct else { return }
+            self.memLabel?.stringValue = "\(pct)%"
+            self.memLabel?.textColor = NSColor(argb: memoryResourceColor(pct: pct))
+        }
     }
 
     private func buildBatteryInto(_ stack: NSStackView) {
         let s = NSStackView(); s.orientation = .horizontal; s.spacing = 4; s.alignment = .centerY
-        let ic = NSTextField(labelWithString: "󰁹")
-        ic.font = nerdFont16; ic.textColor = NSColor(argb: C_GREEN)
-        ic.isEditable = false; ic.isBordered = false; ic.backgroundColor = .clear
+        let ic = makeSymbolImageView(systemName: "battery.100percent", color: NSColor(argb: C_GREEN))
         let lbl = NSTextField(labelWithString: "")
         lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFC9CDD6)
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
@@ -2815,15 +2850,19 @@ class ClusterOverlayWindow: NSWindow {
         else { return }
         let pct = desc[kIOPSCurrentCapacityKey] as? Int ?? 0
         let charging = (desc[kIOPSPowerSourceStateKey] as? String) == kIOPSACPowerValue
-        let (icon, color): (String, UInt32) = {
-            if charging { return ("󰂄", C_BLUE) }
+        let color: UInt32 = {
+            if charging { return C_BLUE }
             switch pct {
-            case 90...100: return ("󰁹", C_GREEN); case 70...89: return ("󰂀", C_GREEN)
-            case 50...69:  return ("󰁾", C_GREEN); case 30...49: return ("󰁼", C_ORANGE)
-            case 10...29:  return ("󰁺", C_RED);   default:      return ("󰂃", C_RED)
+            case 50...100: return C_GREEN
+            case 30...49: return C_ORANGE
+            default: return C_RED
             }
         }()
-        battIcon?.stringValue = icon; battIcon?.textColor = NSColor(argb: color)
+        let symbol = charging ? "battery.100percent.bolt" :
+            (pct >= 75 ? "battery.100percent" : pct >= 50 ? "battery.75percent" :
+             pct >= 25 ? "battery.50percent" : "battery.25percent")
+        battIcon?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        battIcon?.contentTintColor = NSColor(argb: color)
         battLabel?.stringValue = "\(pct)%"
     }
     func updateVolume() {
@@ -2841,14 +2880,9 @@ class ClusterOverlayWindow: NSWindow {
             mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
         AudioObjectGetPropertyData(deviceID, &volAddr, 0, nil, &size, &vol)
         let pct = Int(vol * 100)
-        if muted != 0 { volIcon?.stringValue = "󰖁" } else {
-            switch pct {
-            case 60...100: volIcon?.stringValue = "󰕾"
-            case 30...59:  volIcon?.stringValue = "󰖀"
-            case 1...29:   volIcon?.stringValue = "󰕿"
-            default:       volIcon?.stringValue = "󰖁"
-            }
-        }
+        let symbol = muted != 0 || pct == 0 ? "speaker.slash.fill" :
+            (pct >= 60 ? "speaker.wave.3.fill" : pct >= 30 ? "speaker.wave.2.fill" : "speaker.wave.1.fill")
+        volIcon?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         volLabel?.stringValue = "\(pct)%"
     }
 
