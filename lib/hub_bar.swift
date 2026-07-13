@@ -91,13 +91,17 @@ func fullscreenTransientAerospaceMetric(rows: Int,
 }
 
 // ── Fonts ──
+// monoFont* are plain system monospace, used for digits/text. nerdFont* resolve
+// through Theme.Font.mono (JetBrainsMono/Hack Nerd Font) so PUA glyph icons —
+// notably BMP-range ones like fa-expand/fa-compress — actually render instead
+// of falling back to the invisible LastResort glyph.
 let monoFont11 = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
 let monoFont12 = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 let monoFont13 = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
 let monoFont16 = NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
-let nerdFont   = monoFont13
-let nerdFont16 = monoFont16
-let nerdFont13 = monoFont13
+let nerdFont   = Theme.Font.mono(13)
+let nerdFont16 = Theme.Font.mono(16)
+let nerdFont13 = Theme.Font.mono(13)
 
 // ── Legacy (kept for volume popup) ──
 let ITEM_BG:    UInt32 = 0xFF363944
@@ -2364,16 +2368,19 @@ class ClusterOverlayWindow: NSWindow {
             trailingConstraint,
         ])
 
-        // Layout mode icon (expand → shows compress icon to return to shrink)
-        if state.layoutMode == .expand {
-            let icon = NSTextField(labelWithString: "\u{F066}")
+        // Layout mode toggle — always present; icon shows the action a click performs
+        // (expand-icon while shrink, compress-icon while expand), not the current state.
+        do {
+            let targetMode: HubBarState.LayoutMode = state.layoutMode == .expand ? .shrink : .expand
+            let icon = NSTextField(labelWithString: targetMode == .shrink ? "\u{F066}" : "\u{F065}")
             icon.font = nerdFont13; icon.textColor = NSColor(argb: C_ORANGE)
             icon.isEditable = false; icon.isBordered = false; icon.backgroundColor = .clear
             let click = HubBarClickView(frame: .zero)
+            click.toolTip = targetMode == .shrink ? "Switch to compact bar" : "Switch to expanded bar"
             click.onPress = { [weak self] in
                 guard let hub = hubScriptPath() else { return }
                 Process.launchedProcess(launchPath: "/bin/sh",
-                    arguments: ["-c", "'\(hub)' bar-layout shrink >/dev/null 2>&1 &"])
+                    arguments: ["-c", "'\(hub)' bar-layout \(targetMode.rawValue) >/dev/null 2>&1 &"])
                 self?.dismiss()
             }
             let wrap = NSView()
@@ -2418,6 +2425,7 @@ class ClusterOverlayWindow: NSWindow {
 
         // ✕ dismiss button (AGENTS.md "Dismissable HUDs" pattern — uses Theme.makeDismissButton)
         let xBtn = Theme.makeDismissButton(onPress: { [weak self] in self?.dismiss() })
+        xBtn.toolTip = "Close"
         cv.addSubview(xBtn)
         NSLayoutConstraint.activate([
             xBtn.topAnchor.constraint(equalTo: cv.topAnchor, constant: 4),
@@ -2468,6 +2476,7 @@ class ClusterOverlayWindow: NSWindow {
             }
             let appName = app["name"] ?? ""
             sv.dotView.isHidden = !state.currentWindows.contains { $0.app == appName }
+            sv.toolTip = appName.isEmpty ? "Slot \(slot)" : "\(appName) (slot \(slot))"
             sv.onPress = { [weak sv] in
                 guard !hub.isEmpty else { return }
                 let mods = NSEvent.modifierFlags
@@ -2498,6 +2507,7 @@ class ClusterOverlayWindow: NSWindow {
             slot.widthAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
             slot.heightAnchor.constraint(equalToConstant: appIconSize + 4).isActive = true
             slot.windowIDs = entry.ids
+            slot.toolTip = entry.app
             let appPath = "/Applications/\(entry.app).app"
             if FileManager.default.fileExists(atPath: appPath) {
                 slot.imageView.image = NSWorkspace.shared.icon(forFile: appPath)
@@ -2538,6 +2548,8 @@ class ClusterOverlayWindow: NSWindow {
             guard slug.range(of: "^[A-Za-z0-9_-]{1,21}$", options: .regularExpression) != nil else { continue }
             let sv = ActionSlotView(slug: slug)
             sv.translatesAutoresizingMaskIntoConstraints = false
+            let description = action["description"] ?? ""
+            sv.toolTip = description.isEmpty ? slug : "\(slug) — \(description)"
             sv.onPress = { [weak sv] in
                 guard !hub.isEmpty else { return }
                 Process.launchedProcess(launchPath: "/bin/sh",
@@ -2566,6 +2578,7 @@ class ClusterOverlayWindow: NSWindow {
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         volIcon = ic; volLabel = lbl
+        s.toolTip = "Output volume"
         stack.addArrangedSubview(s)
     }
 
@@ -2579,6 +2592,7 @@ class ClusterOverlayWindow: NSWindow {
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         cpuLabel = lbl
+        s.toolTip = "CPU usage"
         stack.addArrangedSubview(s)
     }
 
@@ -2592,6 +2606,7 @@ class ClusterOverlayWindow: NSWindow {
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         memLabel = lbl
+        s.toolTip = "Memory usage"
         stack.addArrangedSubview(s)
     }
 
@@ -2617,6 +2632,7 @@ class ClusterOverlayWindow: NSWindow {
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         battIcon = ic; battLabel = lbl
+        s.toolTip = "Battery"
         stack.addArrangedSubview(s)
     }
 
@@ -2648,6 +2664,7 @@ class ClusterOverlayWindow: NSWindow {
             pill.heightAnchor.constraint(equalToConstant: pillH),
         ])
         pill.translatesAutoresizingMaskIntoConstraints = false
+        pill.toolTip = "Current date and time"
         stack.addArrangedSubview(pill)
     }
 
@@ -3245,6 +3262,9 @@ if let existing = try? String(contentsOfFile: pidFile, encoding: .utf8),
     let alive = kill(pid_t(existingPID), 0) == 0
     if alive { fputs("hub_bar: another instance already running (pid \(existingPID))\n", stderr); exit(1) }
 }
+
+// Tooltips should feel instant on this HUD rather than using AppKit's ~1.5s default delay.
+UserDefaults.standard.set(150, forKey: "NSInitialToolTipDelay")
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
