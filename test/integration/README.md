@@ -87,6 +87,7 @@ never touch `test/integration/`.
 | `02_new_workspace.bats` | `hub new` — worktree created, workspaces.json entry, `hub list`, hub_bar_labels entry |
 | `03_new_workspace_custom_setup.bats` | Same + `.superset/config.json` `"setup"` hook writes a marker file in the worktree |
 | `04_fullscreen_padding.bats` | `hub fullscreen on/off` — AeroSpace `outer.top` keeps tiled windows below the Hub Bar; Tahoe also checks cursor-at-top menu-bar reveal padding |
+| `05_mini_status_tooltips.bats` | Opens the mini status bar, hovers its layout toggle, and verifies the always-on-top tooltip appears without activating Hub Bar and hides on pointer exit |
 | `05_screenshot_bar_cropped.bats` | macOS Sequoia only — `screenshot-bar-cropped` does not leak green desktop pixels in normal mode |
 | `06_fullscreen_revealed_menu_bar_screenshot.bats` | macOS Tahoe+ — screenshot crop verifies the Hub Bar top strip is visible below the revealed menu bar in Hub fullscreen |
 | `07_right_shift_fullscreen.bats` | Double-tap right Shift toggles AeroSpace fullscreen for the focused window and restores it |

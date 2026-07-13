@@ -25,8 +25,23 @@
     local source_file="$BATS_TEST_DIRNAME/../lib/hub_bar.swift"
 
     grep -q 'class OverlayTooltipPresenter' "$source_file"
+    grep -q 'class OverlayTooltipAttachment: NSResponder' "$source_file"
     grep -q 'level = NSWindow.Level(rawValue: Int(CGShieldingWindowLevel()) + 2)' "$source_file"
     grep -q 'options: \[.mouseEnteredAndExited, .activeAlways, .inVisibleRect\]' "$source_file"
+}
+
+@test "click views preserve tooltip-owned tracking areas during layout" {
+    local hub_source="$BATS_TEST_DIRNAME/../lib/hub_bar.swift"
+    local theme_source="$BATS_TEST_DIRNAME/../lib/theme.swift"
+    local hub_click_body theme_click_body
+
+    hub_click_body="$(sed -n '/class HubBarClickView: NSView/,/MARK: – OverlayTooltipPresenter/p' "$hub_source")"
+    theme_click_body="$(sed -n '/class ClickView: NSView/,/^}/p' "$theme_source")"
+
+    [[ "$hub_click_body" == *'private var hoverTrackingArea: NSTrackingArea?'* ]]
+    [[ "$theme_click_body" == *'private var hoverTrackingArea: NSTrackingArea?'* ]]
+    [[ "$hub_click_body" != *'trackingAreas.forEach'* ]]
+    [[ "$theme_click_body" != *'trackingAreas.forEach'* ]]
 }
 
 @test "cluster overlay routes every mini control tooltip through presenter" {
