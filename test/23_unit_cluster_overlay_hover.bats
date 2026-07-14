@@ -70,6 +70,19 @@
     ! grep -q 'labelWithString: "󰍛"' "$source_file"
 }
 
+@test "mini status includes available disk space next to memory" {
+    local source_file="$BATS_TEST_DIRNAME/../lib/hub_bar.swift"
+    local build_body
+    build_body="$(sed -n '/buildCPUInto(stack)/,/buildVolumeInto(stack)/p' "$source_file")"
+
+    [[ "$build_body" == *'buildCPUInto(stack)'* ]]
+    [[ "$build_body" == *'buildMemInto(stack)'* ]]
+    [[ "$build_body" == *'buildDiskInto(stack)'* ]]
+    grep -q 'systemName: "internaldrive"' "$source_file"
+    grep -q 'text: "Available disk space"' "$source_file"
+    grep -q 'func availableDiskSpace()' "$source_file"
+}
+
 @test "action controls and layout toggle use available overlay space" {
     local source_file="$BATS_TEST_DIRNAME/../lib/hub_bar.swift"
     local action_body toggle_body

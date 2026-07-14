@@ -2358,7 +2358,7 @@ class HotEdgeView: NSView {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// MARK: – CPU & Memory helpers
+// MARK: – CPU, Memory & Disk helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
 // Previous CPU tick snapshot for delta-based instantaneous usage.
@@ -2434,6 +2434,25 @@ func memoryResourceColor(pct: Int) -> UInt32 {
     return C_GREEN
 }
 
+func availableDiskSpace() -> (text: String, percent: Int)? {
+    guard let values = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [
+        .volumeAvailableCapacityForImportantUsageKey,
+        .volumeTotalCapacityKey,
+    ]),
+    let available = values.volumeAvailableCapacityForImportantUsage,
+    let total = values.volumeTotalCapacity,
+    total > 0 else { return nil }
+    let text = ByteCountFormatter.string(fromByteCount: available, countStyle: .file)
+    let percent = min(100, max(0, Int(Double(available) / Double(total) * 100)))
+    return (text, percent)
+}
+
+func diskResourceColor(availablePercent: Int) -> UInt32 {
+    if availablePercent < 10 { return C_RED }
+    if availablePercent < 20 { return C_YELLOW }
+    return C_GREEN
+}
+
 func layoutToggleIsUseful(mode: HubBarState.LayoutMode, fit: FitDecision?) -> Bool {
     guard let fit else { return false }
     return mode == .shrink ? fit.effectiveCap < 60 : fit.rows > 1
@@ -2469,6 +2488,7 @@ class ClusterOverlayWindow: NSWindow {
     var volIcon:    NSImageView?
     var cpuLabel:   NSTextField?
     var memLabel:   NSTextField?
+    var diskLabel:  NSTextField?
     var appSlots:   [AppSlotView]   = []
     var wsWinSlots: [WsWinSlotView] = []
 
@@ -2591,6 +2611,7 @@ class ClusterOverlayWindow: NSWindow {
         stack.addArrangedSubview(makeHSpacer(4))
         buildCPUInto(stack)
         buildMemInto(stack)
+        buildDiskInto(stack)
         buildVolumeInto(stack)
         buildBatteryInto(stack)
         buildClockInto(stack)
@@ -2606,7 +2627,7 @@ class ClusterOverlayWindow: NSWindow {
             xBtn.heightAnchor.constraint(equalToConstant: 18),
         ])
 
-        updateVolume(); updateBattery(); updateClock(); updateCPU(); updateMem()
+        updateVolume(); updateBattery(); updateClock(); updateCPU(); updateMem(); updateDisk()
     }
 
     private func installTooltip(on view: NSView, text: String) {
@@ -2780,6 +2801,18 @@ class ClusterOverlayWindow: NSWindow {
         stack.addArrangedSubview(s)
     }
 
+    private func buildDiskInto(_ stack: NSStackView) {
+        let s = NSStackView(); s.orientation = .horizontal; s.spacing = 4; s.alignment = .centerY
+        let ic = makeSymbolImageView(systemName: "internaldrive", color: NSColor(argb: C_GREEN))
+        let lbl = NSTextField(labelWithString: "")
+        lbl.font = monoFont12; lbl.textColor = NSColor(argb: 0xFFC9CDD6)
+        lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
+        s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
+        diskLabel = lbl
+        installTooltip(on: s, text: "Available disk space")
+        stack.addArrangedSubview(s)
+    }
+
     func updateCPU() {
         let pct = cpuUsagePercent()
         cpuLabel?.stringValue = "\(pct)%"
@@ -2792,6 +2825,12 @@ class ClusterOverlayWindow: NSWindow {
             self.memLabel?.stringValue = "\(pct)%"
             self.memLabel?.textColor = NSColor(argb: memoryResourceColor(pct: pct))
         }
+    }
+
+    func updateDisk() {
+        guard let disk = availableDiskSpace() else { return }
+        diskLabel?.stringValue = disk.text
+        diskLabel?.textColor = NSColor(argb: diskResourceColor(availablePercent: disk.percent))
     }
 
     private func buildBatteryInto(_ stack: NSStackView) {
@@ -3361,7 +3400,7 @@ class HubBarController: NSObject {
             self?.windows.forEach { $0.clusterOverlay?.updateClock() }
         }
         batteryTimer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
-            self?.windows.forEach { $0.clusterOverlay?.updateBattery() }
+            self?.windows.forEach { $0.clusterOverlay?.updateBattery(); $0.clusterOverlay?.updateDisk() }
         }
         cpuMemTimer  = Timer.scheduledTimer(withTimeInterval: 3,   repeats: true) { [weak self] _ in
             self?.windows.forEach { $0.clusterOverlay?.updateCPU(); $0.clusterOverlay?.updateMem() }
