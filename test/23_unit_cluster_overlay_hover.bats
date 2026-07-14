@@ -81,6 +81,7 @@
     grep -q 'systemName: "internaldrive"' "$source_file"
     grep -q 'text: "Available disk space"' "$source_file"
     grep -q 'func availableDiskSpace()' "$source_file"
+    grep -Fq 'diskLabel?.stringValue = "\(disk.text) (\(disk.percent)%)"' "$source_file"
 }
 
 @test "action controls and layout toggle use available overlay space" {
