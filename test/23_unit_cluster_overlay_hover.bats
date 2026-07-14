@@ -70,7 +70,7 @@
     ! grep -q 'labelWithString: "󰍛"' "$source_file"
 }
 
-@test "mini status includes available disk space next to memory" {
+@test "mini status shows disk usage next to memory" {
     local source_file="$BATS_TEST_DIRNAME/../lib/hub_bar.swift"
     local build_body
     build_body="$(sed -n '/buildCPUInto(stack)/,/buildVolumeInto(stack)/p' "$source_file")"
@@ -79,9 +79,14 @@
     [[ "$build_body" == *'buildMemInto(stack)'* ]]
     [[ "$build_body" == *'buildDiskInto(stack)'* ]]
     grep -q 'systemName: "internaldrive"' "$source_file"
-    grep -q 'text: "Available disk space"' "$source_file"
+    grep -q 'text: "Disk usage"' "$source_file"
     grep -q 'func availableDiskSpace()' "$source_file"
-    grep -Fq 'diskLabel?.stringValue = "\(disk.text) (\(disk.percent)%)"' "$source_file"
+    grep -q 'func diskUsagePercent(availablePercent: Int)' "$source_file"
+    grep -Fq 'let usagePercent = diskUsagePercent(availablePercent: disk.percent)' "$source_file"
+    grep -Fq 'diskLabel?.stringValue = "\(disk.text) (\(usagePercent)%)"' "$source_file"
+    grep -Fq 'diskResourceColor(usagePercent: usagePercent)' "$source_file"
+    grep -Fq 'if usagePercent >= 90 { return C_RED }' "$source_file"
+    grep -Fq 'if usagePercent >= 80 { return C_YELLOW }' "$source_file"
 }
 
 @test "action controls and layout toggle use available overlay space" {
