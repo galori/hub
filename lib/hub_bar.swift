@@ -2447,9 +2447,13 @@ func availableDiskSpace() -> (text: String, percent: Int)? {
     return (text, percent)
 }
 
-func diskResourceColor(availablePercent: Int) -> UInt32 {
-    if availablePercent < 10 { return C_RED }
-    if availablePercent < 20 { return C_YELLOW }
+func diskUsagePercent(availablePercent: Int) -> Int {
+    return 100 - min(100, max(0, availablePercent))
+}
+
+func diskResourceColor(usagePercent: Int) -> UInt32 {
+    if usagePercent >= 90 { return C_RED }
+    if usagePercent >= 80 { return C_YELLOW }
     return C_GREEN
 }
 
@@ -2809,7 +2813,7 @@ class ClusterOverlayWindow: NSWindow {
         lbl.isEditable = false; lbl.isBordered = false; lbl.backgroundColor = .clear
         s.addArrangedSubview(ic); s.addArrangedSubview(lbl)
         diskLabel = lbl
-        installTooltip(on: s, text: "Available disk space")
+        installTooltip(on: s, text: "Disk usage")
         stack.addArrangedSubview(s)
     }
 
@@ -2829,8 +2833,9 @@ class ClusterOverlayWindow: NSWindow {
 
     func updateDisk() {
         guard let disk = availableDiskSpace() else { return }
-        diskLabel?.stringValue = "\(disk.text) (\(disk.percent)%)"
-        diskLabel?.textColor = NSColor(argb: diskResourceColor(availablePercent: disk.percent))
+        let usagePercent = diskUsagePercent(availablePercent: disk.percent)
+        diskLabel?.stringValue = "\(disk.text) (\(usagePercent)%)"
+        diskLabel?.textColor = NSColor(argb: diskResourceColor(usagePercent: usagePercent))
     }
 
     private func buildBatteryInto(_ stack: NSStackView) {
