@@ -2829,7 +2829,7 @@ class ClusterOverlayWindow: NSWindow {
 
     func updateDisk() {
         guard let disk = availableDiskSpace() else { return }
-        diskLabel?.stringValue = disk.text
+        diskLabel?.stringValue = "\(disk.text) (\(disk.percent)%)"
         diskLabel?.textColor = NSColor(argb: diskResourceColor(availablePercent: disk.percent))
     }
 
