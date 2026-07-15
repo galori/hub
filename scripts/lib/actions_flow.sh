@@ -170,6 +170,7 @@ actions_get_command() {
 
 actions_run() {
     local slug="$1"
+    local target_ws_id="${2:-}"
     actions_validate_slug "$slug" || return 1
     local action_cmd
     action_cmd="$(actions_get_command "$slug")"
@@ -180,10 +181,11 @@ actions_run() {
 
     local ws_id ws_path
     ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
-    if [[ -n "$ws_id" ]] && command -v get_workspace_path >/dev/null 2>&1; then
-        ws_path="$(get_workspace_path "$ws_id")"
+    if [[ -n "$target_ws_id" ]] && command -v get_workspace_path >/dev/null 2>&1; then
+        ws_id="$target_ws_id"
+        ws_path="$(get_workspace_path "$target_ws_id")"
     else
-        ws_path=""
+        ws_path="$PWD"
     fi
     [[ -n "$ws_path" && -d "$ws_path" ]] || ws_path="$PWD"
 
