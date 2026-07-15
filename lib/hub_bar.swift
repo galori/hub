@@ -2754,7 +2754,7 @@ class ClusterOverlayWindow: NSWindow {
             sv.onPress = { [weak sv] in
                 guard !hub.isEmpty else { return }
                 Process.launchedProcess(launchPath: "/bin/sh",
-                    arguments: ["-c", "'\(hub)' actions run '\(slug)' >/dev/null 2>&1 &"])
+                    arguments: ["-c", "'\(hub)' actions run '\(slug)' --focused >/dev/null 2>&1 &"])
                 sv?.layer?.backgroundColor = NSColor(argb: CLICK_BG).withAlphaComponent(0.3).cgColor
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { sv?.layer?.backgroundColor = nil }
             }

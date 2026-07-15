@@ -446,7 +446,7 @@ cmd_app_switcher() {
     rm -f "$APP_SWITCHER_RESULT"
 
     if [[ "$slot" == action:* ]]; then
-        actions_run "${slot#action:}"
+        actions_run "${slot#action:}" "$launch_ws_id"
     elif [[ -n "$slot" ]]; then
         cmd_open "$slot" --force --workspace "$launch_ws_id"
     fi
@@ -3713,11 +3713,23 @@ cmd_actions() {
             ;;
         run)
             local slug="${1:-}"
+            shift || true
             if [[ -z "$slug" ]]; then
-                fail "Usage: hub actions run <slug>"
+                fail "Usage: hub actions run <slug> [--focused]"
                 return 1
             fi
-            actions_run "$slug"
+            local target_ws_id=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --focused)
+                        target_ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+                        shift ;;
+                    *)
+                        fail "Unknown actions run flag: $1"
+                        return 1 ;;
+                esac
+            done
+            actions_run "$slug" "$target_ws_id"
             ;;
         help|-h|--help)
             echo -e "${bold}Usage:${reset} hub actions <subcommand>"
@@ -3730,7 +3742,8 @@ cmd_actions() {
             echo "  remove <slug>         Remove an action"
             echo "  reset                 Clear all actions"
             echo "  reset --defaults      Restore pr, jira, and web"
-            echo "  run <slug>            Run an action from the focused workspace"
+            echo "  run <slug>            Run an action from the current directory"
+            echo "  run <slug> --focused  Run from the focused Hub workspace"
             echo "  <slug>                Shortcut for run <slug>"
             echo
             echo "Placeholders: {path} = workspace folder, {workspace} = workspace ID."

@@ -119,8 +119,14 @@ JSON
     grep -q "restore default actions" "$HUB_LOG_FILE"
 }
 
-@test "hub actions run executes from focused workspace path" {
+@test "hub actions run executes from the caller's current directory" {
     run "$HUB" actions run hello
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"hello from $REPO_DIR"* ]]
+}
+
+@test "hub actions run --focused executes from focused workspace path" {
+    run "$HUB" actions run hello --focused
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"hello from /tmp/main"* ]]
 }
@@ -128,7 +134,7 @@ JSON
 @test "hub actions run logs command attempt and success" {
     run "$HUB" actions run hello
     [[ "$status" -eq 0 ]]
-    grep -q "run action hello on workspace 1 path /tmp/main" "$HUB_LOG_FILE"
+    grep -q "run action hello on workspace 1 path $REPO_DIR" "$HUB_LOG_FILE"
     grep -q "action hello: printf 'hello from %s" "$HUB_LOG_FILE"
     grep -q "action hello completed with exit 0" "$HUB_LOG_FILE"
 }
@@ -142,7 +148,7 @@ JSON
     run "$HUB" actions run fail
     [[ "$status" -eq 7 ]]
     [[ "$output" == *"before-fail"* ]]
-    grep -q "run action fail on workspace 1 path /tmp/main" "$HUB_LOG_FILE"
+    grep -q "run action fail on workspace 1 path $REPO_DIR" "$HUB_LOG_FILE"
     grep -q "action fail: echo before-fail; exit 7" "$HUB_LOG_FILE"
     grep -q "action fail failed with exit 7" "$HUB_LOG_FILE"
 }
@@ -150,7 +156,11 @@ JSON
 @test "hub actions slug executes matching action directly" {
     run "$HUB" actions hello
     [[ "$status" -eq 0 ]]
-    [[ "$output" == *"hello from /tmp/main"* ]]
+    [[ "$output" == *"hello from $REPO_DIR"* ]]
+}
+
+@test "Hub Bar actions request the focused workspace" {
+    grep -Fq "actions run '\(slug)' --focused" "$REPO_DIR/lib/hub_bar.swift"
 }
 
 @test "hub actions run missing slug fails cleanly" {
