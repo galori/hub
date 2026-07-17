@@ -1076,6 +1076,24 @@ deploy_action_presets() {
         fi
         success "Created default actions.json"
     else
+        local legacy_web_command="/Users/gall/workspace/dgapp/scripts/worktree open"
+        local current_web_command=""
+        if [[ -f "$ACTION_PRESETS_FILE" ]]; then
+            current_web_command="$(jq -r '.web.command // empty' "$ACTION_PRESETS_FILE" 2>/dev/null || true)"
+        fi
+        if [[ -n "$current_web_command" ]] && jq -e --arg old "$legacy_web_command" '.[] | select(.slug == "web" and .command == $old)' "$ACTIONS_FILE" >/dev/null 2>&1; then
+            local actions_tmp
+            actions_tmp="$(mktemp "${ACTIONS_FILE}.XXXXXX")"
+            if jq --arg old "$legacy_web_command" --arg new "$current_web_command" \
+                '[.[] | if .slug == "web" and .command == $old then .command = $new else . end]' \
+                "$ACTIONS_FILE" > "$actions_tmp"; then
+                mv "$actions_tmp" "$ACTIONS_FILE"
+                success "Updated default web action command"
+            else
+                rm -f "$actions_tmp"
+                warn "Could not update default web action command"
+            fi
+        fi
         info "actions.json already exists — manage actions with: hub actions list / add / edit / remove"
     fi
 }
@@ -3746,7 +3764,7 @@ cmd_actions() {
             echo "  run <slug> --focused  Run from the focused Hub workspace"
             echo "  <slug>                Shortcut for run <slug>"
             echo
-            echo "Placeholders: {path} = workspace folder, {workspace} = workspace ID."
+            echo "Placeholders: {path} = workspace folder, {workspace} = workspace ID, {hub} = Hub CLI script."
             ;;
         *)
             if [[ $# -eq 0 ]]; then

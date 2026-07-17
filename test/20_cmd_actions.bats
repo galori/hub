@@ -131,6 +131,17 @@ JSON
     [[ "$output" == *"hello from /tmp/main"* ]]
 }
 
+@test "hub actions run substitutes hub script placeholder" {
+    cat > "$ACTIONS_FILE" <<'JSON'
+[
+  {"slug":"showhub","description":"Show hub path","command":"echo {hub}"}
+]
+JSON
+    run "$HUB" actions run showhub
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "$HUB" ]]
+}
+
 @test "hub actions run logs command attempt and success" {
     run "$HUB" actions run hello
     [[ "$status" -eq 0 ]]
@@ -157,6 +168,19 @@ JSON
     run "$HUB" actions hello
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"hello from $REPO_DIR"* ]]
+}
+
+@test "default web action routes resolved worktree URL through hub open-url" {
+    command="$(jq -r '.web.command' "$REPO_DIR/config/action_presets.json")"
+    [[ "$command" == *"worktree url"* ]]
+    [[ "$command" == *"{hub} open-url"* ]]
+    [[ "$command" == *"{workspace}"* ]]
+}
+
+@test "hub actions help documents hub placeholder" {
+    run "$HUB" actions help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"{hub} = Hub CLI script"* ]]
 }
 
 @test "Hub Bar actions request the focused workspace" {

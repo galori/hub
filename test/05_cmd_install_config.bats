@@ -162,6 +162,19 @@ JSON
     [[ "$(jq -r 'map(.slug) | join(",")' "$ACTIONS_FILE")" == "custom" ]]
 }
 
+@test "install updates legacy default web action command" {
+    mkdir -p "$(dirname "$ACTIONS_FILE")"
+    cat > "$ACTIONS_FILE" <<'JSON'
+[
+  {"slug":"web","description":"Open web","command":"/Users/gall/workspace/dgapp/scripts/worktree open"}
+]
+JSON
+    run env HUB_NONINTERACTIVE=1 "$HUB_SCRIPT" install --no-reload --no-shell-integration --no-launch-services --no-default-browser-change
+    [[ "$status" -eq 0 ]]
+    command="$(jq -r '.[] | select(.slug == "web") | .command' "$ACTIONS_FILE")"
+    [[ "$command" == *"{hub} open-url"* ]]
+}
+
 @test "install isolated flags avoid live reloads and shell integration" {
     run env HUB_NONINTERACTIVE=1 "$HUB_SCRIPT" install --no-reload --no-shell-integration --no-launch-services --no-default-browser-change
 

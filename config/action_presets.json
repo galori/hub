@@ -12,6 +12,6 @@
   "web": {
     "slug": "web",
     "description": "Open the current worktree in the workspace manager",
-    "command": "/Users/gall/workspace/dgapp/scripts/worktree open"
+    "command": "url=$(/Users/gall/workspace/dgapp/scripts/worktree url); if [ -z \"$url\" ]; then exit 1; fi; {hub} open-url \"$url\" \"{workspace}\" || open \"$url\""
   }
 }
