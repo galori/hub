@@ -191,6 +191,9 @@ actions_run() {
 
     action_cmd="${action_cmd//\{path\}/$ws_path}"
     action_cmd="${action_cmd//\{workspace\}/$ws_id}"
+    local hub_script
+    printf -v hub_script '%q' "$REPO_DIR/scripts/hub"
+    action_cmd="${action_cmd//\{hub\}/$hub_script}"
 
     hub_log_if_available "INPUT" "run action $slug on workspace ${ws_id:-unknown} path $ws_path"
     hub_log_if_available "CMD" "action $slug: $action_cmd"
