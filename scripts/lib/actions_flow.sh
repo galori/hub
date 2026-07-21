@@ -198,8 +198,11 @@ actions_run() {
     hub_log_if_available "INPUT" "run action $slug on workspace ${ws_id:-unknown} path $ws_path"
     hub_log_if_available "CMD" "action $slug: $action_cmd"
 
-    local rc
-    if ( cd "$ws_path" && bash -c "$action_cmd" ); then
+    local quoted_ws_path quoted_action_cmd runner_cmd rc
+    printf -v quoted_ws_path '%q' "$ws_path"
+    printf -v quoted_action_cmd '%q' "$action_cmd"
+    runner_cmd="source \"\$HOME/.zshrc\" 2>/dev/null; cd $quoted_ws_path && exec /bin/bash -c $quoted_action_cmd"
+    if /bin/zsh --no-rcs -c "$runner_cmd"; then
         hub_log_if_available "OUT" "action $slug completed with exit 0"
         return 0
     else

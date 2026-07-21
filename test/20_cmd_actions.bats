@@ -164,6 +164,20 @@ JSON
     grep -q "action fail failed with exit 7" "$HUB_LOG_FILE"
 }
 
+@test "hub actions run loads exported shell environment while preserving bash execution" {
+    cat > "$HOME/.zshrc" <<'SH'
+export HUB_ACTION_TEST_ENV=from-zshrc
+SH
+    cat > "$ACTIONS_FILE" <<'JSON'
+[
+  {"slug":"envcheck","description":"Check action env","command":"printf '%s:%s\\n' \"$HUB_ACTION_TEST_ENV\" \"${BASH_VERSION:+bash}\""}
+]
+JSON
+    run "$HUB" actions run envcheck
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "from-zshrc:bash" ]]
+}
+
 @test "hub actions slug executes matching action directly" {
     run "$HUB" actions hello
     [[ "$status" -eq 0 ]]
