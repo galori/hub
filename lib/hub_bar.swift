@@ -2599,6 +2599,44 @@ class ClusterOverlayWindow: NSWindow {
             stack.addArrangedSubview(wrap)
         }
 
+        // Auto-arrange windows — explicit replacement for the former
+        // on-window-detected layout hook. Kept directly beside the bar toggle.
+        do {
+            let icon = makeSymbolImageView(
+                systemName: "square.grid.2x2",
+                color: NSColor(argb: C_ORANGE))
+            let click = HubBarClickView(frame: .zero)
+            click.wantsLayer = true
+            click.layer?.cornerRadius = 6
+            click.layer?.borderWidth = 1
+            click.layer?.borderColor = NSColor(argb: APPGRP_BORDER).cgColor
+            installTooltip(on: click, text: "Auto arrange windows")
+            click.onPress = { [weak self] in
+                guard let hub = hubScriptPath() else { return }
+                Process.launchedProcess(launchPath: "/bin/sh",
+                    arguments: ["-c", "'\(hub)' auto-arrange-windows >/dev/null 2>&1 &"])
+                self?.dismiss()
+            }
+            let wrap = NSView()
+            wrap.translatesAutoresizingMaskIntoConstraints = false
+            icon.translatesAutoresizingMaskIntoConstraints = false
+            click.translatesAutoresizingMaskIntoConstraints = false
+            wrap.addSubview(icon); wrap.addSubview(click)
+            NSLayoutConstraint.activate([
+                icon.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
+                icon.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
+                icon.topAnchor.constraint(equalTo: wrap.topAnchor),
+                icon.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
+                click.leadingAnchor.constraint(equalTo: wrap.leadingAnchor),
+                click.trailingAnchor.constraint(equalTo: wrap.trailingAnchor),
+                click.topAnchor.constraint(equalTo: wrap.topAnchor),
+                click.bottomAnchor.constraint(equalTo: wrap.bottomAnchor),
+                wrap.widthAnchor.constraint(equalToConstant: appIconSize + 4),
+                wrap.heightAnchor.constraint(equalToConstant: appIconSize + 4),
+            ])
+            stack.addArrangedSubview(wrap)
+        }
+
         // App icon group — shown when apps are configured (the overlay is on-demand, so its
         // sections are always populated; there's no per-section toggle anymore).
         if !state.apps.isEmpty {
