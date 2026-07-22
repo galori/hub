@@ -83,9 +83,24 @@ let preferredFullWidth = stripWidth(pills: paddingPills, cap: paddingMaxCap, foc
 let minimumFullWidth = stripWidth(pills: paddingPills, cap: paddingMaxCap, focused: "2",
                                   claudeAlert: [], claudeActive: [], padH: pillPadH)
 
-let roomyFit = decideFit(
+let exactEdgeFit = decideFit(
     pills: paddingPills,
     screenW: preferredFullWidth + 16,
+    notchMinX: nil,
+    notchMaxX: nil,
+    isFullscreen: false,
+    focused: "2",
+    claudeAlert: [],
+    claudeActive: [],
+    mode: .shrink,
+    lastRows: 1)
+guard exactEdgeFit.effectivePadH < preferredPad else {
+    fail("expected exact-width layout to reserve trailing pill clearance, got padding \(exactEdgeFit.effectivePadH)")
+}
+
+let roomyFit = decideFit(
+    pills: paddingPills,
+    screenW: preferredFullWidth + 16 + pillTrailingClearance,
     notchMinX: nil,
     notchMaxX: nil,
     isFullscreen: false,
