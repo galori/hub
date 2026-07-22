@@ -1662,7 +1662,7 @@ Flags:
   --name NAME        Workspace name (default: worktree name or basename of path)
   --id ID            Workspace ID, e.g. A or 5 (default: first free)
   --color HEX        Workspace color (default: WORKTREE_COLOR from .envrc.local)
-  --apps LIST        Comma-separated app slot numbers, e.g. 1,3 (default: all configured)
+  --apps LIST        Comma-separated app slots, e.g. 1,3, or "none" (default: none)
   --no-apps          Open zero apps. Conflicts with --apps.
   --prompt TEXT      After opening the terminal slot (slot 1), run claude with the prompt.
                      The prompt is staged in a temp file to avoid escaping issues.
@@ -1890,13 +1890,26 @@ _cmd_new_cli() {
         ws_setup_cmd="$(read_superset_config "$ws_root" "setup" 2>/dev/null || echo "")"
     fi
 
-    # Apps: explicit, --no-apps, or all configured slots
-    if [[ "$opt_no_apps" == "true" ]]; then
+    # CLI workspaces open no apps unless slots are explicitly requested.
+    if [[ "$opt_no_apps" == "true" || "$opt_apps" == "none" ]]; then
         ws_apps=""
     elif [[ "$opt_apps_set" == "true" ]]; then
+        local app_selector
+        IFS=',' read -ra _app_selectors <<< "$opt_apps"
+        for app_selector in "${_app_selectors[@]}"; do
+            if [[ ! "$app_selector" =~ ^[1-5]$ ]]; then
+                fail "Invalid app selector: $app_selector (use slot numbers 1-5 or none)"
+                return 2
+            fi
+        done
         ws_apps="$opt_apps"
     else
-        ws_apps="$(_default_apps_list)"
+        ws_apps=""
+    fi
+
+    if [[ -n "$opt_prompt" && -z "$ws_apps" ]]; then
+        fail "--prompt requires app slots to be opened with --apps"
+        return 2
     fi
 
     _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$opt_prompt" "$opt_apps_set" "${opt_worktree:-}"
