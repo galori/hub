@@ -125,6 +125,7 @@ print_usage() {
     echo "  keys          List all AeroSpace key bindings (main and service mode)"
     echo "  dashboard     Show status and key bindings in a full-screen modal"
     echo "  bar-layout    Pills shrink to fit one row, or expand bar height (shrink/expand/toggle)"
+    echo "  auto-arrange-windows Arrange 2–4 windows in the current workspace"
     echo "  bar-reload    Restart the Hub Bar (fix rendering inconsistencies)"
     echo "  fullscreen    Hide/show the Dock and menu bar (on/off/toggle)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
@@ -1593,17 +1594,13 @@ _create_workspace() {
     aerospace workspace "$ws_id"
     success "Switched to workspace $ws_id"
 
-    # Open checked apps sequentially; collect new window IDs for layout arrangement
-    local _opened_wids=()
+    # Open checked apps sequentially.
     if [[ -n "$ws_apps" ]]; then
         IFS=',' read -ra _slots <<< "$ws_apps"
         for _slot in "${_slots[@]}"; do
             OPEN_APP_SLOT_WID=""
             OPEN_APP_SLOT_CORRALLED=false
             open_app_slot "$_slot" "$ws_id" "$ws_path" false true "$prompt_cmd"
-            if [[ -n "$OPEN_APP_SLOT_WID" ]]; then
-                _opened_wids+=("$OPEN_APP_SLOT_WID")
-            fi
         done
     fi
 
@@ -1631,13 +1628,6 @@ _create_workspace() {
                 | grep '|output_window$' | cut -d'|' -f1 | head -1 || echo "")"
             [[ -n "$ow_wid" ]] && aerospace move-node-to-workspace --window-id "$ow_wid" "$ws_id" 2>/dev/null || true
         ) &
-        disown
-    fi
-
-    # Arrange windows in the new workspace based on count
-    if [[ ${#_opened_wids[@]} -ge 1 ]]; then
-        progress_step "Organizing windows…"
-        (sleep 0.3; arrange_workspace "$ws_id") &
         disown
     fi
 
@@ -2525,6 +2515,18 @@ arrange_after_open() {
 
 # arrange_workspace_windows WS_ID WID... — arranges by current geometry, ignoring the wid list.
 arrange_workspace_windows() { local ws_id="$1"; arrange_workspace "$ws_id"; }
+
+# cmd_auto_arrange_windows [WS_ID] — explicitly apply Hub's structured layout
+# to the requested workspace, defaulting to the currently focused workspace.
+cmd_auto_arrange_windows() {
+    local ws_id="${1:-}"
+    [[ -z "$ws_id" ]] && ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+    if [[ -z "$ws_id" ]]; then
+        fail "No focused workspace"
+        return 1
+    fi
+    arrange_workspace "$ws_id"
+}
 
 # nudge_float_window AEROSPACE_WINDOW_ID
 # Moves a floating window down so it doesn't spawn under the Hub Bar.
@@ -3980,6 +3982,7 @@ hub_main() {
         keys)         cmd_keys ;;
         dashboard)    cmd_dashboard ;;
         bar-layout)   cmd_bar_layout "$@" ;;
+        auto-arrange-windows) cmd_auto_arrange_windows "$@" ;;
         bar-sync)     cmd_hub_bar_sync ;;
         bar-reload|bar-restart) hub_bar_restart ;;
         bar-refresh)  hub_bar_refresh ;;

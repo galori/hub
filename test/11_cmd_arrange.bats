@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Stubbed command tests for arrange_after_open and arrange_workspace_windows.
+# Stubbed command tests for the explicit auto-arrange action and layout helper.
 # Uses recording aerospace stubs and a scripted spatial_order stub to assert
 # on the exact command sequence issued to AeroSpace — no real windows needed.
 
@@ -30,11 +30,57 @@ setup_aerospace_stub() {
 #!/usr/bin/env bash
 echo "aerospace \$*" >> "\$STUB_CALLS"
 case "\$*" in
+    "list-workspaces --focused") echo "$ws_id" ;;
     "list-windows --workspace $ws_id --format %{window-id}") printf '%s\n' $(printf '"%s" ' "$@") ;;
     *) exit 0 ;;
 esac
 STUB
     chmod +x "$STUB_BIN/aerospace"
+}
+
+@test "auto-arrange-windows defaults to the focused workspace" {
+    setup_aerospace_stub 7 100 200
+    mock_spatial_order 100 200
+    runner="$(make_runner cmd_auto_arrange_windows)"
+
+    bash "$runner" 2>/dev/null
+
+    assert_called "list-workspaces --focused"
+    assert_called "flatten-workspace-tree --workspace 7"
+}
+
+@test "auto-arrange-windows accepts an explicit workspace" {
+    setup_aerospace_stub 7 100 200
+    mock_spatial_order 100 200
+    runner="$(make_runner cmd_auto_arrange_windows 7)"
+
+    bash "$runner" 2>/dev/null
+
+    assert_not_called "list-workspaces --focused"
+    assert_called "flatten-workspace-tree --workspace 7"
+}
+
+@test "new windows are not automatically arranged by AeroSpace" {
+    ! grep -q 'arrange-open-window' "$REPO_DIR/config/aerospace.toml"
+}
+
+@test "workspace creation does not automatically arrange opened windows" {
+    ! grep -q '(sleep 0.3; arrange_workspace' "$HUB_SCRIPT"
+}
+
+@test "auto-arrange action has a keyboard shortcut" {
+    grep -q "ctrl-alt-shift-a = 'exec-and-forget __HUB_SCRIPT__ auto-arrange-windows'" \
+        "$REPO_DIR/config/aerospace.toml"
+}
+
+@test "Hub Bar mini status bar exposes auto-arrange after the layout toggle" {
+    local source_file="$REPO_DIR/lib/hub_bar.swift"
+    local layout_line arrange_line
+    layout_line="$(grep -n 'Layout mode toggle' "$source_file" | head -1 | cut -d: -f1)"
+    arrange_line="$(grep -n 'Auto-arrange windows' "$source_file" | head -1 | cut -d: -f1)"
+    [[ -n "$arrange_line" ]]
+    [[ "$arrange_line" -gt "$layout_line" ]]
+    grep -q "auto-arrange-windows" "$source_file"
 }
 
 # Write a wrapper script that sources hub and calls the given function.
