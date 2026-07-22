@@ -21,6 +21,43 @@ teardown() {
     teardown_stubs
 }
 
+run_new_cli_capture() {
+    bash -c '
+        export HOME="$1" WORKSPACES_FILE="$2" APPS_FILE="$3"
+        source "$4" >/dev/null 2>&1
+        _create_workspace() { printf "%s\n" "$7"; }
+        _cmd_new_cli "${@:5}"
+    ' _ "$HOME" "$WORKSPACES_FILE" "$APPS_FILE" "$HUB_SCRIPT" "$@"
+}
+
+@test "hub new CLI opens no apps by default" {
+    printf '[{"name":"Terminal"},{"name":"Browser"}]\n' > "$APPS_FILE"
+    run run_new_cli_capture --no-repo --name scratch
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "" ]]
+}
+
+@test "hub new CLI accepts --apps none as no apps" {
+    printf '[{"name":"Terminal"},{"name":"Browser"}]\n' > "$APPS_FILE"
+    run run_new_cli_capture --no-repo --name scratch --apps none
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "" ]]
+}
+
+@test "hub new CLI preserves explicitly selected app slots" {
+    printf '[{"name":"Terminal"},{"name":"Browser"}]\n' > "$APPS_FILE"
+    run run_new_cli_capture --no-repo --name scratch --apps 1,2
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "1,2" ]]
+}
+
+@test "hub new CLI rejects an invalid app selector before creating workspace" {
+    printf '[{"name":"Terminal"},{"name":"Browser"}]\n' > "$APPS_FILE"
+    run run_new_cli_capture --no-repo --name scratch --apps unknown
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"Invalid app selector: unknown"* ]]
+}
+
 # Write a workspace entry directly via the same jq path cmd_new uses.
 write_workspace() {
     local name="$1" path="$2" root="$3" id="$4"

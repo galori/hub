@@ -125,6 +125,17 @@ JSON
     [[ "$output" == *"hello from $REPO_DIR"* ]]
 }
 
+@test "hub actions command substitutions execute from the caller's current directory" {
+    cat > "$ACTIONS_FILE" <<'JSON'
+[
+  {"slug":"subshell","description":"Check subshell cwd","command":"value=$(pwd); printf '%s\\n' \"$value\""}
+]
+JSON
+    run "$HUB" actions run subshell
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "$REPO_DIR" ]]
+}
+
 @test "hub actions run --focused executes from focused workspace path" {
     run "$HUB" actions run hello --focused
     [[ "$status" -eq 0 ]]
