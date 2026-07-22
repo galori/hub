@@ -67,6 +67,7 @@ let pillH:           CGFloat = 32      // Standard pill height
 let pillRadius:      CGFloat = 16      // Pill corner radius
 let pillPadH:        CGFloat = 8       // Horizontal padding in pills
 let pillGap:         CGFloat = 4       // Gap between pills
+let pillTrailingClearance: CGFloat = 8 // Keep the last pill edge/glow clear of its clipping view
 let appIconSize:     CGFloat = 20      // Application icon size
 let appGroupGap:     CGFloat = 6       // Gap between app icons
 let completeNameSlack:  CGFloat = 8     // Prevent AppKit from re-ellipsizing labels that fit by cap
@@ -794,6 +795,7 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
 
     let leadingInset: CGFloat = 8
     let trailingInset: CGFloat = 8
+    let usableTrailingInset = trailingInset + pillTrailingClearance
 
     // When fullscreen+notch, pills use BOTH sides of the notch (left segment + right segment).
     // The combined total drives the cap binary-search → one global cap → balanced truncation.
@@ -803,14 +805,14 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
     let row0W: CGFloat
     if isFullscreen, let nMin = notchMinX, let nMax = notchMaxX {
         leftSegW = (nMin - 2) - leadingInset
-        rightSegW = max(0, (screenW - trailingInset) - (nMax + 2))
+        rightSegW = max(0, (screenW - usableTrailingInset) - (nMax + 2))
         row0W = leftSegW + rightSegW
     } else {
-        leftSegW = screenW - leadingInset - trailingInset
+        leftSegW = screenW - leadingInset - usableTrailingInset
         rightSegW = 0
-        row0W = screenW - leadingInset - trailingInset
+        row0W = screenW - leadingInset - usableTrailingInset
     }
-    let fullRowW = screenW - leadingInset - trailingInset
+    let fullRowW = screenW - leadingInset - usableTrailingInset
 
     let hasNotchSplit = isFullscreen && notchMinX != nil && notchMaxX != nil
 
