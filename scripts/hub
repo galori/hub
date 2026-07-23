@@ -2675,11 +2675,6 @@ cmd_open_url() {
     OPEN_APP_SLOT_WID=""
     OPEN_APP_SLOT_CORRALLED=false
     _launch_and_corral "$app_name" "$launch_cmd" "$ws_id"
-    if [[ -n "$OPEN_APP_SLOT_WID" ]]; then
-        local _ws_id_copy="$ws_id"
-        (sleep 0.2; arrange_after_open "$_ws_id_copy") &
-        disown
-    fi
 }
 
 open_app_slot() {
@@ -2977,23 +2972,14 @@ cmd_open() {
         progress_start "$_open_title"
         trap 'progress_stop 2>/dev/null || true; trap - EXIT' EXIT
 
-        local _opened=false
         if [[ -n "$slot" ]]; then
             OPEN_APP_SLOT_WID=""
             open_app_slot "$slot" "$ws_id" "$ws_path" false "$force_new"
-            [[ -n "$OPEN_APP_SLOT_WID" ]] && _opened=true
         else
             for ((i=1; i<=app_count; i++)); do
                 OPEN_APP_SLOT_WID=""
                 open_app_slot "$i" "$ws_id" "$ws_path" false "$force_new"
-                [[ -n "$OPEN_APP_SLOT_WID" ]] && _opened=true
             done
-        fi
-        if [[ "$_opened" == "true" ]]; then
-            progress_step "Organizing windows…"
-            local _ws_id_copy="$ws_id"
-            (sleep 0.2; arrange_after_open "$_ws_id_copy") &
-            disown
         fi
         progress_stop
         trap - EXIT
@@ -3044,17 +3030,14 @@ cmd_open() {
     progress_start "$_open_title"
     trap 'progress_stop 2>/dev/null || true; trap - EXIT' EXIT
 
-    local _opened=false
     if [[ "$open_all" == "true" ]]; then
         for ((i=1; i<=app_count; i++)); do
             OPEN_APP_SLOT_WID=""
             open_app_slot "$i" "$ws_id" "$ws_path" true "$force_new"
-            [[ -n "$OPEN_APP_SLOT_WID" ]] && _opened=true
         done
     else
         OPEN_APP_SLOT_WID=""
         open_app_slot "$slot" "$ws_id" "$ws_path" true "$force_new"
-        [[ -n "$OPEN_APP_SLOT_WID" ]] && _opened=true
     fi
 
     # Only refocus original workspace after launching new windows — smart-open
@@ -3063,12 +3046,6 @@ cmd_open() {
         aerospace workspace "$ws_id" 2>/dev/null || true
     fi
 
-    if [[ "$_opened" == "true" ]]; then
-        progress_step "Organizing windows…"
-        local _ws_id_copy="$ws_id"
-        (sleep 0.2; arrange_after_open "$_ws_id_copy") &
-        disown
-    fi
     progress_stop
     trap - EXIT
     refresh_app_indicators
@@ -3989,7 +3966,9 @@ hub_main() {
         bar-up)       hub_bar_restart ;;
         repo-prefix)  cmd_repo_prefix "$@" ;;
         fullscreen)   cmd_fullscreen "$@" ;;
-        arrange-open-window) arrange_after_open "${1:-}" ;;
+        # Compatibility no-op: older deployed AeroSpace configs may still call
+        # this former automatic hook. Arrangement is now explicit-only.
+        arrange-open-window) : ;;
         nudge-float-window) nudge_float_window "${1:-}" ;;
         log)            cmd_log "$@" ;;
         config)         cmd_config "$@" ;;

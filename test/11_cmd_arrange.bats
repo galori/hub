@@ -64,6 +64,21 @@ STUB
     ! grep -q 'arrange-open-window' "$REPO_DIR/config/aerospace.toml"
 }
 
+@test "app and URL opens never automatically arrange windows" {
+    ! grep -q '(sleep 0.2; arrange_after_open' "$HUB_SCRIPT"
+    ! grep -q 'progress_step "Organizing windows' "$HUB_SCRIPT"
+}
+
+@test "legacy arrange-open-window hook is a harmless no-op" {
+    setup_aerospace_stub 7 100 200
+    mock_spatial_order 100 200
+
+    run "$HUB_SCRIPT" arrange-open-window 7
+
+    [[ "$status" -eq 0 ]]
+    assert_not_called "flatten-workspace-tree"
+}
+
 @test "workspace creation does not automatically arrange opened windows" {
     ! grep -q '(sleep 0.3; arrange_workspace' "$HUB_SCRIPT"
 }
