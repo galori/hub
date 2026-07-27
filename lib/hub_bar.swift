@@ -531,6 +531,31 @@ func stripWidth(pills: [(ws: String, fullName: String, isFocused: Bool)],
     return total
 }
 
+// Largest padH such that the pill strip fills up to targetWidth without exceeding it.
+// Returns at least currentPadH. Binary-search is used for robustness against ceil() in widths.
+// Each +1pt of padH adds ~2*N pts to the strip (one pill-side per pill, both sides), so
+// (targetWidth - currentWidth) / N is a tight upper bound for the search range.
+private func spanFillPad(
+    pills: [(ws: String, fullName: String, isFocused: Bool)],
+    cap: Int, focused: String,
+    claudeAlert: Set<String>, claudeActive: Set<String>,
+    currentPadH: CGFloat, targetWidth: CGFloat) -> CGFloat {
+    guard !pills.isEmpty else { return currentPadH }
+    let currentW = stripWidth(pills: pills, cap: cap, focused: focused,
+                              claudeAlert: claudeAlert, claudeActive: claudeActive, padH: currentPadH)
+    guard currentW < targetWidth - 0.5 else { return currentPadH }
+    let n = max(1.0, CGFloat(pills.count))
+    let upper = currentPadH + (targetWidth - currentW) / n + 2
+    var lo = currentPadH, hi = upper, best = currentPadH
+    for _ in 0..<24 {
+        let mid = (lo + hi) / 2
+        let w = stripWidth(pills: pills, cap: cap, focused: focused,
+                           claudeAlert: claudeAlert, claudeActive: claudeActive, padH: mid)
+        if w <= targetWidth { best = mid; lo = mid } else { hi = mid }
+    }
+    return best
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // MARK: – FitDecision
 // ──────────────────────────────────────────────────────────────────────────────
@@ -556,6 +581,9 @@ struct FitDecision {
     var rightCap: Int? = nil
     var rightPadH: CGFloat? = nil
     var rightWsIDs: Set<String> = []
+    // Span-fill padding overrides (expand mode): when a span overflows into the next span,
+    // each ws in that span gets the padH that fills the entire span width.
+    var spanFillPadOverrides: [String: CGFloat] = [:]
 
     // Per-workspace label cap: notch-side pills may use a relaxed segment cap; all others
     // use the global effectiveCap.
@@ -565,8 +593,10 @@ struct FitDecision {
         return effectiveCap
     }
 
-    // Per-workspace horizontal padding: notch-side pills may use relaxed segment padding.
+    // Per-workspace horizontal padding: span-fill overrides take priority, then per-side
+    // notch relaxation, then the global effectivePadH.
     func padFor(_ ws: String) -> CGFloat {
+        if let p = spanFillPadOverrides[ws] { return p }
         if let lp = leftPadH, leftWsIDs.contains(ws) { return lp }
         if let rp = rightPadH, rightWsIDs.contains(ws) { return rp }
         return effectivePadH
@@ -584,6 +614,7 @@ func fitStructureMatchesForRefresh(_ lhs: FitDecision?, _ rhs: FitDecision) -> B
         && lhs.rightCap == rhs.rightCap
         && lhs.rightPadH == rhs.rightPadH
         && lhs.rightWsIDs == rhs.rightWsIDs
+        && lhs.spanFillPadOverrides == rhs.spanFillPadOverrides
 }
 
 func refreshRequiresRebuild(lastFitRows: Int,
@@ -1019,6 +1050,63 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
             return best
         }
 
+        // Post-pass: if a span overflows into the next span, expand its pills' padding to fill
+        // the entire span width. Applied after all packing/row decisions are finalized so it
+        // cannot affect which pills end up in which span — it only widens the pills in place.
+        func applySpanFill(_ fit: inout FitDecision) {
+            var overrides: [String: CGFloat] = [:]
+            let padH = fit.effectivePadH
+            let row0Indices = fit.rowAssignment.isEmpty ? [] : fit.rowAssignment[0]
+
+            if hasNotchSplit, let split = fit.row0Split {
+                let leftIdx  = Array(row0Indices[0..<min(split, row0Indices.count)])
+                let rightIdx = Array(row0Indices[min(split, row0Indices.count)...])
+                let lPills = leftIdx.map  { pills[$0] }
+                let rPills = rightIdx.map { pills[$0] }
+
+                // Left span fills when the right segment is non-empty.
+                if !lPills.isEmpty && !rPills.isEmpty {
+                    let fp = spanFillPad(pills: lPills, cap: cap, focused: focused,
+                                         claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                         currentPadH: padH, targetWidth: leftSegW)
+                    if fp > padH + 0.5 { for p in lPills { overrides[p.ws] = fp } }
+                }
+
+                // Right span fills when row 1 is non-empty.
+                let row1NonEmpty = fit.rowAssignment.count > 1 && !fit.rowAssignment[1].isEmpty
+                if !rPills.isEmpty && row1NonEmpty {
+                    let fp = spanFillPad(pills: rPills, cap: cap, focused: focused,
+                                         claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                         currentPadH: padH, targetWidth: rightSegW)
+                    if fp > padH + 0.5 { for p in rPills { overrides[p.ws] = fp } }
+                }
+            } else if !row0Indices.isEmpty {
+                // No notch: row 0 spans full width; fill it when row 1 is non-empty.
+                let row1NonEmpty = fit.rowAssignment.count > 1 && !fit.rowAssignment[1].isEmpty
+                if row1NonEmpty {
+                    let row0Pills = row0Indices.map { pills[$0] }
+                    let fp = spanFillPad(pills: row0Pills, cap: cap, focused: focused,
+                                         claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                         currentPadH: padH, targetWidth: row0W)
+                    if fp > padH + 0.5 { for p in row0Pills { overrides[p.ws] = fp } }
+                }
+            }
+
+            // Rows 1+: fill row r when row r+1 is non-empty.
+            for r in 1..<fit.rows {
+                guard fit.rowAssignment.count > r + 1,
+                      !fit.rowAssignment[r + 1].isEmpty else { continue }
+                let rowPills = fit.rowAssignment[r].map { pills[$0] }
+                guard !rowPills.isEmpty else { continue }
+                let fp = spanFillPad(pills: rowPills, cap: cap, focused: focused,
+                                     claudeAlert: claudeAlert, claudeActive: claudeActive,
+                                     currentPadH: padH, targetWidth: fullRowW)
+                if fp > padH + 0.5 { for p in rowPills { overrides[p.ws] = fp } }
+            }
+
+            fit.spanFillPadOverrides = overrides
+        }
+
         for r in 1...FIT_MAX_ROWS {
             let (_, overflowed) = pack(rows: r, padH: minPad)
             if !overflowed {
@@ -1029,17 +1117,21 @@ func decideFit(pills: [(ws: String, fullName: String, isFocused: Bool)],
                 } else { effectiveRows = r }
                 let padH = largestFittingPad(rows: effectiveRows)
                 let (finalAssignment, _) = pack(rows: effectiveRows, padH: padH)
-                return FitDecision(rows: effectiveRows, rowAssignment: finalAssignment,
-                                   effectiveCap: cap,
-                                   effectivePadH: padH,
-                                   row0Split: makeSplit(finalAssignment, cap: cap, padH: padH))
+                var fit = FitDecision(rows: effectiveRows, rowAssignment: finalAssignment,
+                                      effectiveCap: cap,
+                                      effectivePadH: padH,
+                                      row0Split: makeSplit(finalAssignment, cap: cap, padH: padH))
+                applySpanFill(&fit)
+                return fit
             }
         }
         // Still overflows at FIT_MAX_ROWS: park overflow in the last row (ellipsized by per-pill maxwidth).
         let (asgn, _) = pack(rows: FIT_MAX_ROWS, padH: minPad)
-        return FitDecision(rows: FIT_MAX_ROWS, rowAssignment: asgn, effectiveCap: cap,
-                           effectivePadH: minPad,
-                           row0Split: makeSplit(asgn, cap: cap, padH: minPad))
+        var fit = FitDecision(rows: FIT_MAX_ROWS, rowAssignment: asgn, effectiveCap: cap,
+                              effectivePadH: minPad,
+                              row0Split: makeSplit(asgn, cap: cap, padH: minPad))
+        applySpanFill(&fit)
+        return fit
     }
 }
 
