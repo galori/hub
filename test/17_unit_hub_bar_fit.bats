@@ -304,6 +304,74 @@ let expandRightWidth = stripWidth(pills: expandRightPills, cap: expandFit.effect
 guard expandRightWidth <= expandRightSegW else {
     fail("expected expanded row-0 right segment width \(expandRightWidth) to fit \(expandRightSegW); row0=\(expandRow0Pills.map { $0.ws }) split=\(expandSplit)")
 }
+
+// ── Span-fill tests ──────────────────────────────────────────────────────────
+// expandFit has 2 rows: row 0 is split around the notch (left + right segments), row 1 is
+// the overflow row. The span-fill post-pass should:
+//   • expand left-segment pills to fill leftSegW  (right segment is non-empty)
+//   • expand right-segment pills to fill rightSegW (row 1 is non-empty)
+//   • NOT expand row-1 pills (no row 2 exists)
+
+let expandLeftSegW = expandNotchMinX - 2 - 8   // mirrors decideFit's leftSegW calc
+let expandRightSegWCalc = max(0, (expandScreenW - 8) - (expandNotchMaxX + 2))
+
+let expandLeftPills  = Array(expandRow0Pills[0..<min(expandSplit, expandRow0Pills.count)])
+let expandLeftWsIDs  = Set(expandLeftPills.map { $0.ws })
+let expandRightWsIDs = Set(expandRightPills.map { $0.ws })
+
+// Every left-segment pill should have a fill padH > effectivePadH
+for p in expandLeftPills {
+    let fillPad = expandFit.padFor(p.ws)
+    guard fillPad > expandFit.effectivePadH else {
+        fail("expected left-segment pill \(p.ws) span-fill padH \(fillPad) > effectivePadH \(expandFit.effectivePadH)")
+    }
+}
+
+// Left segment strip should now fill (but not exceed) leftSegW
+let expandLeftFillWidth = stripWidth(pills: expandLeftPills, cap: expandFit.effectiveCap, focused: "Z",
+                                     claudeAlert: [], claudeActive: [],
+                                     padH: expandFit.padFor(expandLeftPills[0].ws))
+guard expandLeftFillWidth <= expandLeftSegW else {
+    fail("expected span-fill left width \(expandLeftFillWidth) to fit leftSegW \(expandLeftSegW)")
+}
+guard expandLeftFillWidth > stripWidth(pills: expandLeftPills, cap: expandFit.effectiveCap, focused: "Z",
+                                       claudeAlert: [], claudeActive: [], padH: expandFit.effectivePadH) else {
+    fail("expected span-fill left width \(expandLeftFillWidth) to exceed base width")
+}
+
+// Every right-segment pill should also have a fill padH > effectivePadH (row 1 is non-empty)
+for p in expandRightPills {
+    let fillPad = expandFit.padFor(p.ws)
+    guard fillPad > expandFit.effectivePadH else {
+        fail("expected right-segment pill \(p.ws) span-fill padH \(fillPad) > effectivePadH \(expandFit.effectivePadH)")
+    }
+}
+
+// Right segment strip should fill (but not exceed) rightSegW
+let expandRightFillWidth = stripWidth(pills: expandRightPills, cap: expandFit.effectiveCap, focused: "Z",
+                                      claudeAlert: [], claudeActive: [],
+                                      padH: expandFit.padFor(expandRightPills[0].ws))
+guard expandRightFillWidth <= expandRightSegWCalc else {
+    fail("expected span-fill right width \(expandRightFillWidth) to fit rightSegW \(expandRightSegWCalc)")
+}
+
+// Row-1 pills should NOT have span-fill overrides (no row 2)
+let expandRow1Indices = expandFit.rowAssignment.count > 1 ? expandFit.rowAssignment[1] : []
+for i in expandRow1Indices {
+    let ws = expandPills[i].ws
+    guard expandFit.spanFillPadOverrides[ws] == nil else {
+        fail("expected row-1 pill \(ws) to have no span-fill override (no row 2 exists)")
+    }
+}
+
+// Changing spanFillPadOverrides should be detected as a structural fit change
+let expandFitNoFill = FitDecision(rows: expandFit.rows, rowAssignment: expandFit.rowAssignment,
+                                   effectiveCap: expandFit.effectiveCap,
+                                   effectivePadH: expandFit.effectivePadH,
+                                   row0Split: expandFit.row0Split)
+guard !fitStructureMatchesForRefresh(expandFitNoFill, expandFit) else {
+    fail("expected span-fill override change to be detected by fitStructureMatchesForRefresh")
+}
 SWIFT
 
     swiftc -D HUB_BAR_TEST -O -o "$COMPILE_OUT/hub_bar_fit" \
