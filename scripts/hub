@@ -104,6 +104,8 @@ blue='\033[34m'
 reset='\033[0m'
 
 print_usage() {
+    echo -e "${bold}Hub${reset} — a keyboard-first macOS workspace environment that orchestrates AeroSpace, JankyBorders, and a native Hub Bar into a unified workspace manager."
+    echo
     echo -e "${bold}Usage:${reset} hub <command>"
     echo
     echo -e "${bold}Commands:${reset}"
