@@ -410,6 +410,7 @@ sigSrc.resume()
 
 NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
     if event.keyCode == 53 { cancel(); return nil }   // Esc
+    if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" { cancel(); return nil }
     if event.keyCode == 36 { commit(); return nil }   // Return
     return event
 }

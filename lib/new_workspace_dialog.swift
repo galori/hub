@@ -648,6 +648,7 @@ func showNoRepoName() {
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" { cancelAndDismiss(); return nil }
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers == "[" { showPickPath(); return nil }
         if event.keyCode == 36 { createAction.doCreate(); return nil }
@@ -853,6 +854,7 @@ func showPickPath() {
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" { cancelAndDismiss(); return nil }
         if event.keyCode == 36 {
             if event.modifierFlags.contains(.command) { showNoRepoName(); return nil }
             nextAction.doNext(); return nil
@@ -1042,6 +1044,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" { cancelAndDismiss(); return nil }
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers == "[" { showPickPath(); return nil }
         if let chars = event.charactersIgnoringModifiers, let digit = Int(chars),
@@ -1344,6 +1347,7 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
 
     currentKeyHandler = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" { cancelAndDismiss(); return nil }
         if event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers == "[" { backToParent(); return nil }
         if event.keyCode == 36 { createAction.doCreate(); return nil }
@@ -1891,6 +1895,7 @@ func showConfirmWorkspace(
         }
 
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
+        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" { cancelAndDismiss(); return nil }
         if let backFn = back,
            event.modifierFlags.contains(.command),
            event.charactersIgnoringModifiers == "[" { backFn(); return nil }

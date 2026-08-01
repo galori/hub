@@ -109,7 +109,8 @@ func dismiss() {
 
 NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
     let k = event.keyCode
-    if k == 53 || k == 36 || k == 49 || k == 12 { dismiss() }
+    if k == 53 || k == 36 || k == 49 || k == 12 { dismiss(); return nil }
+    if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" { dismiss(); return nil }
     return event
 }
 

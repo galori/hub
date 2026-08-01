@@ -231,6 +231,7 @@ objc_setAssociatedObject(cancelBtn, "a", cancelAction, .OBJC_ASSOCIATION_RETAIN)
 
 NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
     if event.keyCode == 53 { dismiss(newName: nil); return nil }
+    if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" { dismiss(newName: nil); return nil }
     if event.keyCode == 36 { renameAction.doRename(); return nil }
     return event
 }
