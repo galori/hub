@@ -171,6 +171,7 @@ class CustomCheckbox: NSView {
     var isChecked: Bool { didSet { needsDisplay = true } }
     var label: String
     var fontSize: CGFloat
+    var onChange: (() -> Void)?
 
     init(label: String, checked: Bool, fontSize: CGFloat = 13) {
         self.label = label
@@ -183,7 +184,7 @@ class CustomCheckbox: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    @objc func toggle() { isChecked.toggle() }
+    @objc func toggle() { isChecked.toggle(); onChange?() }
 
     override func draw(_ dirtyRect: NSRect) {
         let boxSize: CGFloat = Theme.Metric.checkboxSize
@@ -387,6 +388,42 @@ func listGitBranches(_ repoRoot: String) -> [String] {
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     guard let output = String(data: data, encoding: .utf8) else { return [] }
     return output.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+}
+
+// Remote-tracking branches only, e.g. "origin/my-branch" — excludes the
+// symbolic "origin" (origin/HEAD) entry, which has no "/" in its short name.
+func listRemoteBranches(_ repoRoot: String) -> [String] {
+    let p = Process()
+    let pipe = Pipe()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    p.arguments = ["-C", repoRoot, "branch", "-r", "--format=%(refname:short)", "--sort=-committerdate"]
+    p.standardOutput = pipe
+    p.standardError = FileHandle.nullDevice
+    try? p.run()
+    p.waitUntilExit()
+    guard p.terminationStatus == 0 else { return [] }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    guard let output = String(data: data, encoding: .utf8) else { return [] }
+    return output.components(separatedBy: "\n")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty && $0.contains("/") }
+}
+
+// Strip a leading "<remote>/" prefix from a branch ref when <remote> is a
+// configured remote of repoRoot, e.g. "origin/my-branch" -> "my-branch".
+// Mirrors _local_branch_name in scripts/hub.
+func localBranchName(_ repoRoot: String, _ branch: String) -> String {
+    guard let slash = branch.firstIndex(of: "/") else { return branch }
+    let remote = String(branch[branch.startIndex..<slash])
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    p.arguments = ["-C", repoRoot, "remote", "get-url", remote]
+    p.standardOutput = FileHandle.nullDevice
+    p.standardError = FileHandle.nullDevice
+    try? p.run()
+    p.waitUntilExit()
+    guard p.terminationStatus == 0 else { return branch }
+    return String(branch[branch.index(after: slash)...])
 }
 
 func gitOutput(_ repoRoot: String, _ args: [String]) -> String? {
@@ -1087,6 +1124,9 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
     let branchesLabel = makeLabel("EXISTING BRANCHES")
     addView(branchesLabel)
 
+    let showRemoteCheckbox = CustomCheckbox(label: "show remote branches", checked: false, fontSize: 11)
+    addView(showRemoteCheckbox)
+
     let scrollView = NSScrollView()
     scrollView.translatesAutoresizingMaskIntoConstraints = false
     scrollView.hasVerticalScroller = true
@@ -1113,10 +1153,13 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
         stackContainer.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
     ])
 
-    let allBranches = listGitBranches(repoRoot)
+    let localBranches = listGitBranches(repoRoot)
+    let remoteBranches = listRemoteBranches(repoRoot)
 
     class BranchListManager: NSObject, NSTextFieldDelegate {
-        let allBranches: [String]
+        let localBranches: [String]
+        let remoteBranches: [String]
+        var showRemote = false
         let container: NSView
         let field: NSTextField
         let repoRoot: String
@@ -1126,9 +1169,10 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
         var branchButtons: [(branch: String, button: NSButton)] = []
         var highlightedIndex: Int = -1
 
-        init(branches: [String], container: NSView, field: NSTextField,
+        init(localBranches: [String], remoteBranches: [String], container: NSView, field: NSTextField,
              repoRoot: String, errLabel: NSTextField, mgr: [String: String]?) {
-            self.allBranches = branches
+            self.localBranches = localBranches
+            self.remoteBranches = remoteBranches
             self.container = container
             self.field = field
             self.repoRoot = repoRoot
@@ -1137,13 +1181,16 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
             super.init()
         }
 
+        var allBranches: [String] { showRemote ? localBranches + remoteBranches : localBranches }
+
         func controlTextDidChange(_ obj: Notification) {
             debounceTimer?.invalidate()
             let query = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: false) { [weak self] _ in
                 guard let self = self else { return }
                 DispatchQueue.global(qos: .userInteractive).async {
-                    let filtered = query.isEmpty ? self.allBranches : self.allBranches.filter { $0.lowercased().contains(query) }
+                    let branches = self.allBranches
+                    let filtered = query.isEmpty ? branches : branches.filter { $0.lowercased().contains(query) }
                     DispatchQueue.main.async { self.rebuildList(filtered: filtered) }
                 }
             }
@@ -1162,9 +1209,10 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
                 btn.wantsLayer = true
                 btn.layer?.cornerRadius = Theme.Radius.keycap
                 btn.alignment = .left
+                let isRemote = remoteBranches.contains(branch)
                 btn.attributedTitle = NSAttributedString(string: "  \(branch)", attributes: [
                     .font: Theme.Font.mono(12),
-                    .foregroundColor: Theme.Color.textSecondary,
+                    .foregroundColor: isRemote ? Theme.Color.textMuted : Theme.Color.textSecondary,
                 ])
                 let branchCopy = branch
                 let action = BranchPickAction(branch: branchCopy, field: field, errLabel: errLabel,
@@ -1244,11 +1292,16 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
         }
     }
 
-    let listMgr = BranchListManager(branches: allBranches, container: stackContainer,
-                                     field: nameField, repoRoot: repoRoot,
+    let listMgr = BranchListManager(localBranches: localBranches, remoteBranches: remoteBranches,
+                                     container: stackContainer, field: nameField, repoRoot: repoRoot,
                                      errLabel: errorLabel, mgr: manager)
     nameField.delegate = listMgr
     objc_setAssociatedObject(nameField, "listMgr", listMgr, .OBJC_ASSOCIATION_RETAIN)
+
+    showRemoteCheckbox.onChange = { [weak listMgr] in
+        listMgr?.showRemote = showRemoteCheckbox.isChecked
+        listMgr?.rebuildList()
+    }
 
     // --- Buttons ---
     let createBtn = makeBtn(label: "NEXT", shortcut: "enter", bg: Theme.Color.accentBlue, fg: .white, bold: true)
@@ -1272,6 +1325,8 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
         errorLabel.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         branchesLabel.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14),
         branchesLabel.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
+        showRemoteCheckbox.centerYAnchor.constraint(equalTo: branchesLabel.centerYAnchor),
+        showRemoteCheckbox.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
         scrollView.topAnchor.constraint(equalTo: branchesLabel.bottomAnchor, constant: 6),
         scrollView.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 28),
         scrollView.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -28),
@@ -1309,8 +1364,14 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
         }
         @objc func create(_ sender: Any) { doCreate() }
         func doCreate() {
-            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { errLabel.stringValue = "Name cannot be empty"; return }
+            let input = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !input.isEmpty else { errLabel.stringValue = "Name cannot be empty"; return }
+            // Input may be a remote branch like "origin/my-branch" (picked from
+            // the remote-branch list, or typed by hand); the worktree directory
+            // and branch-match checks always use the local branch name, while
+            // the original value is passed through as pendingWorktreeName so
+            // the shell can set up a local branch tracking the remote.
+            let name = localBranchName(root, input)
             let existing = listWorktrees(root)
             if let match = existing.first(where: {
                 lastPathComponent($0.path) == name || $0.branch == name
@@ -1321,7 +1382,7 @@ func showCreateWorktree(repoRoot: String, worktrees: [Worktree], manager: [Strin
             }
             let worktreesDir = (root as NSString).appendingPathComponent("worktrees")
             let expectedPath = (worktreesDir as NSString).appendingPathComponent(name)
-            showNamingWorkspace(path: expectedPath, repoRoot: root, setupCmd: mgr?["setup"], pendingWorktreeName: name, back: back)
+            showNamingWorkspace(path: expectedPath, repoRoot: root, setupCmd: mgr?["setup"], pendingWorktreeName: input, back: back)
         }
     }
     class BackAction: NSObject {
