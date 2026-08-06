@@ -288,6 +288,7 @@ objc_setAssociatedObject(cancelBtn,  "a", cancelAction,  .OBJC_ASSOCIATION_RETAI
 
 NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
     if event.keyCode == 53 { dismiss(confirmed: false); return nil }
+    if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" { dismiss(confirmed: false); return nil }
     if event.keyCode == 36 { dismiss(confirmed: true);  return nil }
     return event
 }
