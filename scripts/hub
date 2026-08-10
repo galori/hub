@@ -39,6 +39,7 @@ HUB_APP_SRC="$LIB_DIR/hub_toggle_app.swift"
 HUB_APP_EXECUTABLE="Hub"
 HUB_APP_ICON_SRC="$REPO_DIR/assets/hub-logo.png"
 HUB_APP_BUNDLE_ID="sh.hub.app"
+HUB_ICON_GENERATOR="$REPO_DIR/scripts/lib/hub_icon.py"
 BROWSER_CTL_SRC="$LIB_DIR/browser_ctl.swift"
 : "${BROWSER_CTL_BIN:=$HUB_CONFIG_DIR/browser_ctl}"
 SPATIAL_ORDER_SRC="$LIB_DIR/spatial_order.swift"
@@ -818,15 +819,27 @@ PLIST
     fi
 }
 
-# build_hub_icns <out_icns_path>
-# Builds a .icns from assets/hub-logo.png via sips + iconutil. Returns
-# non-zero (leaving out_icns_path absent) if the source image or tools
-# are unavailable, so callers can fall back to no custom icon.
+# build_hub_icns <out_icns_path> [state]
+# Builds a .icns from assets/hub-logo.png via sips + iconutil. Overlays
+# a prominent power (⏻) badge — green for "on", red for "off" — so the
+# Dock icon reads as an ON/OFF toggle and conveys live hub state.
+#
+# state: "on" (green) | "off" (red) | "auto" (detect via is_http_handler_running).
+# Returns non-zero if the source image or tools are unavailable.
 build_hub_icns() {
     local out_icns="$1"
+    local state="${2:-auto}"
     [[ -f "$HUB_APP_ICON_SRC" ]] || return 1
     command -v sips >/dev/null 2>&1 || return 1
     command -v iconutil >/dev/null 2>&1 || return 1
+
+    if [[ "$state" == "auto" ]]; then
+        if is_http_handler_running 2>/dev/null; then
+            state="on"
+        else
+            state="off"
+        fi
+    fi
 
     local tmp_dir
     tmp_dir="$(mktemp -d "$HUB_RUNTIME_DIR/icns.XXXXXX")"
@@ -838,20 +851,79 @@ build_hub_icns() {
         rm -rf "$tmp_dir"; return 1
     }
 
+    # Overlay the power badge via Python (if available). Fall back to the
+    # plain padded image when the generator or python3 is missing — the
+    # caller still gets a valid icns, just without the badge.
+    local composited="$tmp_dir/padded.png"
+    if [[ -f "$HUB_ICON_GENERATOR" ]] && command -v python3 >/dev/null 2>&1; then
+        if python3 "$HUB_ICON_GENERATOR" "$tmp_dir/padded.png" "$tmp_dir/composited.png" --state "$state" 2>/dev/null; then
+            composited="$tmp_dir/composited.png"
+        fi
+    fi
+
     local size
     for size in 16 32 128 256 512; do
-        sips -z "$size" "$size" "$tmp_dir/padded.png" \
+        sips -z "$size" "$size" "$composited" \
             --out "$iconset/icon_${size}x${size}.png" >/dev/null 2>&1 || true
-        sips -z $((size * 2)) $((size * 2)) "$tmp_dir/padded.png" \
+        sips -z $((size * 2)) $((size * 2)) "$composited" \
             --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null 2>&1 || true
     done
 
     if iconutil -c icns "$iconset" -o "$out_icns" 2>/dev/null; then
         rm -rf "$tmp_dir"
         return 0
+    fi
+
+    # Fallback: iconutil is broken on some macOS builds (Invalid Iconset
+    # due to quarantine/provenance xattrs or stricter validation). Use
+    # Pillow to generate the icns directly from the composited PNG.
+    if command -v python3 >/dev/null 2>&1; then
+        if python3 -c "
+from PIL import Image
+import sys
+im = Image.open('$composited')
+im.save('$out_icns', format='ICNS', sizes=[(16,16),(32,32),(128,128),(256,256),(512,512)])
+" 2>/dev/null && [[ -s "$out_icns" ]]; then
+            rm -rf "$tmp_dir"
+            return 0
+        fi
+    fi
+
+    rm -rf "$tmp_dir"
+    return 1
+}
+
+# refresh_hub_app_icon — regenerates Hub.app's icns to match current state
+# (green=on, red=off) and refreshes the Dock/Finder so the new icon
+# appears without a manual re-install. No-ops when Hub.app or the source
+# image is missing. Respects HUB_SKIP_LAUNCH_SERVICES (no Dock kill in tests/CI).
+refresh_hub_app_icon() {
+    local icns="$HUB_APP_PATH/Contents/Resources/Hub.icns"
+    [[ -f "$HUB_APP_ICON_SRC" ]] || return 0
+    [[ -d "$HUB_APP_PATH" ]] || return 0
+    command -v sips >/dev/null 2>&1 || return 0
+    # iconutil is not required here — build_hub_icns has a Pillow fallback
+    # so we can still generate the icns even when iconutil is broken.
+
+    local state="off"
+    if is_http_handler_running 2>/dev/null; then state="on"; fi
+
+    local tmp_icns
+    tmp_icns="$(mktemp "$HUB_RUNTIME_DIR/hub-icns.XXXXXX")"
+    if build_hub_icns "$tmp_icns" "$state"; then
+        mkdir -p "$(dirname "$icns")"
+        mv "$tmp_icns" "$icns"
+        # Remember the state so build_hub_app can detect staleness
+        echo "$state" > "$HUB_APP_PATH/Contents/Resources/.hub_icon_state" 2>/dev/null || true
+        touch "$HUB_APP_PATH" 2>/dev/null || true
+        if [[ "${HUB_SKIP_LAUNCH_SERVICES:-0}" != "1" ]]; then
+            /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+                -f "$HUB_APP_PATH" 2>/dev/null || true
+            touch "$HUB_APP_PATH" 2>/dev/null || true
+            killall Dock 2>/dev/null || true
+        fi
     else
-        rm -rf "$tmp_dir"
-        return 1
+        rm -f "$tmp_icns" 2>/dev/null || true
     fi
 }
 
@@ -869,8 +941,16 @@ build_hub_app() {
         return
     fi
 
+    # Determine desired icon state (green=on, red=off) so we can detect
+    # when the cached icns is stale due to a hub up/down toggle.
+    local cur_state="off"
+    if is_http_handler_running 2>/dev/null; then cur_state="on"; fi
+    local state_file="$app/Contents/Resources/.hub_icon_state"
+    local cached_state=""
+    [[ -f "$state_file" ]] && cached_state="$(cat "$state_file" 2>/dev/null || true)"
+
     if [[ -f "$bin" ]] && [[ "$bin" -nt "$src" ]] && [[ "$bin" -nt "${BASH_SOURCE[0]}" ]] \
-        && [[ ! "$HUB_APP_ICON_SRC" -nt "$icns" ]]; then
+        && [[ ! "$HUB_APP_ICON_SRC" -nt "$icns" ]] && [[ "$cached_state" == "$cur_state" ]]; then
         info "Hub.app up to date"
         return
     fi
@@ -879,7 +959,8 @@ build_hub_app() {
     mkdir -p "$app/Contents/Resources"
 
     local icon_key=""
-    if build_hub_icns "$icns"; then
+    if build_hub_icns "$icns" "$cur_state"; then
+        echo "$cur_state" > "$state_file" 2>/dev/null || true
         icon_key="    <key>CFBundleIconFile</key>
     <string>Hub</string>
 "
@@ -3508,6 +3589,10 @@ cmd_up() {
     echo
     echo -e "  Tip: use ${bold}Ctrl+Alt+O${reset} to open configured apps, or ${bold}hub open${reset} from the CLI."
     echo -e "  Edit ${bold}$APPS_FILE${reset} to customize your app slots."
+
+    # Refresh Dock icon to green "on" state (power badge). Keep off critical path
+    # so `hub up` returns instantly; lsregister+Dock restart happens in background.
+    refresh_hub_app_icon 2>/dev/null || true
 }
 
 cmd_reboot() {
@@ -3573,6 +3658,10 @@ cmd_down() {
 
     echo
     echo -e "${green}${bold}hub shut down complete.${reset}"
+
+    # Refresh Dock icon to red "off" state. Must run after handler is stopped
+    # so is_http_handler_running reflects the new (down) state.
+    refresh_hub_app_icon 2>/dev/null || true
 }
 
 cmd_toggle() {
