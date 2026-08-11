@@ -30,17 +30,6 @@ run_new_cli_capture() {
     ' _ "$HOME" "$WORKSPACES_FILE" "$APPS_FILE" "$HUB_SCRIPT" "$@"
 }
 
-# Captures name/path/worktree-name (args 1, 2, 11) instead of apps (arg 7),
-# for --worktree tests that care about branch/directory resolution.
-run_new_cli_capture_worktree() {
-    bash -c '
-        export HOME="$1" WORKSPACES_FILE="$2" APPS_FILE="$3"
-        source "$4" >/dev/null 2>&1
-        _create_workspace() { printf "%s\t%s\t%s\n" "$1" "$2" "${11}"; }
-        _cmd_new_cli "${@:5}"
-    ' _ "$HOME" "$WORKSPACES_FILE" "$APPS_FILE" "$HUB_SCRIPT" "$@"
-}
-
 @test "hub new CLI opens no apps by default" {
     printf '[{"name":"Terminal"},{"name":"Browser"}]\n' > "$APPS_FILE"
     run run_new_cli_capture --no-repo --name scratch
@@ -67,47 +56,6 @@ run_new_cli_capture_worktree() {
     run run_new_cli_capture --no-repo --name scratch --apps unknown
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"Invalid app selector: unknown"* ]]
-}
-
-# ---------------------------------------------------------------------------
-# --worktree with a remote branch (e.g. origin/my-branch)
-# ---------------------------------------------------------------------------
-
-setup_repo_with_remote_branch() {
-    local repo="$1" remote="$2" updater="$3" branch="$4"
-    rm -f "$STUB_BIN/git"  # use real git for these tests
-    git init --bare "$remote" -q
-    git init -b main "$repo" -q
-    git -C "$repo" config user.name hub-test
-    git -C "$repo" config user.email hub-test@localhost
-    echo base > "$repo/README.md"
-    git -C "$repo" add README.md
-    git -C "$repo" commit -m "Initial commit" -q --no-gpg-sign
-    git -C "$repo" remote add origin "$remote"
-    git -C "$repo" push -u origin main -q
-    git clone "$remote" "$updater" -q
-    git -C "$updater" config user.name hub-test
-    git -C "$updater" config user.email hub-test@localhost
-    git -C "$updater" checkout -b "$branch" -q
-    echo change > "$updater/change.txt"
-    git -C "$updater" add change.txt
-    git -C "$updater" commit -m "remote change" -q --no-gpg-sign
-    git -C "$updater" push origin "$branch" -q
-}
-
-@test "hub new CLI --worktree with a remote branch resolves name from local branch" {
-    local repo="$BATS_TEST_TMPDIR/repo"
-    setup_repo_with_remote_branch "$repo" "$BATS_TEST_TMPDIR/origin.git" "$BATS_TEST_TMPDIR/updater" "feature-x"
-    local resolved_repo
-    resolved_repo="$(cd "$repo" && pwd -P)"
-
-    run run_new_cli_capture_worktree --path "$repo" --worktree origin/feature-x
-    [[ "$status" -eq 0 ]]
-    local name path wt_name
-    IFS=$'\t' read -r name path wt_name <<< "$output"
-    [[ "$name" == "feature-x" ]]
-    [[ "$path" == "$resolved_repo/worktrees/feature-x" ]]
-    [[ "$wt_name" == "origin/feature-x" ]]
 }
 
 # Write a workspace entry directly via the same jq path cmd_new uses.

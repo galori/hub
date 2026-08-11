@@ -9,8 +9,9 @@ after-startup-command = [
     'exec-and-forget borders active_color=0xff00ff00 width=10.0 style=round',
 ]
 
-# hub: start at login
-start-at-login = true
+# hub: start at login — disabled to avoid early-boot Input Monitoring race for Hub Bar
+# User launches `hub up` manually after reboot.
+start-at-login = false
 
 # hub: refresh Hub Bar on workspace focus change
 exec-on-workspace-change = ['/bin/bash', '-c',
