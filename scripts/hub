@@ -1522,110 +1522,55 @@ cmd_new() {
     _create_workspace "$ws_name" "$ws_path" "$ws_root" "$ws_id" "$ws_color" "$ws_setup_cmd" "$ws_apps" "$no_repo" "$ws_prompt" "false" "$ws_worktree_name"
 }
 
-# _local_branch_name <repo_root> <branch>
-# Strip a leading "<remote>/" prefix from a branch ref when <remote> is a
-# configured remote of repo_root, e.g. "origin/my-branch" -> "my-branch".
-# Used so a remote branch picked from the dialog or passed via --worktree
-# still names a clean local branch and worktree directory. Echoes the branch
-# unchanged if it has no such prefix.
-_local_branch_name() {
-    local repo_root="$1" branch="$2"
-    if [[ "$branch" == */* ]]; then
-        local prefix="${branch%%/*}"
-        if git -C "$repo_root" remote get-url "$prefix" >/dev/null 2>&1; then
-            echo "${branch#*/}"
-            return
-        fi
-    fi
-    echo "$branch"
-}
-
 # _git_worktree_add <repo_root> <branch_name> <worktree_path>
-# Create a git worktree. <branch_name> may be:
-#   - an existing local branch, used as-is
-#   - an explicit remote ref like "origin/my-branch", or a bare name that
-#     matches an existing remote-tracking branch — a local branch is created
-#     to track it
-#   - anything else — a new branch is created off the fetched origin default
-#     branch when origin is available
-# Returns 0 on success; prints the git error and returns 1 on failure.
+# Create a git worktree, using an existing branch or creating a new one off the
+# fetched origin default branch when origin is available. Returns 0 on success;
+# prints the git error and returns 1 on failure.
 _git_worktree_add() {
     local repo_root="$1" branch="$2" wt_path="$3"
     local git_err
-
-    local local_name wants_remote_ref=""
-    local_name="$(_local_branch_name "$repo_root" "$branch")"
-    [[ "$local_name" != "$branch" ]] && wants_remote_ref="$branch"
-
-    if git -C "$repo_root" rev-parse --verify "refs/heads/$local_name" >/dev/null 2>&1; then
-        hub_log "CMD" "git worktree add existing branch '$local_name' at '$wt_path' (repo $repo_root)"
-        git_err="$(git -C "$repo_root" worktree add "$wt_path" "$local_name" 2>&1)" || {
-            hub_log "ERR" "git worktree add failed for '$local_name' at '$wt_path': $git_err"
-            echo "$git_err"; return 1
-        }
-        hub_log "OUT" "git worktree added '$local_name' at '$wt_path'"
-        return 0
-    fi
-
-    local has_origin=false
-    if git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
-        has_origin=true
-        hub_log "CMD" "git fetch before worktree add (repo $repo_root)"
-        git_err="$(git -C "$repo_root" fetch 2>&1)" || {
-            hub_log "ERR" "git fetch failed before worktree add (repo $repo_root): $git_err"
-            echo "$git_err"; return 1
-        }
-    fi
-
-    # Resolve a remote-tracking branch to base the new local branch on: an
-    # explicit "origin/x" input, or a bare name that already matches a
-    # remote-tracking branch (e.g. picked from the dialog's remote-branch list).
-    local remote_ref="$wants_remote_ref"
-    if [[ -z "$remote_ref" && "$has_origin" == "true" ]] \
-        && git -C "$repo_root" rev-parse --verify "refs/remotes/origin/$local_name" >/dev/null 2>&1; then
-        remote_ref="origin/$local_name"
-    fi
-
-    if [[ -n "$remote_ref" ]]; then
-        if ! git -C "$repo_root" rev-parse --verify "refs/remotes/$remote_ref" >/dev/null 2>&1; then
-            hub_log "ERR" "$remote_ref not found after git fetch (repo $repo_root)"
-            echo "$remote_ref not found after git fetch"
-            return 1
-        fi
-        hub_log "CMD" "git worktree add new branch '$local_name' at '$wt_path' tracking '$remote_ref' (repo $repo_root)"
-        git_err="$(git -C "$repo_root" worktree add -b "$local_name" "$wt_path" "$remote_ref" 2>&1)" || {
-            hub_log "ERR" "git worktree add failed for '$local_name' at '$wt_path': $git_err"
-            echo "$git_err"; return 1
-        }
-        hub_log "OUT" "git worktree added '$local_name' at '$wt_path'"
-        return 0
-    fi
-
-    local base_branch base_ref
-    base_branch="$(_default_branch "$repo_root" || true)"
-    if [[ -n "$base_branch" ]]; then
-        base_ref="$base_branch"
-        if [[ "$has_origin" == "true" ]]; then
-            base_ref="origin/$base_branch"
-            if ! git -C "$repo_root" rev-parse --verify "refs/remotes/$base_ref" >/dev/null 2>&1; then
-                hub_log "ERR" "origin/$base_branch not found after git fetch (repo $repo_root)"
-                echo "origin/$base_branch not found after git fetch"
-                return 1
-            fi
-        fi
-        hub_log "CMD" "git worktree add new branch '$local_name' at '$wt_path' from '$base_ref' (repo $repo_root)"
-        git_err="$(git -C "$repo_root" worktree add -b "$local_name" "$wt_path" "$base_ref" 2>&1)" || {
-            hub_log "ERR" "git worktree add failed for '$local_name' at '$wt_path': $git_err"
+    if git -C "$repo_root" rev-parse --verify "refs/heads/$branch" >/dev/null 2>&1; then
+        hub_log "CMD" "git worktree add existing branch '$branch' at '$wt_path' (repo $repo_root)"
+        git_err="$(git -C "$repo_root" worktree add "$wt_path" "$branch" 2>&1)" || {
+            hub_log "ERR" "git worktree add failed for '$branch' at '$wt_path': $git_err"
             echo "$git_err"; return 1
         }
     else
-        hub_log "CMD" "git worktree add new branch '$local_name' at '$wt_path' (repo $repo_root)"
-        git_err="$(git -C "$repo_root" worktree add -b "$local_name" "$wt_path" 2>&1)" || {
-            hub_log "ERR" "git worktree add failed for '$local_name' at '$wt_path': $git_err"
-            echo "$git_err"; return 1
-        }
+        local base_branch base_ref has_origin=false
+        if git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
+            has_origin=true
+            hub_log "CMD" "git fetch before worktree add (repo $repo_root)"
+            git_err="$(git -C "$repo_root" fetch 2>&1)" || {
+                hub_log "ERR" "git fetch failed before worktree add (repo $repo_root): $git_err"
+                echo "$git_err"; return 1
+            }
+        fi
+
+        base_branch="$(_default_branch "$repo_root" || true)"
+        if [[ -n "$base_branch" ]]; then
+            base_ref="$base_branch"
+            if [[ "$has_origin" == "true" ]]; then
+                base_ref="origin/$base_branch"
+                if ! git -C "$repo_root" rev-parse --verify "refs/remotes/$base_ref" >/dev/null 2>&1; then
+                    hub_log "ERR" "origin/$base_branch not found after git fetch (repo $repo_root)"
+                    echo "origin/$base_branch not found after git fetch"
+                    return 1
+                fi
+            fi
+            hub_log "CMD" "git worktree add new branch '$branch' at '$wt_path' from '$base_ref' (repo $repo_root)"
+            git_err="$(git -C "$repo_root" worktree add -b "$branch" "$wt_path" "$base_ref" 2>&1)" || {
+                hub_log "ERR" "git worktree add failed for '$branch' at '$wt_path': $git_err"
+                echo "$git_err"; return 1
+            }
+        else
+            hub_log "CMD" "git worktree add new branch '$branch' at '$wt_path' (repo $repo_root)"
+            git_err="$(git -C "$repo_root" worktree add -b "$branch" "$wt_path" 2>&1)" || {
+                hub_log "ERR" "git worktree add failed for '$branch' at '$wt_path': $git_err"
+                echo "$git_err"; return 1
+            }
+        fi
     fi
-    hub_log "OUT" "git worktree added '$local_name' at '$wt_path'"
+    hub_log "OUT" "git worktree added '$branch' at '$wt_path'"
 }
 
 _create_workspace() {
@@ -1652,12 +1597,8 @@ _create_workspace() {
 
     # Create the worktree as the first visible step (if requested).
     if [[ -n "$ws_worktree_name" && -n "$ws_root" ]]; then
-        # ws_worktree_name may be a remote branch like "origin/my-branch"; the
-        # worktree directory always uses the local branch name.
-        local worktree_local_name
-        worktree_local_name="$(_local_branch_name "$ws_root" "$ws_worktree_name")"
         local worktrees_dir="$ws_root/worktrees"
-        local worktree_path="$worktrees_dir/$worktree_local_name"
+        local worktree_path="$worktrees_dir/$ws_worktree_name"
         if [[ ! -d "$worktree_path" ]]; then
             progress_step "Create Worktree"
             mkdir -p "$worktrees_dir"
@@ -1792,9 +1733,7 @@ Bare `hub new` opens the creation dialog. Pass any flag to run silently.
 
 Flags:
   --path PATH        Workspace directory or repo root (default: $PWD)
-  --worktree NAME    Create/reuse worktree NAME off the repo at --path.
-                     NAME may be a remote branch, e.g. "origin/my-branch";
-                     a local tracking branch is created if one doesn't exist.
+  --worktree NAME    Create/reuse worktree NAME off the repo at --path
   --no-repo          No-repo workspace (path = $HOME). Conflicts with --path/--worktree.
   --name NAME        Workspace name (default: worktree name or basename of path)
   --id ID            Workspace ID, e.g. A or 5 (default: first free)
@@ -1811,7 +1750,6 @@ Examples:
   hub new                              # open creation dialog
   hub new --path .                     # workspace at CWD, no worktree
   hub new --worktree my-fix            # new worktree 'my-fix' off CWD repo
-  hub new --worktree origin/my-fix     # worktree tracking a remote branch
   hub new --no-repo --name scratch     # no-repo workspace
   hub new --worktree my-fix --prompt 'fix the login redirect bug'
 EOF
@@ -1959,14 +1897,8 @@ _cmd_new_cli() {
                 fail "--worktree requires a git repository (none found at $resolved_path)"
                 return 2
             fi
-            # --worktree accepts a remote branch like "origin/my-branch"; the
-            # worktree directory and default name use the local branch name
-            # ("my-branch"), while _git_worktree_add still sees the original
-            # value so it can set up tracking against the remote.
-            local worktree_local_name
-            worktree_local_name="$(_local_branch_name "$repo_root" "$opt_worktree")"
             local worktrees_dir="$repo_root/worktrees"
-            local worktree_path="$worktrees_dir/$worktree_local_name"
+            local worktree_path="$worktrees_dir/$opt_worktree"
 
             if [[ -d "$worktree_path" ]]; then
                 # Reuse existing worktree directory as-is — no "Create Worktree" step.
@@ -1981,8 +1913,8 @@ _cmd_new_cli() {
             ws_root="$repo_root"
             if [[ -n "$opt_name" ]]; then
                 ws_name="$opt_name"
-            elif [[ -n "$worktree_local_name" ]]; then
-                ws_name="$worktree_local_name"
+            elif [[ -n "$opt_worktree" ]]; then
+                ws_name="$opt_worktree"
             else
                 ws_name="$(basename "$worktree_path")"
             fi
