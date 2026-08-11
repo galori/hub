@@ -893,11 +893,12 @@ im.save('$out_icns', format='ICNS', sizes=[(16,16),(32,32),(128,128),(256,256),(
     return 1
 }
 
-# refresh_hub_app_icon — regenerates Hub.app's icns to match current state
+# refresh_hub_app_icon [state] — regenerates Hub.app's icns to match state
 # (green=on, red=off) and refreshes the Dock/Finder so the new icon
 # appears without a manual re-install. No-ops when Hub.app or the source
 # image is missing. Respects HUB_SKIP_LAUNCH_SERVICES (no Dock kill in tests/CI).
 refresh_hub_app_icon() {
+    local state="${1:-}"
     local icns="$HUB_APP_PATH/Contents/Resources/Hub.icns"
     [[ -f "$HUB_APP_ICON_SRC" ]] || return 0
     [[ -d "$HUB_APP_PATH" ]] || return 0
@@ -905,8 +906,10 @@ refresh_hub_app_icon() {
     # iconutil is not required here — build_hub_icns has a Pillow fallback
     # so we can still generate the icns even when iconutil is broken.
 
-    local state="off"
-    if is_http_handler_running 2>/dev/null; then state="on"; fi
+    if [[ "$state" != "on" && "$state" != "off" ]]; then
+        state="off"
+        if is_http_handler_running 2>/dev/null; then state="on"; fi
+    fi
 
     local tmp_icns
     tmp_icns="$(mktemp "$HUB_RUNTIME_DIR/hub-icns.XXXXXX")"
@@ -3524,7 +3527,7 @@ cmd_up() {
 
     # Refresh Dock icon to green "on" state (power badge). Keep off critical path
     # so `hub up` returns instantly; lsregister+Dock restart happens in background.
-    refresh_hub_app_icon 2>/dev/null || true
+    refresh_hub_app_icon on 2>/dev/null || true
 }
 
 cmd_reboot() {
@@ -3593,7 +3596,7 @@ cmd_down() {
 
     # Refresh Dock icon to red "off" state. Must run after handler is stopped
     # so is_http_handler_running reflects the new (down) state.
-    refresh_hub_app_icon 2>/dev/null || true
+    refresh_hub_app_icon off 2>/dev/null || true
 }
 
 cmd_toggle() {

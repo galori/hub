@@ -62,6 +62,62 @@ run_hub_eval() {
     assert_called "^cmd_toggle$"
 }
 
+@test "hub up marks the Dock icon on before handler startup is observable" {
+    run run_hub_eval '
+        is_http_handler_running() { return 1; }
+        start_overlay() { :; }
+        update_overlay() { :; }
+        stop_overlay() { :; }
+        save_and_set_hub_default_browser() { :; }
+        rebuild_labels_file() { :; }
+        ensure_general_workspace() { :; }
+        cache_keys() { :; }
+        hub_bar_down() { return 0; }
+        hub_bar_refresh() { :; }
+        sleep() { :; }
+        refresh_hub_app_icon() { echo "refresh ${1:-missing}" >> "$STUB_CALLS"; }
+        cmd_up
+    '
+
+    [[ "$status" -eq 0 ]]
+    assert_called "^refresh on$"
+}
+
+@test "hub down marks the Dock icon off before handler exit is observable" {
+    run run_hub_eval '
+        is_http_handler_running() { return 0; }
+        stop_http_handler() { :; }
+        hub_bar_down() { return 0; }
+        restore_previous_default_browser() { :; }
+        refresh_hub_app_icon() { echo "refresh ${1:-missing}" >> "$STUB_CALLS"; }
+        cmd_down
+    '
+
+    [[ "$status" -eq 0 ]]
+    assert_called "^refresh off$"
+}
+
+@test "Dock icon refresh honors explicit state over the handler probe" {
+    run run_hub_eval '
+        HUB_APP_PATH="$HOME/Applications/Hub.app"
+        HUB_SKIP_LAUNCH_SERVICES=1
+        mkdir -p "$HUB_APP_PATH/Contents/Resources"
+        sips() { :; }
+        build_hub_icns() {
+            echo "build ${2:-missing}" >> "$STUB_CALLS"
+            : > "$1"
+        }
+        is_http_handler_running() { return 1; }
+        refresh_hub_app_icon on
+        is_http_handler_running() { return 0; }
+        refresh_hub_app_icon off
+    '
+
+    [[ "$status" -eq 0 ]]
+    assert_called "^build on$"
+    assert_called "^build off$"
+}
+
 # write_hub_app_executable — creates an executable file at the path
 # pin_hub_dock_icon requires before it will consider Hub.app installed.
 write_hub_app_executable() {
