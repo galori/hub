@@ -930,6 +930,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
         let isRoot = (wt.path == repoRoot)
         let displayName = isRoot ? "\(lastPathComponent(wt.path)) (root)" : lastPathComponent(wt.path)
         let branchInfo = wt.branch.isEmpty ? "" : "  [\(wt.branch)]"
+        let rowColor = isRoot ? Theme.Color.accentBlue : Theme.Color.textPrimary
 
         let btn = NSButton()
         btn.translatesAutoresizingMaskIntoConstraints = false
@@ -942,7 +943,7 @@ func showPickWorktree(repoRoot: String, worktrees: [Worktree], manager: [String:
         let attr = NSMutableAttributedString()
         attr.append(NSAttributedString(string: "  \(i + 1)  \(displayName)", attributes: [
             .font: Theme.Font.mono(15),
-            .foregroundColor: Theme.Color.textPrimary,
+            .foregroundColor: rowColor,
         ]))
         attr.append(NSAttributedString(string: branchInfo, attributes: [
             .font: Theme.Font.mono(12),
