@@ -99,6 +99,12 @@ run_deploy() {
     grep -q 'nudge-float-window \$AEROSPACE_WINDOW_ID' "$AEROSPACE_CONFIG"
 }
 
+@test "deployed aerospace.toml floats dg-tallybat windows" {
+    run_deploy
+    grep -q "if.app-id = 'com.datagrail.dgtallybat'" "$AEROSPACE_CONFIG"
+    grep -q "run = 'layout floating'" "$AEROSPACE_CONFIG"
+}
+
 @test "deploy is idempotent (running twice produces same result)" {
     run_deploy
     checksum1="$(md5 -q "$AEROSPACE_CONFIG")"
