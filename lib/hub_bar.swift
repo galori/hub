@@ -3143,7 +3143,18 @@ class HubBarController: NSObject {
             place: .headInsertEventTap,
             options: .listenOnly,
             eventsOfInterest: tapMask,
-            callback: { _, _, event, userInfo -> Unmanaged<CGEvent>? in
+            callback: { proxy, type, event, userInfo -> Unmanaged<CGEvent>? in
+                // macOS disables event taps (timeout or user input) without warning; once
+                // disabled the tap stays dead forever unless we explicitly re-enable it here.
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let userInfo = userInfo {
+                        let ctrl = Unmanaged<HubBarController>.fromOpaque(userInfo).takeUnretainedValue()
+                        if let tap = ctrl.flagsChangedEventTap {
+                            CGEvent.tapEnable(tap: tap, enable: true)
+                        }
+                    }
+                    return Unmanaged.passRetained(event)
+                }
                 if let userInfo = userInfo, let nsEv = NSEvent(cgEvent: event) {
                     let ctrl = Unmanaged<HubBarController>.fromOpaque(userInfo).takeUnretainedValue()
                     let raw = nsEv.modifierFlags.rawValue
