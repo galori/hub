@@ -3102,6 +3102,24 @@ class VolumeSliderTarget: NSObject {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// MARK: – Cluster event-tap health
+// ──────────────────────────────────────────────────────────────────────────────
+
+// >>> cluster-tap-recovery (extracted and unit-tested by test/25_swift_cluster_tap_recovery.bats)
+enum ClusterTapRecovery { case healthy, reenable, recreate }
+
+/// What to do with the shift-cluster tap given the mach port's validity and the
+/// tap's enabled state. A disabled-but-valid tap can be switched back on in
+/// place; an invalidated port (e.g. after the WindowServer session is torn down
+/// across sleep/wake) can only be fixed by building a new tap.
+func clusterTapRecoveryAction(portIsValid: Bool, tapIsEnabled: Bool) -> ClusterTapRecovery {
+    if !portIsValid { return .recreate }
+    if !tapIsEnabled { return .reenable }
+    return .healthy
+}
+// <<< cluster-tap-recovery
+
+// ──────────────────────────────────────────────────────────────────────────────
 // MARK: – HubBarController
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -3119,6 +3137,8 @@ class HubBarController: NSObject {
     var rightShiftTapArmed = false
     var lastRightShiftDownTime: CFAbsoluteTime = 0
     var flagsChangedEventTap: CFMachPort?
+    var flagsChangedRunLoopSource: CFRunLoopSource?
+    var clusterTapWatchdogTimer: Timer?
 
     func start() {
         removeTransientBarHeightOverride(sync: false)
@@ -3135,7 +3155,47 @@ class HubBarController: NSObject {
         // Both-shift trigger and right-shift double-tap trigger via CGEventTap.
         // NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) is silently broken on
         // macOS 26 (Tahoe) even with Input Monitoring granted; CGEventTap works reliably.
-        // NX_DEVICELSHIFTKEYMASK = 0x0002, NX_DEVICERSHIFTKEYMASK = 0x0004
+        if !createClusterEventTap() {
+            // Fallback: NSEvent monitor (works on pre-Tahoe without Input Monitoring issues)
+            NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] ev in
+                guard let self = self else { return }
+                self.handleClusterModifierFlags(ev.modifierFlags.rawValue, event: ev)
+            }
+        }
+
+        // Right-shift double-tap trigger: toggles AeroSpace fullscreen. A global keyDown
+        // monitor disarms the pending tap whenever a real key is struck in between,
+        // so ordinary typing (e.g. Shift for "New York") never fires it.
+        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
+            self?.rightShiftTapArmed = false
+        }
+    }
+
+    // NX_DEVICELSHIFTKEYMASK = 0x0002, NX_DEVICERSHIFTKEYMASK = 0x0004
+    func handleClusterModifierFlags(_ raw: UInt, event: NSEvent) {
+        let bothShift = (raw & 0x0002 != 0) && (raw & 0x0004 != 0)
+        let primaryWindow = windows.first
+        if bothShift {
+            primaryWindow?.showClusterOverlay()
+        } else if primaryWindow?.clusterOverlay?.isVisible == true {
+            primaryWindow?.scheduleHideClusterOverlay()
+        }
+        handleRightShiftTap(event)
+    }
+
+    /// Builds (or rebuilds) the flagsChanged tap and wires it into the main run loop.
+    /// Returns false when macOS refuses to create the tap at all.
+    @discardableResult
+    func createClusterEventTap() -> Bool {
+        if let src = flagsChangedRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
+            flagsChangedRunLoopSource = nil
+        }
+        if let tap = flagsChangedEventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+            flagsChangedEventTap = nil
+        }
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
         let tapMask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
         flagsChangedEventTap = CGEvent.tapCreate(
@@ -3157,45 +3217,34 @@ class HubBarController: NSObject {
                 }
                 if let userInfo = userInfo, let nsEv = NSEvent(cgEvent: event) {
                     let ctrl = Unmanaged<HubBarController>.fromOpaque(userInfo).takeUnretainedValue()
-                    let raw = nsEv.modifierFlags.rawValue
-                    let bothShift = (raw & 0x0002 != 0) && (raw & 0x0004 != 0)
-                    let primaryWindow = ctrl.windows.first
-                    if bothShift {
-                        primaryWindow?.showClusterOverlay()
-                    } else if primaryWindow?.clusterOverlay?.isVisible == true {
-                        primaryWindow?.scheduleHideClusterOverlay()
-                    }
-                    ctrl.handleRightShiftTap(nsEv)
+                    ctrl.handleClusterModifierFlags(nsEv.modifierFlags.rawValue, event: nsEv)
                 }
                 return Unmanaged.passRetained(event)
             },
             userInfo: selfPtr
         )
-        if let tap = flagsChangedEventTap {
-            let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-            CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
-            CGEvent.tapEnable(tap: tap, enable: true)
-        } else {
-            // Fallback: NSEvent monitor (works on pre-Tahoe without Input Monitoring issues)
-            NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] ev in
-                let raw = ev.modifierFlags.rawValue
-                let bothShift = (raw & 0x0002 != 0) && (raw & 0x0004 != 0)
-                guard let self = self else { return }
-                let primaryWindow = self.windows.first
-                if bothShift {
-                    primaryWindow?.showClusterOverlay()
-                } else if primaryWindow?.clusterOverlay?.isVisible == true {
-                    primaryWindow?.scheduleHideClusterOverlay()
-                }
-                self.handleRightShiftTap(ev)
-            }
-        }
+        guard let tap = flagsChangedEventTap else { return false }
+        let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+        flagsChangedRunLoopSource = src
+        CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        return true
+    }
 
-        // Right-shift double-tap trigger: toggles AeroSpace fullscreen. A global keyDown
-        // monitor disarms the pending tap whenever a real key is struck in between,
-        // so ordinary typing (e.g. Shift for "New York") never fires it.
-        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
-            self?.rightShiftTapArmed = false
+    /// Polls the tap and repairs it. The in-callback re-enable only fires when macOS
+    /// bothers to deliver a tapDisabled event; after sleep/wake the tap can come back
+    /// silently disabled — or with a dead mach port — and never report anything again.
+    func checkClusterTapHealth() {
+        guard let tap = flagsChangedEventTap else { return }
+        let action = clusterTapRecoveryAction(portIsValid: CFMachPortIsValid(tap),
+                                              tapIsEnabled: CGEvent.tapIsEnabled(tap: tap))
+        switch action {
+        case .healthy:
+            break
+        case .reenable:
+            CGEvent.tapEnable(tap: tap, enable: true)
+        case .recreate:
+            createClusterEventTap()
         }
     }
 
@@ -3567,10 +3616,17 @@ class HubBarController: NSObject {
                 for ws in state.claudeActive { if let pill = w.wsPills[ws] { pill.updatePulse(bright: bright) } }
             }
         }
+        clusterTapWatchdogTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            self?.checkClusterTapHealth()
+        }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main) { [weak self] _ in
                 cleanupStaleClaudeActiveFlags()
                 self?.windows.forEach { $0.clusterOverlay?.updateBattery() }
+                // The tap often survives the sleep silently dead; check now and again
+                // shortly after, once the WindowServer session has fully come back.
+                self?.checkClusterTapHealth()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { self?.checkClusterTapHealth() }
             }
         // Re-front bars when returning from a native full-screen Space.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
