@@ -2418,6 +2418,7 @@ class HubBarWindow: NSWindow {
     }
 
     func scheduleHideClusterOverlay() {
+        if clusterOverlay?.isPinned == true { return }
         clusterHideTimer?.invalidate()
         clusterHideTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
             self?.hideClusterOverlay()
@@ -2449,6 +2450,30 @@ class HotEdgeView: NSView {
     }
     override func mouseEntered(with event: NSEvent) { onEnter?() }
     override func mouseExited(with event: NSEvent)  { onExit?() }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// MARK: – OverlayDragHandleView (drags its owning window; used to reposition a pinned overlay)
+// ──────────────────────────────────────────────────────────────────────────────
+
+class OverlayDragHandleView: NSImageView {
+    var onDragEnded: (() -> Void)?
+    private var dragStartMouseScreen: NSPoint = .zero
+    private var dragStartWindowOrigin: NSPoint = .zero
+
+    override func mouseDown(with event: NSEvent) {
+        dragStartMouseScreen = NSEvent.mouseLocation
+        dragStartWindowOrigin = window?.frame.origin ?? .zero
+    }
+    override func mouseDragged(with event: NSEvent) {
+        guard let window else { return }
+        let cur = NSEvent.mouseLocation
+        let newOrigin = NSPoint(
+            x: dragStartWindowOrigin.x + (cur.x - dragStartMouseScreen.x),
+            y: dragStartWindowOrigin.y + (cur.y - dragStartMouseScreen.y))
+        window.setFrameOrigin(newOrigin)
+    }
+    override func mouseUp(with event: NSEvent) { onDragEnded?() }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -2577,6 +2602,29 @@ class ClusterOverlayWindow: NSWindow {
     var onMouseEnteredOverlay: (() -> Void)?
     var onMouseExitedOverlay:  (() -> Void)?
     private let tooltipPresenter = OverlayTooltipPresenter()
+    weak var barWindow: HubBarWindow?
+    var isPinned: Bool = false
+    var pinIcon: NSImageView?
+
+    private static var pinnedFile: String { NSHomeDirectory() + "/.config/hub/cluster_pinned" }
+    private static var positionFile: String { NSHomeDirectory() + "/.config/hub/cluster_position" }
+
+    private static func loadPinned() -> Bool {
+        guard let v = try? String(contentsOfFile: pinnedFile, encoding: .utf8) else { return false }
+        return v.trimmingCharacters(in: .whitespacesAndNewlines) == "on"
+    }
+    private static func savePinned(_ pinned: Bool) {
+        try? (pinned ? "on" : "off").write(toFile: pinnedFile, atomically: true, encoding: .utf8)
+    }
+    private static func loadPosition() -> NSPoint? {
+        guard let v = try? String(contentsOfFile: positionFile, encoding: .utf8) else { return nil }
+        let parts = v.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: ",")
+        guard parts.count == 2, let x = Double(parts[0]), let y = Double(parts[1]) else { return nil }
+        return NSPoint(x: x, y: y)
+    }
+    private static func savePosition(_ p: NSPoint) {
+        try? "\(p.x),\(p.y)".write(toFile: positionFile, atomically: true, encoding: .utf8)
+    }
 
     // Widget refs for periodic updates
     var clockLabel: NSTextField?
@@ -2603,6 +2651,8 @@ class ClusterOverlayWindow: NSWindow {
         ignoresMouseEvents = false
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+        self.barWindow = barWindow
+        isPinned = ClusterOverlayWindow.loadPinned()
 
         buildContent(state: state, fit: barWindow.lastFitDecision)
 
@@ -2610,9 +2660,13 @@ class ClusterOverlayWindow: NSWindow {
         contentView?.layoutSubtreeIfNeeded()
         let naturalW = contentView?.fittingSize.width ?? 400
         let overlayW = naturalW
-        let popX = barFrame.maxX - overlayW - 8
-        let popY = barFrame.minY - overlayH - 4
-        setFrame(NSRect(x: popX, y: popY, width: overlayW, height: overlayH), display: false)
+        if isPinned, let saved = ClusterOverlayWindow.loadPosition() {
+            setFrame(NSRect(x: saved.x, y: saved.y, width: overlayW, height: overlayH), display: false)
+        } else {
+            let popX = barFrame.maxX - overlayW - 8
+            let popY = barFrame.minY - overlayH - 4
+            setFrame(NSRect(x: popX, y: popY, width: overlayW, height: overlayH), display: false)
+        }
 
         installTrackingArea()
     }
@@ -2761,6 +2815,54 @@ class ClusterOverlayWindow: NSWindow {
             xBtn.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -4),
             xBtn.widthAnchor.constraint(equalToConstant: 18),
             xBtn.heightAnchor.constraint(equalToConstant: 18),
+        ])
+
+        // Pin button — keeps the overlay open (no auto-hide, no outside-click dismiss)
+        // and lets its position be dragged and remembered across the next open.
+        let pinBtn = ClickView()
+        pinBtn.translatesAutoresizingMaskIntoConstraints = false
+        pinBtn.wantsLayer = true
+        pinBtn.layer?.cornerRadius = 4
+        pinBtn.normalColor = NSColor(white: 1, alpha: 0.10).cgColor
+        pinBtn.hoverColor  = NSColor(white: 1, alpha: 0.20).cgColor
+        let pinImg = NSImageView()
+        pinImg.translatesAutoresizingMaskIntoConstraints = false
+        pinImg.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        pinBtn.addSubview(pinImg)
+        NSLayoutConstraint.activate([
+            pinImg.centerXAnchor.constraint(equalTo: pinBtn.centerXAnchor),
+            pinImg.centerYAnchor.constraint(equalTo: pinBtn.centerYAnchor),
+        ])
+        pinIcon = pinImg
+        updatePinIcon()
+        pinBtn.onPress = { [weak self] in self?.togglePinned() }
+        cv.addSubview(pinBtn)
+        NSLayoutConstraint.activate([
+            pinBtn.topAnchor.constraint(equalTo: cv.topAnchor, constant: 4),
+            pinBtn.trailingAnchor.constraint(equalTo: xBtn.leadingAnchor, constant: -4),
+            pinBtn.widthAnchor.constraint(equalToConstant: 18),
+            pinBtn.heightAnchor.constraint(equalToConstant: 18),
+        ])
+        installTooltip(on: pinBtn, text: isPinned ? "Unpin overlay" : "Pin overlay in place")
+
+        // Drag handle — repositions the overlay; only meaningful while pinned, but always
+        // draggable so the user can position it before pinning.
+        let handle = OverlayDragHandleView()
+        handle.translatesAutoresizingMaskIntoConstraints = false
+        handle.image = NSImage(systemSymbolName: "line.3.horizontal", accessibilityDescription: nil)
+        handle.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .medium)
+        handle.contentTintColor = NSColor(white: 1, alpha: 0.35)
+        handle.onDragEnded = { [weak self] in
+            guard let self else { return }
+            ClusterOverlayWindow.savePosition(self.frame.origin)
+        }
+        installTooltip(on: handle, text: "Drag to move")
+        cv.addSubview(handle)
+        NSLayoutConstraint.activate([
+            handle.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: 4),
+            handle.topAnchor.constraint(equalTo: cv.topAnchor, constant: 4),
+            handle.widthAnchor.constraint(equalToConstant: 14),
+            handle.heightAnchor.constraint(equalToConstant: 14),
         ])
 
         updateVolume(); updateBattery(); updateClock(); updateCPU(); updateMem(); updateDisk()
@@ -3073,9 +3175,27 @@ class ClusterOverlayWindow: NSWindow {
 
     func installDismissMonitor() {
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            self?.dismiss()
+            guard let self, !self.isPinned else { return }
+            self.dismiss()
         }
     }
+
+    private func updatePinIcon() {
+        pinIcon?.image = NSImage(systemSymbolName: isPinned ? "pin.fill" : "pin", accessibilityDescription: nil)
+        pinIcon?.contentTintColor = isPinned ? NSColor(argb: C_ORANGE) : NSColor(white: 1, alpha: 0.55)
+    }
+
+    private func togglePinned() {
+        isPinned.toggle()
+        ClusterOverlayWindow.savePinned(isPinned)
+        updatePinIcon()
+        if isPinned {
+            ClusterOverlayWindow.savePosition(frame.origin)
+        } else {
+            barWindow?.scheduleHideClusterOverlay()
+        }
+    }
+
     func dismiss() {
         tooltipPresenter.hide()
         if let m = globalMouseMonitor { NSEvent.removeMonitor(m); globalMouseMonitor = nil }
