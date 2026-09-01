@@ -185,6 +185,15 @@ class CustomCheckbox: NSView {
 
     @objc func toggle() { isChecked.toggle() }
 
+    // Keyboard-first: focusable via Tab, toggleable via Space/Return when focused.
+    override var acceptsFirstResponder: Bool { true }
+    override func becomeFirstResponder() -> Bool { needsDisplay = true; return true }
+    override func resignFirstResponder() -> Bool { needsDisplay = true; return true }
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 49 || event.keyCode == 36 { toggle(); return } // space or return
+        super.keyDown(with: event)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let boxSize: CGFloat = Theme.Metric.checkboxSize
         let boxY = (bounds.height - boxSize) / 2
@@ -215,6 +224,13 @@ class CustomCheckbox: NSView {
         ]
         let str = NSAttributedString(string: label, attributes: attrs)
         str.draw(at: NSPoint(x: boxSize + 10, y: (bounds.height - str.size().height) / 2))
+
+        if window?.firstResponder === self {
+            let ring = NSBezierPath(roundedRect: boxRect.insetBy(dx: -3, dy: -3), xRadius: Theme.Radius.checkbox + 2, yRadius: Theme.Radius.checkbox + 2)
+            Theme.Color.accentBlue.withAlphaComponent(0.8).setStroke()
+            ring.lineWidth = 2
+            ring.stroke()
+        }
     }
 
     override var intrinsicContentSize: NSSize {
@@ -1752,10 +1768,31 @@ func showConfirmWorkspace(
     clearBtn.target = clearAction; clearBtn.action = #selector(ClearPromptAction.clear(_:))
     objc_setAssociatedObject(clearBtn, "cpa", clearAction, .OBJC_ASSOCIATION_RETAIN)
 
-    // Wire Tab key view chain: name field → prompt text view → name field.
-    // NSTextView isn't auto-registered; explicit nextKeyView is required.
-    nameField.nextKeyView = promptView
-    promptView.nextKeyView = nameField
+    // Tab order for the whole dialog: name field → each app checkbox →
+    // skills filter field → prompt text view → (wraps back to name field).
+    // Handled explicitly below in the key monitor rather than via nextKeyView,
+    // since NSTextView (promptView) doesn't participate in the key view loop
+    // unless it's a field editor.
+    let focusChain: [NSView] = [nameField] + checkboxes + [skillsField, promptView]
+
+    func focusedChainIndex() -> Int? {
+        for (i, v) in focusChain.enumerated() {
+            if let tf = v as? NSTextField {
+                if let ed = tf.currentEditor(), win.firstResponder === ed { return i }
+            } else if win.firstResponder === v {
+                return i
+            }
+        }
+        return nil
+    }
+
+    func moveChainFocus(forward: Bool) {
+        let count = focusChain.count
+        guard count > 0 else { return }
+        let cur = focusedChainIndex() ?? 0
+        let next = forward ? (cur + 1) % count : (cur - 1 + count) % count
+        win.makeFirstResponder(focusChain[next])
+    }
 
     let createBtn = makeBtn(label: "CREATE", shortcut: "enter", bg: Theme.Color.accentBlue, fg: .white, bold: true)
     addView(createBtn)
@@ -1887,12 +1924,15 @@ func showConfirmWorkspace(
                 skillsAC.hidePanel()
                 win.makeFirstResponder(promptView)
                 return nil
-            case 48:  // Tab — move to prompt
+            case 48:  // Tab / Shift-Tab — hide panel, then fall through to shared chain nav
                 skillsAC.hidePanel()
-                win.makeFirstResponder(promptView)
-                return nil
             default: break
             }
+        }
+
+        if event.keyCode == 48 {  // Tab — advance/retreat through the full field chain
+            moveChainFocus(forward: !event.modifierFlags.contains(.shift))
+            return nil
         }
 
         if event.keyCode == 53 { cancelAndDismiss(); return nil }
