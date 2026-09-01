@@ -132,6 +132,7 @@ print_usage() {
     echo "  bar-reload    Restart the Hub Bar (fix rendering inconsistencies)"
     echo "  fullscreen    Hide/show the Dock and menu bar (on/off/toggle)"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
+    echo "  cluster-pin   Keep the mini status bar (cluster overlay) open and draggable (on/off/toggle)"
     echo "  config        Get/set Hub options (e.g. claude_binary)"
     echo "  log           Show the Hub action log (path + open in less; --window opens GUI viewer)"
     echo "  testing-banner Show a 'stand by' HUD while an automated session tests Hub (start/stop/run)"
@@ -3226,6 +3227,31 @@ cmd_repo_prefix() {
     hub_bar_refresh
 }
 
+cmd_cluster_pin() {
+    local action="${1:-}"
+    local pin_file="$HUB_CONFIG_DIR/cluster_pinned"
+    local current="off"
+    [[ -f "$pin_file" ]] && current="$(cat "$pin_file" 2>/dev/null || echo off)"
+    [[ "$current" != "on" ]] && current="off"
+
+    case "$action" in
+        on)  current="on" ;;
+        off) current="off" ;;
+        toggle) [[ "$current" == "on" ]] && current="off" || current="on" ;;
+        "")
+            echo -e "${bold}Cluster overlay pinned:${reset} $current"
+            echo -e "  ${yellow}Usage: hub cluster-pin [on|off|toggle]${reset}"
+            return 0
+            ;;
+        *) fail "Usage: hub cluster-pin [on|off|toggle]"; return 1 ;;
+    esac
+
+    echo "$current" > "$pin_file"
+    if [[ "$current" == "off" ]]; then
+        rm -f "$HUB_CONFIG_DIR/cluster_position"
+    fi
+}
+
 cmd_bar_layout() {
     local action="${1:-}"
     local f="$HUB_CONFIG_DIR/layout_mode"
@@ -4059,6 +4085,7 @@ hub_main() {
         bar-refresh)  hub_bar_refresh ;;
         bar-up)       hub_bar_restart ;;
         repo-prefix)  cmd_repo_prefix "$@" ;;
+        cluster-pin)  cmd_cluster_pin "$@" ;;
         fullscreen)   cmd_fullscreen "$@" ;;
         # Compatibility no-op: older deployed AeroSpace configs may still call
         # this former automatic hook. Arrangement is now explicit-only.
