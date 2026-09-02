@@ -35,6 +35,11 @@ This is a simple repo. Use a concise title and one-paragraph body; no ticket num
 
 - `scripts/hub` - Main shell script (install, up, down, new, list, remove, rename, open, apps, tree commands)
 - `scripts/lib/apps_flow.sh` - Shared helpers for the app-picker and `hub apps` subcommand (sourced by scripts/hub)
+- `scripts/lib/swift_prebuilt.sh` - Fingerprint-checked prebuilt-binary install helpers (sourced by scripts/hub); lets `hub install` skip swiftc entirely when a matching binary is committed
+- `scripts/lib/swift_tools_manifest.sh` - Canonical list of Swift tools/sources that ship prebuilt binaries; shared by scripts/hub, scripts/build-swift-prebuilt.sh, and scripts/check-swift-prebuilt.sh
+- `scripts/build-swift-prebuilt.sh` - Rebuilds all `lib/prebuilt/` binaries (universal arm64+x86_64) from current sources; run after editing `lib/*.swift` and commit the result. Requires a local Swift toolchain
+- `scripts/check-swift-prebuilt.sh` - CI guard that fails if `lib/prebuilt/` is stale relative to `lib/*.swift`
+- `lib/prebuilt/` - Committed prebuilt Swift binaries + `.sha256` fingerprints, so ordinary installs need no Xcode/Command Line Tools. Local compilation is opt-in via `HUB_SHOULD_BUILD_SWIFT=1`
 - `config/app_presets.json` - Curated `CFBundleIdentifier` → launch-cmd database; deployed to `~/.config/hub/app_presets.json` by install
 - `config/aerospace.toml` - AeroSpace config template (`__HUB_SCRIPT__` placeholder replaced during install)
 - `commands/` - Generic Claude Code slash commands (for example, `hub-new.md`); deployed to `~/.claude/commands/` by install
@@ -62,6 +67,7 @@ This is a simple repo. Use a concise title and one-paragraph body; no ticket num
 - **Keyboard-first**: All UI must be fully navigable with keyboard alone. Mouse support is secondary. Dialogs should have tab navigation, enter to submit, escape to cancel, and keyboard shortcuts for actions.
 - **UI/CLI parity**: Every action available through a GUI dialog or keybinding must also have an equivalent CLI command. Commands without full flags show a GUI dialog; with all flags + `-y`, they execute silently. The same code path runs from both CLI and keybinding.
 - **Single-binary Swift UIs**: GUI elements are standalone Swift files compiled with `swiftc -O -framework Cocoa`. No Xcode project, no storyboards.
+- **No Xcode/CLT required for ordinary installs**: `hub install` installs prebuilt binaries from `lib/prebuilt/` when their fingerprint matches the current source. After editing any `lib/*.swift` file, run `scripts/build-swift-prebuilt.sh` and commit the refreshed `lib/prebuilt/` binaries; local compilation is otherwise opt-in via `HUB_SHOULD_BUILD_SWIFT=1`. `scripts/check-swift-prebuilt.sh` runs in CI to catch a stale `lib/prebuilt/`.
 - **Config is deployed, not symlinked**: `hub install` deploys configs to their destinations. `aerospace.toml` uses an `__HUB_SCRIPT__` placeholder substituted via sed.
 - **Worktree-safe development**: Unit and stubbed command tests must run against the worktree copy via `./scripts/hub`, isolated `HUB_CONFIG_DIR` / `HUB_RUNTIME_DIR`, and stubbed system tools. Do not validate worktree changes by reloading, screenshotting, or otherwise exercising the currently running Hub on a development laptop; live Hub behavior is covered by GitHub integration tests on the dedicated macOS runner.
 - **Harmless deploy**: Running `./scripts/hub install` is intended to be idempotent, but it deploys configs, compiles binaries, and may reload the running Hub. Do not use it as a routine local validation step from a worktree.

@@ -590,6 +590,21 @@ compile_swift() {
     fi
 
     mkdir -p "$(dirname "$bin")"
+
+    if [[ -n "$extra" ]]; then
+        if try_install_prebuilt_swift "$name" "$bin" "$src" "$extra"; then
+            success "$name installed from prebuilt: $bin"
+            return
+        fi
+    else
+        if try_install_prebuilt_swift "$name" "$bin" "$src"; then
+            success "$name installed from prebuilt: $bin"
+            return
+        fi
+    fi
+
+    swift_local_build_allowed "$name" || return
+
     if [[ -n "$extra" ]]; then
         # Multi-file Swift: only a file named main.swift may have top-level code.
         # Copy the main source to a temp main.swift so the compiler accepts it.
@@ -791,11 +806,22 @@ build_http_handler() {
 </plist>
 PLIST
 
-    local tmp_http_dir
-    tmp_http_dir="$(mktemp -d "$HUB_RUNTIME_DIR/swift-http.XXXXXX")"
-    cp "$src" "$tmp_http_dir/main.swift"
-    if swiftc -O -o "$bin" -framework Cocoa "$THEME_SRC" "$tmp_http_dir/main.swift" 2>/dev/null; then
+    local built=false
+    if try_install_prebuilt_swift "http_handler" "$bin" "$src" "$THEME_SRC"; then
+        built=true
+    elif swift_local_build_allowed "http_handler"; then
+        local tmp_http_dir
+        tmp_http_dir="$(mktemp -d "$HUB_RUNTIME_DIR/swift-http.XXXXXX")"
+        cp "$src" "$tmp_http_dir/main.swift"
+        if swiftc -O -o "$bin" -framework Cocoa "$THEME_SRC" "$tmp_http_dir/main.swift" 2>/dev/null; then
+            built=true
+        else
+            warn "$display_name.app compilation failed"
+        fi
         rm -rf "$tmp_http_dir"
+    fi
+
+    if [[ "$built" == true ]]; then
         if [[ "${HUB_SKIP_LAUNCH_SERVICES:-0}" != "1" ]]; then
             # Register with Launch Services so it appears in Default Web Browser list
             /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
@@ -814,9 +840,6 @@ PLIST
         else
             success "$display_name.app built and registered: $app"
         fi
-    else
-        rm -rf "$tmp_http_dir"
-        warn "$display_name.app compilation failed"
     fi
 }
 
@@ -999,19 +1022,27 @@ ${icon_key}</dict>
 </plist>
 PLIST
 
-    local tmp_dir
-    tmp_dir="$(mktemp -d "$HUB_RUNTIME_DIR/swift-hub-app.XXXXXX")"
-    cp "$src" "$tmp_dir/main.swift"
-    if swiftc -O -o "$bin" -framework Cocoa "$tmp_dir/main.swift" 2>/dev/null; then
+    local built=false
+    if try_install_prebuilt_swift "hub_toggle_app" "$bin" "$src"; then
+        built=true
+    elif swift_local_build_allowed "hub_toggle_app"; then
+        local tmp_dir
+        tmp_dir="$(mktemp -d "$HUB_RUNTIME_DIR/swift-hub-app.XXXXXX")"
+        cp "$src" "$tmp_dir/main.swift"
+        if swiftc -O -o "$bin" -framework Cocoa "$tmp_dir/main.swift" 2>/dev/null; then
+            built=true
+        else
+            warn "Hub.app compilation failed"
+        fi
         rm -rf "$tmp_dir"
+    fi
+
+    if [[ "$built" == true ]]; then
         if [[ "${HUB_SKIP_LAUNCH_SERVICES:-0}" != "1" ]]; then
             /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
                 -f "$app" 2>/dev/null || true
         fi
         success "Hub.app built: $app"
-    else
-        rm -rf "$tmp_dir"
-        warn "Hub.app compilation failed"
     fi
 }
 
@@ -1039,6 +1070,8 @@ pin_hub_dock_icon() {
 
 # --- Shared libraries ---
 
+SWIFT_PREBUILT_LIB="$SCRIPT_DIR/lib/swift_prebuilt.sh"
+[ -f "$SWIFT_PREBUILT_LIB" ] && source "$SWIFT_PREBUILT_LIB"
 APPS_FLOW_LIB="$SCRIPT_DIR/lib/apps_flow.sh"
 [ -f "$APPS_FLOW_LIB" ] && source "$APPS_FLOW_LIB"
 ACTIONS_FLOW_LIB="$SCRIPT_DIR/lib/actions_flow.sh"

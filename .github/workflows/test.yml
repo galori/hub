@@ -14,5 +14,8 @@ jobs:
       - name: Install bats-core
         run: brew install bats-core
 
+      - name: Check prebuilt Swift binaries are up to date
+        run: ./scripts/check-swift-prebuilt.sh
+
       - name: Run tests (skip Swift compile)
         run: SKIP_SWIFT_COMPILE=1 bats test/
