@@ -2,12 +2,10 @@
 
 <img src="assets/hub-logo.png" width="20%" align="right" style="padding:20px; ">
 
-A keyboard-first macOS workspace environment that orchestrates [AeroSpace](https://github.com/nikitabobko/AeroSpace) (tiling window manager) and [JankyBorders](https://github.com/FelixKratz/JankyBorders) (window borders) with a native Swift Hub Bar into a unified workspace manager.
+MacOS workspace environment to help focus one's attention on each task while multitasking with AI agents.
 
 <img src="assets/hub-screenshot.png">
 <br/>
-
-https://github.com/user-attachments/assets/931a020c-86c1-44b4-8c0b-ad8610f6ebd2
 
 <br clear="all">
 
