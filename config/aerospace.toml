@@ -187,6 +187,9 @@ run = ['exec-and-forget __HUB_SCRIPT__ nudge-float-window $AEROSPACE_WINDOW_ID']
     # hub: rename current workspace
     ctrl-alt-r = 'exec-and-forget __HUB_SCRIPT__ rename'
 
+    # hub: command palette (fuzzy workspace switcher)
+    ctrl-alt-p = 'exec-and-forget __HUB_SCRIPT__ palette'
+
     # hub: open apps. Cmd-F1/2/3 = force new window (primary). Ctrl-Alt-1/2/3 = smart focus-or-launch.
     ctrl-alt-o = 'exec-and-forget __HUB_SCRIPT__ open'
     cmd-f1 = 'exec-and-forget __HUB_SCRIPT__ open 1 --force'

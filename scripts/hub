@@ -55,6 +55,9 @@ APP_SWITCHER_SRC="$LIB_DIR/app_switcher.swift"
 : "${APP_SWITCHER_BIN:=$HUB_CONFIG_DIR/app_switcher}"
 : "${APP_SWITCHER_LOCK_DIR:=$HUB_CONFIG_DIR/.app-switcher-lock}"
 : "${APP_SWITCHER_RESULT:=$HUB_RUNTIME_DIR/app-switcher-result}"
+COMMAND_PALETTE_SRC="$LIB_DIR/command_palette.swift"
+: "${COMMAND_PALETTE_BIN:=$HUB_CONFIG_DIR/command_palette}"
+: "${COMMAND_PALETTE_RESULT:=$HUB_RUNTIME_DIR/command-palette-result}"
 : "${PREV_BROWSER_FILE:=$HUB_CONFIG_DIR/prev_browser}"
 HUB_BROWSER_ID="sh.hub.http-handler"
 : "${WORKSPACES_FILE:=$HUB_CONFIG_DIR/workspaces.json}"
@@ -125,6 +128,7 @@ print_usage() {
     echo "  actions       Manage custom actions shown in the Hub Bar overlay"
   echo "  open          Open configured apps in current workspace"
     echo "  app-switcher  Cmd-Tab-style cycle over launch-bar apps and custom actions (Alt-N; hold Alt, tap N)"
+    echo "  palette       Fuzzy-search modal to jump to a workspace by name/id (Ctrl-Alt-P)"
     echo "  keys          List all AeroSpace key bindings (main and service mode)"
     echo "  dashboard     Show status and key bindings in a full-screen modal"
     echo "  bar-layout    Pills shrink to fit one row, or expand bar height (shrink/expand/toggle)"
@@ -457,6 +461,27 @@ cmd_app_switcher() {
     fi
 }
 
+# --- Command palette: fuzzy-search modal for jumping to a workspace by name/id ---
+# Runs the Swift modal to completion, then switches to the chosen workspace_id
+# exactly like pressing Alt-<id> would. No-op if the binary is missing or the
+# user cancels.
+cmd_palette() {
+    [[ -x "$COMMAND_PALETTE_BIN" ]] || return 0
+
+    rm -f "$COMMAND_PALETTE_RESULT"
+    "$COMMAND_PALETTE_BIN"
+
+    local ws_id=""
+    if [[ -f "$COMMAND_PALETTE_RESULT" ]]; then
+        ws_id="$(cat "$COMMAND_PALETTE_RESULT" 2>/dev/null || true)"
+    fi
+    rm -f "$COMMAND_PALETTE_RESULT"
+
+    if [[ -n "$ws_id" ]]; then
+        aerospace workspace "$ws_id"
+    fi
+}
+
 # --- Menu bar toggle (AppleScript, non-blocking) ---
 
 MENU_BAR_PID=""
@@ -636,6 +661,7 @@ compile_all() {
     compile_swift "output_window"        "$OUTPUT_WINDOW_SRC" "$OUTPUT_WINDOW_BIN" "$THEME_SRC"
     compile_swift "progress_banner"      "$PROGRESS_BANNER_SRC" "$PROGRESS_BANNER_BIN" "$THEME_SRC"
     compile_swift "app_switcher"         "$APP_SWITCHER_SRC"  "$APP_SWITCHER_BIN"  "$THEME_SRC"
+    compile_swift "command_palette"      "$COMMAND_PALETTE_SRC" "$COMMAND_PALETTE_BIN" "$THEME_SRC"
     compile_swift "log_viewer"           "$LOG_VIEWER_SRC"    "$LOG_VIEWER_BIN"    "$THEME_SRC"
     compile_swift "hub_bar"           "$HUB_BAR_SRC"    "$HUB_BAR_BIN"    "$THEME_SRC"
     # CLI-only helpers — no UI, no theme
@@ -4105,6 +4131,7 @@ hub_main() {
         open)     cmd_open "$@" ;;
         open-url) cmd_open_url "$@" ;;
         app-switcher) cmd_app_switcher "$@" ;;
+        palette)  cmd_palette "$@" ;;
         up)       cmd_up ;;
         down)     cmd_down ;;
         toggle)   cmd_toggle ;;

@@ -96,3 +96,8 @@ compile_cli_file() {
     run compile_ui_file "$LIB_DIR/hub_bar.swift"
     [[ "$status" -eq 0 ]]
 }
+
+@test "command_palette.swift compiles without errors" {
+    run compile_ui_file "$LIB_DIR/command_palette.swift"
+    [[ "$status" -eq 0 ]]
+}
