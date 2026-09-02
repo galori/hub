@@ -13,6 +13,7 @@ SWIFT_TOOLS_MANIFEST=(
     "output_window|output_window.swift|theme.swift"
     "progress_banner|progress_banner.swift|theme.swift"
     "app_switcher|app_switcher.swift|theme.swift"
+    "command_palette|command_palette.swift|theme.swift"
     "log_viewer|log_viewer.swift|theme.swift"
     "hub_bar|hub_bar.swift|theme.swift"
     "browser_ctl|browser_ctl.swift|"
