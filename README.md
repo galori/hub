@@ -156,4 +156,11 @@ hub open 2         # open just the second configured app (e.g., Safari)
 - [AeroSpace](https://github.com/nikitabobko/AeroSpace) - MacOS Spaces alternative for managing workspaces
 - [JankyBorders](https://github.com/FelixKratz/JankyBorders) - window borders
 - macOS with Homebrew
-- Swift compiler (included with Xcode Command Line Tools)
+
+`hub install` ships prebuilt Swift binaries (`lib/prebuilt/`) for its GUI/CLI
+helpers, so Xcode or the Command Line Tools are **not** required for
+ordinary installs. If you're changing a `lib/*.swift` source and want to
+compile it locally instead, set `HUB_SHOULD_BUILD_SWIFT=1` (requires a local
+Swift compiler), then run `scripts/build-swift-prebuilt.sh` and commit the
+refreshed `lib/prebuilt/` binaries so `hub install` picks them up for
+everyone else.
