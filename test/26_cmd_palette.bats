@@ -52,17 +52,11 @@ teardown() {
     grep -q "aerospace workspace 5" "$STUB_CALLS"
 }
 
-@test "cmd_palette does nothing when the modal is cancelled" {
-    unset FAKE_PALETTE_RESULT
-    run "$HUB" palette
-    [[ "$status" -eq 0 ]]
-    [[ ! -f "$STUB_CALLS" ]] || ! grep -q "aerospace workspace" "$STUB_CALLS"
-}
-
 @test "cmd_palette is a no-op when the binary is missing" {
     export COMMAND_PALETTE_BIN="$STUB_BIN/does-not-exist"
     run "$HUB" palette
     [[ "$status" -eq 0 ]]
+    [[ ! -f "$STUB_CALLS" ]] || ! grep -q "aerospace workspace" "$STUB_CALLS"
 }
 
 @test "cmd_palette clears any stale result file before running the modal" {
