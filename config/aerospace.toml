@@ -209,7 +209,7 @@ run = ['exec-and-forget __HUB_SCRIPT__ nudge-float-window $AEROSPACE_WINDOW_ID']
     # hub: reload Hub Bar
     ctrl-alt-b = 'exec-and-forget __HUB_SCRIPT__ bar-reload'
     # hub: toggle repo name prefix on workspace labels
-    ctrl-alt-p = 'exec-and-forget __HUB_SCRIPT__ repo-prefix toggle'
+    ctrl-alt-shift-p = 'exec-and-forget __HUB_SCRIPT__ repo-prefix toggle'
 
     # hub: open action log viewer window
     ctrl-alt-l = 'exec-and-forget __HUB_SCRIPT__ log --window'
