@@ -52,6 +52,23 @@ teardown() {
     grep -q "aerospace workspace 5" "$STUB_CALLS"
 }
 
+@test "cmd_palette exports COMMAND_PALETTE_RESULT so the modal binary sees the same path it reads back" {
+    # The binary is a separate process; it only sees COMMAND_PALETTE_RESULT if
+    # hub explicitly exports it. Unset here so this test relies solely on
+    # hub's own export, not on setup()'s convenience export above.
+    unset COMMAND_PALETTE_RESULT
+    export COMMAND_PALETTE_RESULT="$HUB_RUNTIME_DIR/command-palette-result"
+    cat > "$STUB_BIN/command_palette" <<'SH'
+#!/usr/bin/env bash
+printf '%s' "5" > "$COMMAND_PALETTE_RESULT"
+exit 0
+SH
+    chmod +x "$STUB_BIN/command_palette"
+
+    env -u COMMAND_PALETTE_RESULT "$HUB" palette
+    grep -q "aerospace workspace 5" "$STUB_CALLS"
+}
+
 @test "cmd_palette is a no-op when the binary is missing" {
     export COMMAND_PALETTE_BIN="$STUB_BIN/does-not-exist"
     run "$HUB" palette

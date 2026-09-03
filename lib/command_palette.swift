@@ -153,6 +153,7 @@ cv.addSubview(closeBtn)
 let searchField: NSTextField = {
     let f = StyledField()
     f.cell = PaddedCell()
+    f.stringValue = ""
     f.translatesAutoresizingMaskIntoConstraints = false
     f.isEditable = true
     f.isBordered = false
@@ -179,6 +180,8 @@ scrollView.translatesAutoresizingMaskIntoConstraints = false
 scrollView.drawsBackground = false
 scrollView.hasVerticalScroller = true
 scrollView.autohidesScrollers = true
+scrollView.scrollerStyle = .overlay
+scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 6)
 cv.addSubview(scrollView)
 
 let listContainer = NSView()
@@ -270,7 +273,7 @@ class PaletteListManager: NSObject, NSTextFieldDelegate {
         highlightedIndex = index
         if index >= 0 && index < rows.count {
             let row = rows[index]
-            row.button.layer?.backgroundColor = Theme.Color.insetHighlight.cgColor
+            row.button.layer?.backgroundColor = Theme.Color.accentBlue.withAlphaComponent(0.28).cgColor
             row.button.attributedTitle = rowTitle(row.entry, highlighted: true)
             row.button.superview?.enclosingScrollView?.scrollToVisible(row.button.frame)
         }
@@ -300,7 +303,7 @@ NSLayoutConstraint.activate([
 
     searchField.topAnchor.constraint(equalTo: cv.topAnchor, constant: padV),
     searchField.leadingAnchor.constraint(equalTo: cv.leadingAnchor, constant: padH),
-    searchField.trailingAnchor.constraint(equalTo: cv.trailingAnchor, constant: -padH),
+    searchField.trailingAnchor.constraint(equalTo: closeBtn.leadingAnchor, constant: -12),
     searchField.heightAnchor.constraint(equalToConstant: Theme.Metric.inputH),
 
     scrollView.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 14),
@@ -334,6 +337,7 @@ win.makeKeyAndOrderFront(nil)
 DispatchQueue.main.async {
     app.activate(ignoringOtherApps: true)
     win.makeFirstResponder(searchField)
+    listMgr.setHighlight(0)
     NSAnimationContext.runAnimationGroup { ctx in
         ctx.duration = 0.15
         win.animator().alphaValue = 1
