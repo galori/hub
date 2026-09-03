@@ -183,17 +183,8 @@ cv.addSubview(scrollView)
 
 let listContainer = NSView()
 listContainer.translatesAutoresizingMaskIntoConstraints = false
-let clipView = NSView()
-clipView.translatesAutoresizingMaskIntoConstraints = false
-clipView.addSubview(listContainer)
-scrollView.documentView = clipView
-NSLayoutConstraint.activate([
-    clipView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
-    listContainer.topAnchor.constraint(equalTo: clipView.topAnchor),
-    listContainer.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
-    listContainer.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
-    listContainer.bottomAnchor.constraint(lessThanOrEqualTo: clipView.bottomAnchor),
-])
+scrollView.documentView = listContainer
+listContainer.widthAnchor.constraint(equalTo: scrollView.widthAnchor).isActive = true
 
 // ── Filtering + highlight management ──────────────────────────────────────────
 
@@ -201,7 +192,6 @@ class PaletteListManager: NSObject, NSTextFieldDelegate {
     let allWorkspaces: [WorkspaceEntry]
     let container: NSView
     let field: NSTextField
-    var debounceTimer: Timer?
     var rows: [(entry: WorkspaceEntry, button: NSButton)] = []
     var highlightedIndex: Int = -1
 
@@ -213,15 +203,13 @@ class PaletteListManager: NSObject, NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ obj: Notification) {
-        debounceTimer?.invalidate()
+        // The workspace list is small and already in memory, so filtering is
+        // effectively instant — no debounce needed.
         let query = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        debounceTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            let filtered = query.isEmpty ? self.allWorkspaces : self.allWorkspaces.filter {
-                $0.name.lowercased().contains(query) || $0.id.lowercased().contains(query)
-            }
-            self.rebuildList(filtered: filtered)
+        let filtered = query.isEmpty ? allWorkspaces : allWorkspaces.filter {
+            $0.name.lowercased().contains(query) || $0.id.lowercased().contains(query)
         }
+        rebuildList(filtered: filtered)
     }
 
     func rebuildList(filtered: [WorkspaceEntry]? = nil) {
@@ -238,9 +226,8 @@ class PaletteListManager: NSObject, NSTextFieldDelegate {
             btn.layer?.cornerRadius = Theme.Radius.keycap
             btn.alignment = .left
             btn.attributedTitle = rowTitle(ws, highlighted: false)
-            let action = PaletteRowAction(entry: ws, listMgr: self)
-            btn.target = action; btn.action = #selector(PaletteRowAction.pick(_:))
-            objc_setAssociatedObject(btn, "pa\(i)", action, .OBJC_ASSOCIATION_RETAIN)
+            btn.tag = i
+            btn.target = self; btn.action = #selector(pick(_:))
             container.addSubview(btn)
             rows.append((entry: ws, button: btn))
             NSLayoutConstraint.activate([
@@ -293,16 +280,8 @@ class PaletteListManager: NSObject, NSTextFieldDelegate {
         guard highlightedIndex >= 0 && highlightedIndex < rows.count else { return }
         dismiss(chosenId: rows[highlightedIndex].entry.id)
     }
-}
 
-class PaletteRowAction: NSObject {
-    let entry: WorkspaceEntry
-    weak var listMgr: PaletteListManager?
-    init(entry: WorkspaceEntry, listMgr: PaletteListManager) {
-        self.entry = entry
-        self.listMgr = listMgr
-    }
-    @objc func pick(_ sender: Any) { dismiss(chosenId: entry.id) }
+    @objc func pick(_ sender: NSButton) { dismiss(chosenId: rows[sender.tag].entry.id) }
 }
 
 let listMgr = PaletteListManager(workspaces: allWorkspaces, container: listContainer, field: searchField)
