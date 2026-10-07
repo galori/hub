@@ -195,9 +195,18 @@ JSON
     [[ "$output" == *"hello from $REPO_DIR"* ]]
 }
 
-@test "default web action passes hub and workspace to the web script" {
-    command="$(jq -r '.web.command' "$REPO_DIR/config/action_presets.json")"
-    [[ "$command" == "{actions_dir}/web {hub} \"{workspace}\"" ]]
+@test "default web action preset runs the web script with hub and workspace" {
+    export ACTIONS_DIR="$HOME/stub-actions"
+    mkdir -p "$ACTIONS_DIR"
+    cat > "$ACTIONS_DIR/web" <<SH
+#!/usr/bin/env bash
+printf '%s|%s' "\$1" "\$2" > "$HOME/web_args"
+SH
+    chmod +x "$ACTIONS_DIR/web"
+    jq -n --argjson p "$(jq '.web' "$REPO_DIR/config/action_presets.json")" '[$p]' > "$ACTIONS_FILE"
+    run "$HUB" actions run web --focused
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/web_args")" == "$HUB|1" ]]
 }
 
 @test "hub actions help documents hub placeholder" {
@@ -317,4 +326,32 @@ SH
     run "$REPO_DIR/default-actions/pr"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"No pull request"* ]]
+}
+
+@test "pr default action opens the pull request URL" {
+    stub_open_recording
+    make_stub gh "https://github.com/o/r/pull/1" 0
+    run "$REPO_DIR/default-actions/pr"
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://github.com/o/r/pull/1" ]]
+    [[ "$output" == *"Opening the PR at https://github.com/o/r/pull/1"* ]]
+}
+
+@test "web default action fails when HUB_WEB_URL_CMD prints no URL" {
+    stub_open_recording
+    export HUB_WEB_URL_CMD="true"
+    run "$REPO_DIR/default-actions/web"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"produced no URL"* ]]
+    [[ ! -f "$HOME/opened_url" ]]
+}
+
+@test "web default action falls back to open when the hub script fails" {
+    stub_open_recording
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$HOME/fake-hub"
+    chmod +x "$HOME/fake-hub"
+    export HUB_WEB_URL_CMD="echo https://app.test:1234"
+    run "$REPO_DIR/default-actions/web" "$HOME/fake-hub" 7
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://app.test:1234" ]]
 }
