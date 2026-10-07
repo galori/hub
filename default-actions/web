@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Open the current worktree's web app in the Hub workspace manager.
+#
+# Usage: web [hub-script [workspace-id]]
+#
+# Requires HUB_WEB_URL_CMD, a command that prints the URL for the current
+# directory (run from the worktree). Export it from your shell profile
+# (~/.zshrc), e.g.:
+#   export HUB_WEB_URL_CMD="$HOME/workspace/myapp/scripts/worktree url"
+
+if [ -z "${HUB_WEB_URL_CMD:-}" ]; then
+    echo "HUB_WEB_URL_CMD is not set. Export a command that prints this worktree's URL, e.g. in ~/.zshrc:"
+    echo "  export HUB_WEB_URL_CMD=\"\$HOME/workspace/myapp/scripts/worktree url\""
+    exit 1
+fi
+
+hub_script="${1:-}"
+workspace="${2:-}"
+
+url=$(bash -c "$HUB_WEB_URL_CMD")
+
+if [ -z "$url" ]; then
+    echo "HUB_WEB_URL_CMD produced no URL."
+    exit 1
+fi
+
+if [ -n "$hub_script" ] && [ -n "$workspace" ]; then
+    "$hub_script" open-url "$url" "$workspace" || open "$url"
+else
+    open "$url"
+fi

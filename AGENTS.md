@@ -42,6 +42,8 @@ This is a simple repo. Use a concise title and one-paragraph body; no ticket num
 - `lib/prebuilt/` - Committed prebuilt Swift binaries + `.sha256` fingerprints, so ordinary installs need no Xcode/Command Line Tools. Local compilation is opt-in via `HUB_SHOULD_BUILD_SWIFT=1`
 - `config/app_presets.json` - Curated `CFBundleIdentifier` → launch-cmd database; deployed to `~/.config/hub/app_presets.json` by install
 - `config/aerospace.toml` - AeroSpace config template (`__HUB_SCRIPT__` placeholder replaced during install)
+- `config/action_presets.json` - Shipped `hub actions` presets (`pr`, `jira`, `web`); `{actions_dir}` expands to the deployed scripts dir
+- `default-actions/` - Generic scripts behind the default actions; deployed to `~/.config/hub/actions/` by install. Anything user-specific comes from env vars (`HUB_JIRA_HOST`, `HUB_WEB_URL_CMD`) that the script must error on when unset — never hardcode hosts or paths here
 - `commands/` - Generic Claude Code slash commands (for example, `hub-new.md`); deployed to `~/.claude/commands/` by install
 - `commands.local/` - Gitignored, user-private slash commands (company-specific, etc.); also deployed to `~/.claude/commands/` by install
 - `lib/theme.swift` - Shared Cocoa theme/helpers compiled alongside UI binaries

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Open the pull request for the current git branch in a browser.
+
+url=$(gh pr view --json url --jq '.url' 2>/dev/null)
+
+if [ -z "$url" ]; then
+    echo "No pull request found in the current directory."
+    exit 1
+fi
+
+open "$url"
+echo "Opening the PR at $url in a browser"

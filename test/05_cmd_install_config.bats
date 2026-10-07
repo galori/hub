@@ -168,17 +168,18 @@ JSON
     [[ "$(jq -r 'map(.slug) | join(",")' "$ACTIONS_FILE")" == "custom" ]]
 }
 
-@test "install updates legacy default web action command" {
-    mkdir -p "$(dirname "$ACTIONS_FILE")"
-    cat > "$ACTIONS_FILE" <<'JSON'
-[
-  {"slug":"web","description":"Open web","command":"/Users/gall/workspace/dgapp/scripts/worktree open"}
-]
-JSON
+@test "install deploys executable default action scripts" {
+    export ACTIONS_DIR="$HOME/.config/hub/actions"
     run env HUB_NONINTERACTIVE=1 "$HUB_SCRIPT" install --no-reload --no-shell-integration --no-launch-services --no-default-browser-change
     [[ "$status" -eq 0 ]]
-    command="$(jq -r '.[] | select(.slug == "web") | .command' "$ACTIONS_FILE")"
-    [[ "$command" == *"{hub} open-url"* ]]
+    for slug in pr jira web; do
+        [[ -x "$ACTIONS_DIR/$slug" ]]
+    done
+}
+
+@test "default action presets contain no machine- or company-specific values" {
+    run grep -rnE '/Users/|datagrail' "$REPO_DIR/default-actions" "$REPO_DIR/config/action_presets.json"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "install isolated flags avoid live reloads and shell integration" {

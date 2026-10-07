@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Helpers for custom actions and the `hub actions` CLI.
-# Sourced by scripts/hub; relies on its env (ACTIONS_FILE, ACTION_PRESETS_FILE, HUB_CONFIG_DIR).
+# Sourced by scripts/hub; relies on its env (ACTIONS_FILE, ACTION_PRESETS_FILE, ACTIONS_DIR, HUB_CONFIG_DIR).
 
 ACTIONS_FILE="${ACTIONS_FILE:-$HOME/.config/hub/actions.json}"
 ACTION_PRESETS_FILE="${ACTION_PRESETS_FILE:-$HOME/.config/hub/action_presets.json}"
+ACTIONS_DIR="${ACTIONS_DIR:-$HOME/.config/hub/actions}"
 
 actions_validate_slug() {
     local slug="$1"
@@ -191,8 +192,10 @@ actions_run() {
 
     action_cmd="${action_cmd//\{path\}/$ws_path}"
     action_cmd="${action_cmd//\{workspace\}/$ws_id}"
-    local hub_script
+    local hub_script actions_dir
     printf -v hub_script '%q' "$REPO_DIR/scripts/hub"
+    printf -v actions_dir '%q' "$ACTIONS_DIR"
+    action_cmd="${action_cmd//\{actions_dir\}/$actions_dir}"
     action_cmd="${action_cmd//\{hub\}/$hub_script}"
 
     hub_log_if_available "INPUT" "run action $slug on workspace ${ws_id:-unknown} path $ws_path"
