@@ -264,3 +264,24 @@ SH
     [[ "$output" == *"No git remote 'origin' found"* ]]
     [[ ! -f "$HOME/opened_url" ]]
 }
+
+assert_repo_action_url() {
+    local remote="$1" expected="$2"
+    rm -f "$STUB_BIN/git"
+    git init -q "$HOME/rootrepo"
+    git -C "$HOME/rootrepo" remote add origin "$remote"
+    run repo_action_url "$HOME/rootrepo"
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "$expected" ]]
+    [[ "$output" != *"tok"* ]]
+}
+
+@test "repo action strips credentials from https remotes" {
+    assert_repo_action_url "https://user:tok@github.com/galori/hub.git" "https://github.com/galori/hub"
+}
+
+@test "repo action handles ssh:// remotes with and without a port" {
+    assert_repo_action_url "ssh://git@github.com/galori/hub.git" "https://github.com/galori/hub"
+    rm -rf "$HOME/rootrepo"
+    assert_repo_action_url "ssh://git@git.example.com:2222/galori/hub.git" "https://git.example.com/galori/hub"
+}

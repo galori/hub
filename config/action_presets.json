@@ -17,6 +17,6 @@
   "repo": {
     "slug": "repo",
     "description": "Open the repository for the current workspace (worktree or root) in a browser",
-    "command": "remote=$(git remote get-url origin 2>/dev/null); if [ -z \"$remote\" ]; then echo \"No git remote 'origin' found in the current directory.\"; exit 1; fi; url=$(printf \"%s\" \"$remote\" | sed -E 's#^(ssh://)?git@([^:/]+)[:/]#https://\\2/#; s#^ssh://([^/]+)/#https://\\1/#; s#\\.git/?$##'); open \"$url\"; echo \"Opening the repo at $url in a browser\""
+    "command": "remote=$(git remote get-url origin 2>/dev/null); if [ -z \"$remote\" ]; then echo \"No git remote 'origin' found in the current directory.\"; exit 1; fi; url=$(printf \"%s\" \"$remote\" | sed -E 's#^(https?://)[^@/]+@#\\1#; s#^ssh://([^@/]+@)?([^:/]+)(:[0-9]+)?/#https://\\2/#; s#^git@([^:/]+):#https://\\1/#; s#\\.git/?$##'); open \"$url\"; echo \"Opening the repo at $url in a browser\""
   }
 }
