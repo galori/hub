@@ -234,7 +234,6 @@ echo "\$*" > "$HOME/opened_url"
 SH
     chmod +x "$STUB_BIN/open"
     (cd "$dir" && bash -c "$command")
-    cat "$HOME/opened_url"
 }
 
 @test "repo action opens the remote repo from a root checkout (ssh remote)" {
@@ -243,8 +242,7 @@ SH
     git -C "$HOME/rootrepo" remote add origin git@github.com:galori/hub.git
     run repo_action_url "$HOME/rootrepo"
     [[ "$status" -eq 0 ]]
-    [[ "$output" == *"https://github.com/galori/hub" ]]
-    [[ "$output" != *".git" ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://github.com/galori/hub" ]]
 }
 
 @test "repo action opens the remote repo from a linked worktree (https remote)" {
@@ -255,8 +253,7 @@ SH
     git -C "$HOME/rootrepo" worktree add -q "$HOME/rootrepo-wt" -b feature
     run repo_action_url "$HOME/rootrepo-wt"
     [[ "$status" -eq 0 ]]
-    [[ "$output" == *"https://github.com/galori/hub" ]]
-    [[ "$output" != *".git" ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://github.com/galori/hub" ]]
 }
 
 @test "repo action fails outside a git repository" {
@@ -264,4 +261,6 @@ SH
     mkdir -p "$HOME/plain"
     run repo_action_url "$HOME/plain"
     [[ "$status" -ne 0 ]]
+    [[ "$output" == *"No git remote 'origin' found"* ]]
+    [[ ! -f "$HOME/opened_url" ]]
 }
