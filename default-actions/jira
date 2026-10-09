@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Open the Jira ticket matching the current branch prefix (e.g. ABC-123-fix-thing).
+#
+# Requires HUB_JIRA_HOST, your Jira hostname (e.g. yourcompany.atlassian.net).
+# Export it from your shell profile (~/.zshrc).
+
+if [ -z "${HUB_JIRA_HOST:-}" ]; then
+    echo "HUB_JIRA_HOST is not set. Export your Jira hostname, e.g. in ~/.zshrc:"
+    echo "  export HUB_JIRA_HOST=yourcompany.atlassian.net"
+    exit 1
+fi
+
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+
+if [ -z "$branch" ]; then
+    echo "Not in a git repository."
+    exit 1
+fi
+
+ticket=$(printf '%s' "$branch" | grep -oE '^[A-Z]+-[0-9]+')
+
+if [ -z "$ticket" ]; then
+    echo "No Jira ticket prefix found in branch name: $branch"
+    exit 1
+fi
+
+open "https://${HUB_JIRA_HOST}/browse/${ticket}"

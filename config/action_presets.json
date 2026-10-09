@@ -2,17 +2,17 @@
   "pr": {
     "slug": "pr",
     "description": "Open the pull request for the current git branch",
-    "command": "url=$(gh pr view --json url --jq '.url'); if [ -z \"$url\" ]; then echo \"No pull request found in the current directory.\"; exit 1; fi; open \"$url\"; echo \"Opening the PR at $url in a browser\""
+    "command": "{actions_dir}/pr"
   },
   "jira": {
     "slug": "jira",
-    "description": "Open the Jira ticket matching the current branch prefix",
-    "command": "branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); if [ -z \"$branch\" ]; then echo \"Not in a git repository.\"; exit 1; fi; ticket=$(printf \"%s\" \"$branch\" | grep -oE '^[A-Z]+-[0-9]+'); if [ -z \"$ticket\" ]; then echo \"No Jira ticket prefix found in branch name: $branch\"; exit 1; fi; url=\"https://datagrail.atlassian.net/browse/$ticket\"; open \"$url\""
+    "description": "Open the Jira ticket matching the current branch prefix (needs HUB_JIRA_HOST)",
+    "command": "{actions_dir}/jira"
   },
   "web": {
     "slug": "web",
-    "description": "Open the current worktree in the workspace manager",
-    "command": "url=$(/Users/gall/workspace/dgapp/scripts/worktree url); if [ -z \"$url\" ]; then exit 1; fi; {hub} open-url \"$url\" \"{workspace}\" || open \"$url\""
+    "description": "Open the current worktree in the workspace manager (needs HUB_WEB_URL_CMD)",
+    "command": "{actions_dir}/web {hub} \"{workspace}\""
   },
   "repo": {
     "slug": "repo",

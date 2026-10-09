@@ -70,6 +70,8 @@ APP_PRESETS_SRC="$CONFIG_DIR/app_presets.json"
 : "${APP_PRESETS_FILE:=$HUB_CONFIG_DIR/app_presets.json}"
 ACTION_PRESETS_SRC="$CONFIG_DIR/action_presets.json"
 : "${ACTION_PRESETS_FILE:=$HUB_CONFIG_DIR/action_presets.json}"
+ACTION_SCRIPTS_SRC="$REPO_DIR/default-actions"
+: "${ACTIONS_DIR:=$HUB_CONFIG_DIR/actions}"
 APPLESCRIPT="$LIB_DIR/hide_menu_bar.applescript"
 LOG_VIEWER_SRC="$LIB_DIR/log_viewer.swift"
 : "${LOG_VIEWER_BIN:=$HUB_CONFIG_DIR/log_viewer}"
@@ -83,7 +85,7 @@ LOG_VIEWER_SRC="$LIB_DIR/log_viewer.swift"
 : "${HUB_OVERLAY_PIDFILE:=$HUB_CONFIG_DIR/overlay.pid}"
 export HUB_HOME HUB_CONFIG_DIR HUB_RUNTIME_DIR HUB_APPLICATIONS_DIR
 export HUB_NEW_WORKSPACE_RESULT HUB_RENAME_RESULT HUB_CONFIRM_STATE APP_SWITCHER_RESULT COMMAND_PALETTE_RESULT
-export APPS_FILE ACTIONS_FILE ACTION_PRESETS_FILE ICONS_DIR
+export APPS_FILE ACTIONS_FILE ACTION_PRESETS_FILE ACTIONS_DIR ICONS_DIR
 
 # Hub Bar heights (px) — MUST match barHeightNormal/barHeightTall in lib/hub_bar.swift.
 HUB_BAR_HEIGHT_NORMAL=40
@@ -1210,6 +1212,12 @@ deploy_app_presets() {
 
 deploy_action_presets() {
     mkdir -p "$(dirname "$ACTIONS_FILE")"
+    if [[ -d "$ACTION_SCRIPTS_SRC" ]]; then
+        mkdir -p "$ACTIONS_DIR"
+        cp "$ACTION_SCRIPTS_SRC"/* "$ACTIONS_DIR"/
+        chmod +x "$ACTIONS_DIR"/*
+        success "Default action scripts deployed to $ACTIONS_DIR"
+    fi
     if [[ -f "$ACTION_PRESETS_SRC" ]]; then
         cp "$ACTION_PRESETS_SRC" "$ACTION_PRESETS_FILE"
         success "Action presets deployed to $ACTION_PRESETS_FILE"
@@ -1223,24 +1231,6 @@ deploy_action_presets() {
         fi
         success "Created default actions.json"
     else
-        local legacy_web_command="/Users/gall/workspace/dgapp/scripts/worktree open"
-        local current_web_command=""
-        if [[ -f "$ACTION_PRESETS_FILE" ]]; then
-            current_web_command="$(jq -r '.web.command // empty' "$ACTION_PRESETS_FILE" 2>/dev/null || true)"
-        fi
-        if [[ -n "$current_web_command" ]] && jq -e --arg old "$legacy_web_command" '.[] | select(.slug == "web" and .command == $old)' "$ACTIONS_FILE" >/dev/null 2>&1; then
-            local actions_tmp
-            actions_tmp="$(mktemp "${ACTIONS_FILE}.XXXXXX")"
-            if jq --arg old "$legacy_web_command" --arg new "$current_web_command" \
-                '[.[] | if .slug == "web" and .command == $old then .command = $new else . end]' \
-                "$ACTIONS_FILE" > "$actions_tmp"; then
-                mv "$actions_tmp" "$ACTIONS_FILE"
-                success "Updated default web action command"
-            else
-                rm -f "$actions_tmp"
-                warn "Could not update default web action command"
-            fi
-        fi
         info "actions.json already exists — manage actions with: hub actions list / add / edit / remove"
     fi
 }
@@ -3935,7 +3925,7 @@ cmd_actions() {
             echo "  run <slug> --focused  Run from the focused Hub workspace"
             echo "  <slug>                Shortcut for run <slug>"
             echo
-            echo "Placeholders: {path} = workspace folder, {workspace} = workspace ID, {hub} = Hub CLI script."
+            echo "Placeholders: {path} = workspace folder, {workspace} = workspace ID, {hub} = Hub CLI script, {actions_dir} = deployed default-action scripts."
             ;;
         *)
             if [[ $# -eq 0 ]]; then

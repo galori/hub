@@ -195,11 +195,18 @@ JSON
     [[ "$output" == *"hello from $REPO_DIR"* ]]
 }
 
-@test "default web action routes resolved worktree URL through hub open-url" {
-    command="$(jq -r '.web.command' "$REPO_DIR/config/action_presets.json")"
-    [[ "$command" == *"worktree url"* ]]
-    [[ "$command" == *"{hub} open-url"* ]]
-    [[ "$command" == *"{workspace}"* ]]
+@test "default web action preset runs the web script with hub and workspace" {
+    export ACTIONS_DIR="$HOME/stub-actions"
+    mkdir -p "$ACTIONS_DIR"
+    cat > "$ACTIONS_DIR/web" <<SH
+#!/usr/bin/env bash
+printf '%s|%s' "\$1" "\$2" > "$HOME/web_args"
+SH
+    chmod +x "$ACTIONS_DIR/web"
+    jq -n --argjson p "$(jq '.web' "$REPO_DIR/config/action_presets.json")" '[$p]' > "$ACTIONS_FILE"
+    run "$HUB" actions run web --focused
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/web_args")" == "$HUB|1" ]]
 }
 
 @test "hub actions help documents hub placeholder" {
@@ -222,6 +229,131 @@ JSON
     run "$HUB" actions add "bad slug" --command "echo bad"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"Invalid action slug"* ]]
+}
+
+# --- shipped default actions ---
+
+run_default_action() {
+    local slug="$1"; shift
+    (cd "$ACTION_REPO" && "$REPO_DIR/default-actions/$slug" "$@")
+}
+
+stub_open_recording() {
+    cat > "$STUB_BIN/open" <<SH
+#!/usr/bin/env bash
+echo "\$*" > "$HOME/opened_url"
+SH
+    chmod +x "$STUB_BIN/open"
+}
+
+setup_action_repo() {
+    rm -f "$STUB_BIN/git"
+    ACTION_REPO="$HOME/actionrepo"
+    git init -q "$ACTION_REPO"
+    git -C "$ACTION_REPO" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+    git -C "$ACTION_REPO" checkout -q -b "${1:-main}"
+}
+
+@test "run substitutes {actions_dir} in action commands" {
+    export ACTIONS_DIR="$HOME/my-actions"
+    cat > "$ACTIONS_FILE" <<'JSON'
+[{"slug":"dir","command":"printf '%s' '{actions_dir}'"}]
+JSON
+    run "$HUB" actions run dir
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"/my-actions"* ]]
+}
+
+@test "jira default action errors when HUB_JIRA_HOST is unset" {
+    setup_action_repo "ABC-123-thing"
+    stub_open_recording
+    run env -u HUB_JIRA_HOST bash -c "cd '$ACTION_REPO' && '$REPO_DIR/default-actions/jira'"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"HUB_JIRA_HOST"* ]]
+    [[ ! -f "$HOME/opened_url" ]]
+}
+
+@test "jira default action opens the ticket on HUB_JIRA_HOST" {
+    setup_action_repo "ABC-123-thing"
+    stub_open_recording
+    export HUB_JIRA_HOST="example.atlassian.net"
+    run run_default_action jira
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://example.atlassian.net/browse/ABC-123" ]]
+}
+
+@test "jira default action fails when the branch has no ticket prefix" {
+    setup_action_repo "no-ticket"
+    stub_open_recording
+    export HUB_JIRA_HOST="example.atlassian.net"
+    run run_default_action jira
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"No Jira ticket prefix"* ]]
+}
+
+@test "web default action errors when HUB_WEB_URL_CMD is unset" {
+    stub_open_recording
+    run env -u HUB_WEB_URL_CMD "$REPO_DIR/default-actions/web"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"HUB_WEB_URL_CMD"* ]]
+    [[ ! -f "$HOME/opened_url" ]]
+}
+
+@test "web default action opens the URL printed by HUB_WEB_URL_CMD via hub" {
+    stub_open_recording
+    cat > "$HOME/fake-hub" <<SH
+#!/usr/bin/env bash
+echo "\$*" > "$HOME/hub_args"
+SH
+    chmod +x "$HOME/fake-hub"
+    export HUB_WEB_URL_CMD="echo https://app.test:1234"
+    run "$REPO_DIR/default-actions/web" "$HOME/fake-hub" 7
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/hub_args")" == "open-url https://app.test:1234 7" ]]
+}
+
+@test "web default action falls back to open without a hub script" {
+    stub_open_recording
+    export HUB_WEB_URL_CMD="echo https://app.test:1234"
+    run "$REPO_DIR/default-actions/web"
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://app.test:1234" ]]
+}
+
+@test "pr default action fails when gh finds no pull request" {
+    stub_open_recording
+    make_stub gh "" 1
+    run "$REPO_DIR/default-actions/pr"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"No pull request"* ]]
+}
+
+@test "pr default action opens the pull request URL" {
+    stub_open_recording
+    make_stub gh "https://github.com/o/r/pull/1" 0
+    run "$REPO_DIR/default-actions/pr"
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://github.com/o/r/pull/1" ]]
+    [[ "$output" == *"Opening the PR at https://github.com/o/r/pull/1"* ]]
+}
+
+@test "web default action fails when HUB_WEB_URL_CMD prints no URL" {
+    stub_open_recording
+    export HUB_WEB_URL_CMD="true"
+    run "$REPO_DIR/default-actions/web"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"produced no URL"* ]]
+    [[ ! -f "$HOME/opened_url" ]]
+}
+
+@test "web default action falls back to open when the hub script fails" {
+    stub_open_recording
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$HOME/fake-hub"
+    chmod +x "$HOME/fake-hub"
+    export HUB_WEB_URL_CMD="echo https://app.test:1234"
+    run "$REPO_DIR/default-actions/web" "$HOME/fake-hub" 7
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://app.test:1234" ]]
 }
 
 repo_action_url() {
