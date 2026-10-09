@@ -223,3 +223,65 @@ JSON
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"Invalid action slug"* ]]
 }
+
+repo_action_url() {
+    local dir="$1"
+    local command
+    command="$(jq -r '.repo.command' "$REPO_DIR/config/action_presets.json")"
+    cat > "$STUB_BIN/open" <<SH
+#!/usr/bin/env bash
+echo "\$*" > "$HOME/opened_url"
+SH
+    chmod +x "$STUB_BIN/open"
+    (cd "$dir" && bash -c "$command")
+}
+
+@test "repo action opens the remote repo from a root checkout (ssh remote)" {
+    rm -f "$STUB_BIN/git"
+    git init -q "$HOME/rootrepo"
+    git -C "$HOME/rootrepo" remote add origin git@github.com:galori/hub.git
+    run repo_action_url "$HOME/rootrepo"
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://github.com/galori/hub" ]]
+}
+
+@test "repo action opens the remote repo from a linked worktree (https remote)" {
+    rm -f "$STUB_BIN/git"
+    git init -q "$HOME/rootrepo"
+    git -C "$HOME/rootrepo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+    git -C "$HOME/rootrepo" remote add origin https://github.com/galori/hub.git
+    git -C "$HOME/rootrepo" worktree add -q "$HOME/rootrepo-wt" -b feature
+    run repo_action_url "$HOME/rootrepo-wt"
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://github.com/galori/hub" ]]
+}
+
+@test "repo action fails outside a git repository" {
+    rm -f "$STUB_BIN/git"
+    mkdir -p "$HOME/plain"
+    run repo_action_url "$HOME/plain"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"No git remote 'origin' found"* ]]
+    [[ ! -f "$HOME/opened_url" ]]
+}
+
+assert_repo_action_url() {
+    local remote="$1" expected="$2"
+    rm -f "$STUB_BIN/git"
+    git init -q "$HOME/rootrepo"
+    git -C "$HOME/rootrepo" remote add origin "$remote"
+    run repo_action_url "$HOME/rootrepo"
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "$expected" ]]
+    [[ "$output" != *"tok"* ]]
+}
+
+@test "repo action strips credentials from https remotes" {
+    assert_repo_action_url "https://user:tok@github.com/galori/hub.git" "https://github.com/galori/hub"
+}
+
+@test "repo action handles ssh:// remotes with and without a port" {
+    assert_repo_action_url "ssh://git@github.com/galori/hub.git" "https://github.com/galori/hub"
+    rm -rf "$HOME/rootrepo"
+    assert_repo_action_url "ssh://git@git.example.com:2222/galori/hub.git" "https://git.example.com/galori/hub"
+}

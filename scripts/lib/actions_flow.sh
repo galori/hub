@@ -28,7 +28,7 @@ actions_default_json() {
         echo "[]"
         return
     fi
-    jq '[."pr", ."jira", ."web"] | map(select(. != null))' "$ACTION_PRESETS_FILE"
+    jq '[."pr", ."jira", ."web", ."repo"] | map(select(. != null))' "$ACTION_PRESETS_FILE"
 }
 
 actions_ensure_file() {
