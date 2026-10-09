@@ -360,6 +360,11 @@ repo_action_url() {
     local dir="$1"
     local command
     command="$(jq -r '.repo.command' "$REPO_DIR/config/action_presets.json")"
+    cat > "$STUB_BIN/open" <<SH
+#!/usr/bin/env bash
+echo "\$*" > "$HOME/opened_url"
+SH
+    chmod +x "$STUB_BIN/open"
     (cd "$dir" && bash -c "$command")
 }
 
