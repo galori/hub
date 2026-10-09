@@ -153,7 +153,7 @@ JSON
     [[ "$status" -eq 0 ]]
     [[ -f "$ACTIONS_FILE" ]]
     jq . "$ACTIONS_FILE" >/dev/null 2>&1
-    [[ "$(jq -r 'map(.slug) | join(",")' "$ACTIONS_FILE")" == "pr,jira,web" ]]
+    [[ "$(jq -r 'map(.slug) | join(",")' "$ACTIONS_FILE")" == "pr,jira,web,repo" ]]
 }
 
 @test "install preserves existing actions.json" {
