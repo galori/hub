@@ -357,9 +357,9 @@ SH
 }
 
 repo_action_url() {
-    local dir="$1"
+    local dir="$1" action="${2:-repo}"
     local command
-    command="$(jq -r '.repo.command' "$REPO_DIR/config/action_presets.json")"
+    command="$(jq -r ".$action.command" "$REPO_DIR/config/action_presets.json")"
     cat > "$STUB_BIN/open" <<SH
 #!/usr/bin/env bash
 echo "\$*" > "$HOME/opened_url"
@@ -416,4 +416,22 @@ assert_repo_action_url() {
     assert_repo_action_url "ssh://git@github.com/galori/hub.git" "https://github.com/galori/hub"
     rm -rf "$HOME/rootrepo"
     assert_repo_action_url "ssh://git@git.example.com:2222/galori/hub.git" "https://git.example.com/galori/hub"
+}
+
+@test "prs action opens the pulls list of the remote repo" {
+    rm -f "$STUB_BIN/git"
+    git init -q "$HOME/rootrepo"
+    git -C "$HOME/rootrepo" remote add origin git@github.com:galori/hub.git
+    run repo_action_url "$HOME/rootrepo" prs
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$HOME/opened_url")" == "https://github.com/galori/hub/pulls" ]]
+}
+
+@test "prs action fails outside a git repository" {
+    rm -f "$STUB_BIN/git"
+    mkdir -p "$HOME/plain"
+    run repo_action_url "$HOME/plain" prs
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"No git remote 'origin' found"* ]]
+    [[ ! -f "$HOME/opened_url" ]]
 }
