@@ -4,7 +4,8 @@
 
 MacOS workspace environment to help focus one's attention on each task while multitasking with AI agents.
 
-<img src="assets/hub-screenshot.png">
+<img width="1352" height="878" alt="image" src="https://github.com/user-attachments/assets/e0b945be-bd8e-484e-8f82-83a9aca7fa44" />
+
 <br/>
 
 <br clear="all">
