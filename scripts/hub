@@ -126,6 +126,7 @@ print_usage() {
     echo "  status        Show current service state, workspace info, and label length"
     echo "  remove        Remove a workspace (current or by ID)"
     echo "  rename        Rename a workspace (current or by ID)"
+    echo "  monitor       Move the focused window or workspace to another monitor (move-window/move-workspace/restore)"
     echo "  apps          Manage configured app launcher slots (list/add/edit/remove/reset)"
     echo "  actions       Manage custom actions shown in the Hub Bar overlay"
   echo "  open          Open configured apps in current workspace"
@@ -1641,6 +1642,15 @@ _create_workspace() {
     success "Creating workspace: $ws_name (workspace $ws_id)"
     [[ "$no_repo" == "false" ]] && info "Path: $ws_path"
 
+    # Remember the monitor the user started from, so the workspace opens and
+    # stays there. Empty with a single monitor.
+    local ws_monitor ws_monitor_id="" ws_monitor_name=""
+    ws_monitor="$(_focused_monitor_if_multi)"
+    if [[ -n "$ws_monitor" ]]; then
+        ws_monitor_id="${ws_monitor%%|*}"
+        ws_monitor_name="${ws_monitor#*|}"
+    fi
+
     progress_start "Create New Hub Workspace"
     # Ensure the banner is always dismissed even on unexpected early exit.
     trap 'progress_stop 2>/dev/null || true; trap - EXIT' EXIT
@@ -1693,15 +1703,12 @@ _create_workspace() {
     fi
 
     local updated
-    if [[ -n "$ws_color" ]]; then
-        updated="$(echo "$existing" | jq --arg name "$ws_name" --arg path "$ws_path" \
-            --arg root "$ws_root" --arg id "$ws_id" --arg color "$ws_color" \
-            '. + [{name: $name, path: $path, root_repo: $root, workspace_id: $id, color: $color}]')"
-    else
-        updated="$(echo "$existing" | jq --arg name "$ws_name" --arg path "$ws_path" \
-            --arg root "$ws_root" --arg id "$ws_id" \
-            '. + [{name: $name, path: $path, root_repo: $root, workspace_id: $id}]')"
-    fi
+    updated="$(echo "$existing" | jq --arg name "$ws_name" --arg path "$ws_path" \
+        --arg root "$ws_root" --arg id "$ws_id" --arg color "$ws_color" \
+        --arg monitor "$ws_monitor_name" \
+        '. + [{name: $name, path: $path, root_repo: $root, workspace_id: $id}
+              + (if $color != "" then {color: $color} else {} end)
+              + (if $monitor != "" then {monitor: $monitor} else {} end)]')"
 
     echo "$updated" > "$WORKSPACES_FILE"
     _hub_lock_release
@@ -1726,7 +1733,8 @@ _create_workspace() {
     # Update bar label
     update_hub_bar_label "$ws_id" "$ws_name"
 
-    # Switch to the workspace
+    # Switch to the workspace on the monitor the user started from
+    [[ -n "$ws_monitor_id" ]] && _move_workspace_to_monitor "$ws_id" "$ws_monitor_id"
     aerospace workspace "$ws_id"
     success "Switched to workspace $ws_id"
 
@@ -2185,9 +2193,152 @@ cmd_rename() {
     success "Renamed workspace $ws_id: '$ws_name' → '$new_name'"
 }
 
+# ─── Multi-monitor helpers ────────────────────────────────────────────────────
+# AeroSpace keeps every workspace on one monitor. Hub pins each workspace to
+# the monitor it was created on (stored as the monitor name in workspaces.json)
+# so workspaces on different monitors stay separate.
+
+_list_monitors() {
+    aerospace list-monitors --format '%{monitor-id}|%{monitor-name}' 2>/dev/null || true
+}
+
+# Prints "<id>|<name>" of the focused monitor, or nothing with a single monitor.
+_focused_monitor_if_multi() {
+    [[ "$(_list_monitors | grep -c .)" -gt 1 ]] || return 0
+    aerospace list-monitors --focused --format '%{monitor-id}|%{monitor-name}' 2>/dev/null || true
+}
+
+_workspace_on_monitor() {
+    local ws_id="$1" mon_id="$2"
+    aerospace list-workspaces --monitor "$mon_id" 2>/dev/null | grep -qxF "$ws_id"
+}
+
+# Prints "<id>|<name>" of the monitor that holds the workspace.
+_monitor_of_workspace() {
+    local ws_id="$1" line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        if _workspace_on_monitor "$ws_id" "${line%%|*}"; then
+            echo "$line"
+            return 0
+        fi
+    done < <(_list_monitors)
+    return 1
+}
+
+_move_workspace_to_monitor() {
+    local ws_id="$1" mon_id="$2"
+    _workspace_on_monitor "$ws_id" "$mon_id" && return 0
+    aerospace move-workspace-to-monitor --workspace "$ws_id" "$mon_id" 2>/dev/null || true
+}
+
+# Prints the workspace to focus after removing one: General (Z) when it is on
+# the focused monitor, else the first other Hub workspace on that monitor,
+# else nothing (stay put rather than jump to another monitor).
+_workspace_after_remove() {
+    local removed="$1"
+    [[ -n "$(_focused_monitor_if_multi)" ]] || { echo Z; return 0; }
+    local on_monitor
+    on_monitor="$(aerospace list-workspaces --monitor focused 2>/dev/null || echo "")"
+    if grep -qxF Z <<< "$on_monitor"; then
+        echo Z
+        return 0
+    fi
+    [[ -f "$WORKSPACES_FILE" ]] || return 0
+    local id
+    for id in 1 2 3 4 5 6 7 8 9 A B C D E F G I M N O P Q R S T U V W X Y Z; do
+        [[ "$id" == "$removed" ]] && continue
+        grep -qxF "$id" <<< "$on_monitor" || continue
+        if jq -e --arg id "$id" 'any(.[]; .workspace_id == $id)' "$WORKSPACES_FILE" >/dev/null 2>&1; then
+            echo "$id"
+            return 0
+        fi
+    done
+}
+
+_set_workspace_monitor() {
+    local ws_id="$1" mon_name="$2"
+    [[ -f "$WORKSPACES_FILE" ]] || return 0
+    _hub_lock_acquire || return 1
+    local updated
+    updated="$(jq --arg id "$ws_id" --arg m "$mon_name" \
+        'map(if .workspace_id == $id then .monitor = $m else . end)' "$WORKSPACES_FILE")" \
+        && echo "$updated" > "$WORKSPACES_FILE"
+    _hub_lock_release
+}
+
+# Move every pinned workspace back to its monitor (e.g. after AeroSpace restarts).
+# Workspaces pinned to a monitor that is not connected are left where they are.
+restore_workspace_monitors() {
+    [[ -f "$WORKSPACES_FILE" ]] || return 0
+    local monitors
+    monitors="$(_list_monitors)"
+    [[ "$(grep -c . <<< "$monitors")" -gt 1 ]] || return 0
+    local ws_id mon_name mon_id
+    while IFS=$'\t' read -r ws_id mon_name; do
+        [[ -z "$ws_id" || -z "$mon_name" ]] && continue
+        mon_id="$(awk -F'|' -v n="$mon_name" '$2 == n { print $1; exit }' <<< "$monitors")"
+        if [[ -n "$mon_id" ]]; then
+            _move_workspace_to_monitor "$ws_id" "$mon_id"
+        fi
+    done < <(jq -r '.[] | select(.monitor // "" | length > 0) | [.workspace_id, .monitor] | @tsv' \
+        "$WORKSPACES_FILE" 2>/dev/null)
+}
+
+_print_monitor_usage() {
+    cat <<'EOF'
+Usage: hub monitor <command>
+
+Commands:
+  move-window [next|prev]     Move the focused window to another monitor (Ctrl-Alt-M)
+  move-workspace [next|prev]  Move the focused workspace to another monitor and pin it there (Alt-Shift-Tab)
+  restore                     Move pinned workspaces back to their monitors (run by 'hub up')
+EOF
+}
+
+cmd_monitor() {
+    local sub="${1:-}"
+    shift || true
+    local dir="${1:-next}"
+    case "$sub" in
+        move-window|move-workspace)
+            case "$dir" in
+                next|prev) ;;
+                *) fail "Unknown direction: $dir (use next or prev)"; return 2 ;;
+            esac
+            ;;
+    esac
+    case "$sub" in
+        move-window)
+            aerospace move-node-to-monitor --focus-follows-window --wrap-around "$dir"
+            ;;
+        move-workspace)
+            local ws_id mon
+            ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
+            aerospace move-workspace-to-monitor --wrap-around "$dir" || return $?
+            [[ -z "$ws_id" ]] && return 0
+            mon="$(_monitor_of_workspace "$ws_id")" || return 0
+            _set_workspace_monitor "$ws_id" "${mon#*|}"
+            hub_bar_refresh 2>/dev/null || true
+            ;;
+        restore)
+            restore_workspace_monitors
+            ;;
+        -h|--help|help|'')
+            _print_monitor_usage
+            ;;
+        *)
+            fail "Unknown monitor command: $sub"
+            _print_monitor_usage
+            return 2
+            ;;
+    esac
+}
+
 cmd_next() { _cycle_hub_workspace 1; }
 cmd_prev() { _cycle_hub_workspace -1; }
 
+# Cycle through registered workspaces on the focused monitor.
 _cycle_hub_workspace() {
     local dir="$1"
 
@@ -2202,9 +2353,18 @@ _cycle_hub_workspace() {
         done < <(jq -r '.[].workspace_id' "$WORKSPACES_FILE" 2>/dev/null)
     fi
 
+    if [[ -n "$(_focused_monitor_if_multi)" ]]; then
+        local on_monitor kept=()
+        on_monitor="$(aerospace list-workspaces --monitor focused 2>/dev/null || echo "")"
+        for reg in ${registered[@]+"${registered[@]}"}; do
+            grep -qxF "$reg" <<< "$on_monitor" && kept+=("$reg")
+        done
+        registered=(${kept[@]+"${kept[@]}"})
+    fi
+
     local ordered=()
     for id in "${all_ids[@]}"; do
-        for reg in "${registered[@]}"; do
+        for reg in ${registered[@]+"${registered[@]}"}; do
             if [[ "$id" == "$reg" ]]; then
                 ordered+=("$id")
                 break
@@ -2469,7 +2629,9 @@ cmd_remove() {
         done <<< "$windows"
     fi
 
-    aerospace workspace Z 2>/dev/null || true
+    local next_ws
+    next_ws="$(_workspace_after_remove "$ws_id")"
+    [[ -n "$next_ws" ]] && { aerospace workspace "$next_ws" 2>/dev/null || true; }
 
     # Attempt to close the moved windows (best-effort; some apps may not close)
     if [[ -n "$windows" ]]; then
@@ -3592,6 +3754,7 @@ cmd_up() {
 
     echo
     ensure_general_workspace
+    restore_workspace_monitors
     cache_keys &
     disown
 
@@ -4134,6 +4297,7 @@ hub_main() {
         rename)   cmd_rename "$@" ;;
         next)     cmd_next ;;
         prev)     cmd_prev ;;
+        monitor)  cmd_monitor "$@" ;;
         apps)     cmd_apps "$@" ;;
         actions)  cmd_actions "$@" ;;
         open)     cmd_open "$@" ;;
