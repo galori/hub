@@ -119,7 +119,7 @@ print_usage() {
     echo "  up            Start AeroSpace, Hub Bar, JankyBorders (restores fullscreen state if active)"
     echo "  down          Stop everything, restore the Dock and menu bar (preserves fullscreen state)"
     echo "  toggle        Run 'up' if hub is down, or 'down' if hub is up (used by the Dock icon)"
-    echo "  reboot        Stop, reinstall, and restart the Hub environment"
+    echo "  reboot        Stop, reinstall, and restart the Hub environment (--system-settings to also redo Dock/menu bar)"
     echo "  new           Create a new workspace (opens dialog; pass flags to run silently)"
     echo "  list          List all defined workspaces
   tree          Show the tiling tree for a workspace"
@@ -3536,7 +3536,7 @@ cmd_up() {
     start_overlay "Starting hub"
 
     # Apply fullscreen state if previously active
-    if [[ -f "$FULLSCREEN_STATE_FILE" ]]; then
+    if [[ -f "$FULLSCREEN_STATE_FILE" && "${HUB_SKIP_SYSTEM_SETTINGS:-0}" != "1" ]]; then
         update_overlay "Hiding dock and menu bar…"
         _fullscreen_apply
         success "Fullscreen restored (dock and menu bar hidden)"
@@ -3606,11 +3606,29 @@ cmd_up() {
 }
 
 cmd_reboot() {
-    HUB_SKIP_DEFAULT_BROWSER_CHANGE=1 cmd_down
+    # By default skip the slow System Settings AppleScript (Dock/menu bar
+    # hide/show); the fullscreen state carries over untouched across the reboot.
+    local skip_system_settings=1
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --system-settings) skip_system_settings=0; shift ;;
+            -h|--help)
+                echo "Usage: hub reboot [--system-settings]"
+                echo "  --system-settings  Also restore and re-apply the Dock and menu bar (slow)"
+                return 0
+                ;;
+            *)
+                fail "Unknown reboot flag: $1"
+                return 2
+                ;;
+        esac
+    done
+
+    HUB_SKIP_DEFAULT_BROWSER_CHANGE=1 HUB_SKIP_SYSTEM_SETTINGS="$skip_system_settings" cmd_down
     echo
     cmd_install
     echo
-    HUB_SKIP_DEFAULT_BROWSER_CHANGE=1 cmd_up
+    HUB_SKIP_DEFAULT_BROWSER_CHANGE=1 HUB_SKIP_SYSTEM_SETTINGS="$skip_system_settings" cmd_up
 }
 
 cmd_down() {
@@ -3653,7 +3671,7 @@ cmd_down() {
 
     # Restore dock and menu bar if fullscreen was active.
     # Note: the fullscreen state file is preserved so the next `hub up` re-applies it.
-    if [[ -f "$FULLSCREEN_STATE_FILE" ]]; then
+    if [[ -f "$FULLSCREEN_STATE_FILE" && "${HUB_SKIP_SYSTEM_SETTINGS:-0}" != "1" ]]; then
         start_overlay "Restoring System Settings"
         update_overlay "Unhiding dock and menu bar…"
         _fullscreen_restore
@@ -4125,7 +4143,7 @@ hub_main() {
         up)       cmd_up ;;
         down)     cmd_down ;;
         toggle)   cmd_toggle ;;
-        reboot)   cmd_reboot ;;
+        reboot)   cmd_reboot "$@" ;;
         keys)         cmd_keys ;;
         dashboard)    cmd_dashboard ;;
         bar-layout)   cmd_bar_layout "$@" ;;
