@@ -37,6 +37,7 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 | `Alt + -/=` | Resize window |
 | `Alt + Tab` | Switch to previous workspace |
 | `Alt + Shift + Tab` | Move workspace to next monitor |
+| `Ctrl + Alt + M` | Move window to next monitor |
 | `Alt + ~` | Cycle focus to next window in workspace |
 | `Alt + Shift + ~` | Cycle focus to previous window in workspace |
 | `Ctrl + Alt + Esc` | Focus back and forth between last two windows |
@@ -48,6 +49,10 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 | `Ctrl + Alt + -` | Shrink workspace labels |
 | `Ctrl + Alt + =` | Grow workspace labels |
 | `Alt + Shift + ;` | Enter service mode |
+
+### Multiple monitors
+
+Each monitor has its own Hub Bar and its own workspaces. A new workspace opens on the monitor you started it from and stays there, even after `hub up`. `Ctrl + Alt + [` / `]` cycle through the workspaces on the current monitor. `hub monitor move-window` and `hub monitor move-workspace` are the CLI forms of `Ctrl + Alt + M` and `Alt + Shift + Tab`.
 
 ## Setup
 
