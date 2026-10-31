@@ -229,3 +229,52 @@ PLIST
     assert_called "^install:0$"
     assert_called "^up:1$"
 }
+
+@test "hub reboot skips Dock and menu bar changes by default" {
+    bash -c "
+        export HOME='$HOME'
+        export STUB_CALLS='$STUB_CALLS'
+        source '$HUB_SCRIPT' >/dev/null 2>&1
+        cmd_down() { echo \"down:\${HUB_SKIP_SYSTEM_SETTINGS:-0}\" >> '$STUB_CALLS'; }
+        cmd_install() { echo \"install:\${HUB_SKIP_SYSTEM_SETTINGS:-0}\" >> '$STUB_CALLS'; }
+        cmd_up() { echo \"up:\${HUB_SKIP_SYSTEM_SETTINGS:-0}\" >> '$STUB_CALLS'; }
+        cmd_reboot
+    " >/dev/null 2>&1
+
+    assert_called "^down:1$"
+    assert_called "^install:0$"
+    assert_called "^up:1$"
+}
+
+@test "hub reboot --system-settings keeps Dock and menu bar changes" {
+    bash -c "
+        export HOME='$HOME'
+        export STUB_CALLS='$STUB_CALLS'
+        source '$HUB_SCRIPT' >/dev/null 2>&1
+        cmd_down() { echo \"down:\${HUB_SKIP_SYSTEM_SETTINGS:-0}\" >> '$STUB_CALLS'; }
+        cmd_install() { :; }
+        cmd_up() { echo \"up:\${HUB_SKIP_SYSTEM_SETTINGS:-0}\" >> '$STUB_CALLS'; }
+        cmd_reboot --system-settings
+    " >/dev/null 2>&1
+
+    assert_called "^down:0$"
+    assert_called "^up:0$"
+}
+
+@test "hub up and down skip fullscreen changes when HUB_SKIP_SYSTEM_SETTINGS=1" {
+    bash -c "
+        export HOME='$HOME'
+        export STUB_CALLS='$STUB_CALLS'
+        source '$HUB_SCRIPT' >/dev/null 2>&1
+        mkdir -p \"\$(dirname \"\$FULLSCREEN_STATE_FILE\")\"
+        touch \"\$FULLSCREEN_STATE_FILE\"
+        _fullscreen_apply() { echo fullscreen_apply >> '$STUB_CALLS'; }
+        _fullscreen_restore() { echo fullscreen_restore >> '$STUB_CALLS'; }
+        start_overlay() { :; }; update_overlay() { :; }; stop_overlay() { :; }
+        HUB_SKIP_SYSTEM_SETTINGS=1 cmd_down
+        HUB_SKIP_SYSTEM_SETTINGS=1 cmd_up
+    " >/dev/null 2>&1
+
+    assert_not_called "fullscreen_apply"
+    assert_not_called "fullscreen_restore"
+}
