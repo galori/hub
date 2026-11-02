@@ -39,8 +39,16 @@ WS_NAME=""
 # Prefer the env var set by hub's prompt wrapper when launching any terminal
 # with a prompt — it's exact and works even when two workspaces share the same
 # directory. Fall back to longest-prefix cwd match otherwise.
-if [ -n "${HUB_WORKSPACE_ID:-}" ] && [ -f "$WORKSPACES_FILE" ]; then
-    _MATCH=$(jq -r --arg id "$HUB_WORKSPACE_ID" '.[] | select(.workspace_id == $id) | [.workspace_id, .name] | @tsv' "$WORKSPACES_FILE" 2>/dev/null | head -1)
+# HUB_WORKSPACE_UID survives `hub reorder`; HUB_WORKSPACE_ID can go stale when a
+# workspace changes ID, so it only counts while the workspace path still contains cwd.
+if [ -n "${HUB_WORKSPACE_UID:-}" ] && [ -f "$WORKSPACES_FILE" ]; then
+    _MATCH=$(jq -r --arg uid "$HUB_WORKSPACE_UID" '.[] | select(.uid == $uid) | [.workspace_id, .name] | @tsv' "$WORKSPACES_FILE" 2>/dev/null | head -1)
+    if [ -n "$_MATCH" ]; then
+        IFS=$'\t' read -r WS_ID WS_NAME <<< "$_MATCH"
+    fi
+fi
+if [ -z "$WS_ID" ] && [ -n "${HUB_WORKSPACE_ID:-}" ] && [ -f "$WORKSPACES_FILE" ]; then
+    _MATCH=$(jq -r --arg id "$HUB_WORKSPACE_ID" --arg cwd "$CWD" '.[] | select(.workspace_id == $id and (.uid // "") == "" or (.workspace_id == $id and $cwd != "" and (.path as $p | $cwd | startswith($p)))) | [.workspace_id, .name] | @tsv' "$WORKSPACES_FILE" 2>/dev/null | head -1)
     if [ -n "$_MATCH" ]; then
         IFS=$'\t' read -r WS_ID WS_NAME <<< "$_MATCH"
     fi
@@ -79,11 +87,11 @@ HUB_SCRIPT=""
 # Always clear any active-state flag for this workspace so blue pulsing never sticks.
 # If color notifications are enabled, set the amber attention state.
 if [ -n "$WS_ID" ]; then
-    rm -f "/tmp/hub_claude_active_${WS_ID}" "/tmp/hub_claude_pid_${WS_ID}"
+    rm -f "${HUB_CLAUDE_STATE_DIR:-/tmp}/hub_claude_active_${WS_ID}" "${HUB_CLAUDE_STATE_DIR:-/tmp}/hub_claude_pid_${WS_ID}"
     if [ "${HUB_CLAUDE_NOTIFY_COLOR:-1}" != "0" ]; then
-        touch "/tmp/hub_claude_alert_${WS_ID}"
+        touch "${HUB_CLAUDE_STATE_DIR:-/tmp}/hub_claude_alert_${WS_ID}"
     else
-        rm -f "/tmp/hub_claude_alert_${WS_ID}"
+        rm -f "${HUB_CLAUDE_STATE_DIR:-/tmp}/hub_claude_alert_${WS_ID}"
     fi
     [ -n "$HUB_SCRIPT" ] && "$HUB_SCRIPT" bar-refresh 2>/dev/null &
 fi
