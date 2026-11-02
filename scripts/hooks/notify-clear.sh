@@ -67,8 +67,14 @@ WS_ID=""
 # Prefer the env var set by hub's prompt wrapper when launching any terminal
 # with a prompt — it's exact and works even when two workspaces share the same
 # directory. Fall back to longest-prefix cwd match otherwise.
-if [ -n "${HUB_WORKSPACE_ID:-}" ] && [ -f "$WORKSPACES_FILE" ]; then
-    _MATCH=$(jq -r --arg id "$HUB_WORKSPACE_ID" '.[] | select(.workspace_id == $id) | .workspace_id' "$WORKSPACES_FILE" 2>/dev/null | head -1)
+# HUB_WORKSPACE_UID survives `hub reorder`; HUB_WORKSPACE_ID can go stale when a
+# workspace changes ID, so it only counts while the workspace path still contains cwd.
+if [ -n "${HUB_WORKSPACE_UID:-}" ] && [ -f "$WORKSPACES_FILE" ]; then
+    _MATCH=$(jq -r --arg uid "$HUB_WORKSPACE_UID" '.[] | select(.uid == $uid) | .workspace_id' "$WORKSPACES_FILE" 2>/dev/null | head -1)
+    [ -n "$_MATCH" ] && WS_ID="$_MATCH"
+fi
+if [ -z "$WS_ID" ] && [ -n "${HUB_WORKSPACE_ID:-}" ] && [ -f "$WORKSPACES_FILE" ]; then
+    _MATCH=$(jq -r --arg id "$HUB_WORKSPACE_ID" --arg cwd "$CWD" '.[] | select(.workspace_id == $id and (.uid // "") == "" or (.workspace_id == $id and $cwd != "" and (.path as $p | $cwd | startswith($p)))) | .workspace_id' "$WORKSPACES_FILE" 2>/dev/null | head -1)
     [ -n "$_MATCH" ] && WS_ID="$_MATCH"
 fi
 
@@ -98,9 +104,9 @@ HUB_PATH_FILE="$HOME/.config/hub/hub_path"
 HUB_SCRIPT=""
 [ -f "$HUB_PATH_FILE" ] && HUB_SCRIPT="$(cat "$HUB_PATH_FILE" 2>/dev/null || true)"
 
-ALERT_FILE="/tmp/hub_claude_alert_${WS_ID}"
-ACTIVE_FILE="/tmp/hub_claude_active_${WS_ID}"
-PID_FILE="/tmp/hub_claude_pid_${WS_ID}"
+ALERT_FILE="${HUB_CLAUDE_STATE_DIR:-/tmp}/hub_claude_alert_${WS_ID}"
+ACTIVE_FILE="${HUB_CLAUDE_STATE_DIR:-/tmp}/hub_claude_active_${WS_ID}"
+PID_FILE="${HUB_CLAUDE_STATE_DIR:-/tmp}/hub_claude_pid_${WS_ID}"
 
 is_live_claude_pid() {
     local pid="$1"

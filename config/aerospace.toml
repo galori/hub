@@ -178,6 +178,10 @@ run = ['exec-and-forget __HUB_SCRIPT__ nudge-float-window $AEROSPACE_WINDOW_ID']
     ctrl-alt-leftSquareBracket  = 'exec-and-forget __HUB_SCRIPT__ prev'
     ctrl-alt-rightSquareBracket = 'exec-and-forget __HUB_SCRIPT__ next'
 
+    # hub: move the focused workspace one pill left / right in the Hub Bar
+    ctrl-alt-shift-leftSquareBracket  = 'exec-and-forget __HUB_SCRIPT__ reorder left'
+    ctrl-alt-shift-rightSquareBracket = 'exec-and-forget __HUB_SCRIPT__ reorder right'
+
     # hub: dashboard (status + keys)
     ctrl-alt-slash = 'exec-and-forget __HUB_SCRIPT__ dashboard'
 

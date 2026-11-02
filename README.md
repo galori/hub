@@ -38,6 +38,7 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 | `Alt + Tab` | Switch to previous workspace |
 | `Alt + Shift + Tab` | Move workspace to next monitor |
 | `Ctrl + Alt + M` | Move window to next monitor |
+| `Ctrl + Alt + Shift + [` / `]` | Move the workspace one pill left / right |
 | `Alt + ~` | Cycle focus to next window in workspace |
 | `Alt + Shift + ~` | Cycle focus to previous window in workspace |
 | `Ctrl + Alt + Esc` | Focus back and forth between last two windows |
@@ -53,6 +54,10 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 ### Multiple monitors
 
 Each monitor has its own Hub Bar and its own workspaces. A new workspace opens on the monitor you started it from and stays there, even after `hub up`. `Ctrl + Alt + [` / `]` cycle through the workspaces on the current monitor. `hub monitor move-window` and `hub monitor move-workspace` are the CLI forms of `Ctrl + Alt + M` and `Alt + Shift + Tab`.
+
+### Reordering workspaces
+
+`hub reorder` changes a workspace's slot, so its pill lands where you want it. The workspace takes the ID of the slot right after the one you name. Workspaces to its right shift up one slot, until the first free slot. `Z` (General) never moves. Windows move with their workspace.
 
 ## Setup
 
@@ -124,6 +129,11 @@ CLI alternative:
 ```sh
 hub rename        # rename the current workspace
 hub rename A      # rename workspace A
+hub reorder 2 --after 4   # move workspace 2 to the slot after 4; workspaces to its right shift up
+hub reorder 2 --before 4  # move workspace 2 right before 4
+hub reorder 2 --first     # move workspace 2 to slot 1
+hub reorder 2 --after 4 --monitor "DELL U2720Q"   # also move it to another monitor
+hub reorder left          # move the current workspace one pill left (or: right)
 ```
 
 ### Open apps in a workspace

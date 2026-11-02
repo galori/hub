@@ -1322,7 +1322,119 @@ class OverlayTooltipAttachment: NSResponder {
 // MARK: – WorkspacePill (two-span idx + name + optional dot, with glow)
 // ──────────────────────────────────────────────────────────────────────────────
 
-class WorkspacePill: NSView {
+// ──────────────────────────────────────────────────────────────────────────────
+// MARK: – Workspace drag and drop (reorder)
+// ──────────────────────────────────────────────────────────────────────────────
+
+let hubWorkspaceDragType = NSPasteboard.PasteboardType("com.hub.workspace-id")
+
+/// Where a dragged pill would land. `after` is the workspace to its left (nil = first slot).
+/// `lineX` / `lineMidY` place the insertion line in the drop view's coordinates.
+struct PillDropTarget: Equatable {
+    var after: String?
+    var lineX: CGFloat
+    var lineMidY: CGFloat
+}
+
+/// `frames` are the visible pills in ID order (left to right, top row first), already in one
+/// coordinate space. The dragged pill is ignored. Returns nil when no other pill is visible.
+func pillDropTarget(frames: [(ws: String, frame: NSRect)], dragged: String, point: NSPoint) -> PillDropTarget? {
+    let others = frames.filter { $0.ws != dragged }
+    guard !others.isEmpty else { return nil }
+
+    // Row under the cursor: the pill row whose vertical center is closest to the cursor.
+    let rowMidY = others.min { abs($0.frame.midY - point.y) < abs($1.frame.midY - point.y) }!.frame.midY
+    func inRow(_ f: NSRect) -> Bool { abs(f.midY - rowMidY) < f.height / 2 }
+
+    let row = others.filter { inRow($0.frame) }
+    let leftInRow = row.last { $0.frame.midX < point.x }
+    let rightInRow = row.first { $0.frame.midX >= point.x }
+
+    let after: String?
+    if let l = leftInRow {
+        after = l.ws
+    } else {
+        // Start of this row: the pill before it is the last one in a higher row (if any).
+        after = others.last { !inRow($0.frame) && $0.frame.midY > rowMidY }?.ws
+    }
+
+    let lineX: CGFloat
+    if let l = leftInRow, let r = rightInRow {
+        lineX = (l.frame.maxX + r.frame.minX) / 2
+    } else if let l = leftInRow {
+        lineX = l.frame.maxX + 3
+    } else if let r = rightInRow {
+        lineX = r.frame.minX - 3
+    } else {
+        lineX = point.x
+    }
+    return PillDropTarget(after: after, lineX: lineX, lineMidY: rowMidY)
+}
+
+/// Content view of a Hub Bar window. Accepts workspace pills dragged from any Hub Bar.
+final class HubBarDropView: NSView {
+    private let indicator = NSView()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes([hubWorkspaceDragType])
+        indicator.wantsLayer = true
+        indicator.layer?.backgroundColor = NSColor(argb: ACCENT).cgColor
+        indicator.layer?.cornerRadius = 1
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func payload(_ info: NSDraggingInfo) -> (ws: String, monitorIndex: Int)? {
+        guard let raw = info.draggingPasteboard.string(forType: hubWorkspaceDragType) else { return nil }
+        let parts = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard let ws = parts.first, !ws.isEmpty else { return nil }
+        return (ws, parts.count > 1 ? Int(parts[1]) ?? 0 : 0)
+    }
+
+    private func target(_ info: NSDraggingInfo) -> (ws: String, source: Int, target: PillDropTarget?)? {
+        guard let p = payload(info), let bar = window as? HubBarWindow else { return nil }
+        let point = convert(info.draggingLocation, from: nil)
+        return (p.ws, p.monitorIndex, pillDropTarget(frames: bar.visiblePillFrames(in: self), dragged: p.ws, point: point))
+    }
+
+    private func showIndicator(_ t: PillDropTarget?) {
+        guard let t = t else { indicator.removeFromSuperview(); return }
+        indicator.frame = NSRect(x: t.lineX - 1, y: t.lineMidY - pillH / 2, width: 2, height: pillH)
+        if indicator.superview == nil { addSubview(indicator) }
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard let t = target(sender) else { return [] }
+        showIndicator(t.target)
+        return .move
+    }
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard let t = target(sender) else { return [] }
+        showIndicator(t.target)
+        return .move
+    }
+    override func draggingExited(_ sender: NSDraggingInfo?) { indicator.removeFromSuperview() }
+    override func draggingEnded(_ sender: NSDraggingInfo) { indicator.removeFromSuperview() }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        indicator.removeFromSuperview()
+        guard let t = target(sender), let bar = window as? HubBarWindow else { return false }
+        bar.performWorkspaceDrop(ws: t.ws, sourceMonitor: t.source, target: t.target)
+        return true
+    }
+}
+
+/// Arguments for `hub reorder` for a drop. Pure so it can be tested.
+func reorderArguments(ws: String, target: PillDropTarget?, sourceMonitor: Int, dropMonitor: Int) -> [String] {
+    var args = ["reorder", ws]
+    if let t = target {
+        if let after = t.after { args += ["--after", after] } else { args += ["--first"] }
+    }
+    if sourceMonitor != dropMonitor { args += ["--monitor", String(dropMonitor)] }
+    return args
+}
+
+class WorkspacePill: NSView, NSDraggingSource {
     let wsID: String
     var isFocused = false
     var pulseBright = true
@@ -1429,7 +1541,46 @@ class WorkspacePill: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    override func mouseDown(with event: NSEvent) { onPress?() }
+    // A click switches workspace on mouse-up; moving past a few points starts a drag instead.
+    private var mouseDownPoint: NSPoint?
+    private var didDrag = false
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownPoint = event.locationInWindow
+        didDrag = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard !didDrag, let start = mouseDownPoint, wsID != "Z" else { return }
+        let p = event.locationInWindow
+        guard hypot(p.x - start.x, p.y - start.y) > 4 else { return }
+        didDrag = true
+        let monitorIndex = (window as? HubBarWindow)?.monitorIndex ?? 0
+        let item = NSPasteboardItem()
+        item.setString("\(wsID)|\(monitorIndex)", forType: hubWorkspaceDragType)
+        let dragItem = NSDraggingItem(pasteboardWriter: item)
+        let image = NSImage(size: bounds.size)
+        if let rep = bitmapImageRepForCachingDisplay(in: bounds) {
+            cacheDisplay(in: bounds, to: rep)
+            image.addRepresentation(rep)
+        }
+        dragItem.setDraggingFrame(bounds, contents: image)
+        alphaValue = 0.4
+        beginDraggingSession(with: [dragItem], event: event, source: self)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { mouseDownPoint = nil; didDrag = false }
+        if !didDrag { onPress?() }
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .move
+    }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        alphaValue = 1
+    }
 
     func setPadding(_ padH: CGFloat) {
         padHState = padH
@@ -1771,6 +1922,28 @@ class HubBarWindow: NSWindow {
         // Hub fullscreen mode is not a native full-screen Space, so it does not need
         // .fullScreenAuxiliary; including it lets the bar cover apps like Slack.
         collectionBehavior = [.canJoinAllSpaces, .stationary]
+        contentView = HubBarDropView(frame: NSRect(origin: .zero, size: r.size))
+    }
+
+    /// Visible workspace pills of this bar, in ID order, in `view`'s coordinates.
+    func visiblePillFrames(in view: NSView) -> [(ws: String, frame: NSRect)] {
+        var result: [(ws: String, frame: NSRect)] = []
+        for ws in lastVisiblePillIDs {
+            guard let pill = wsPills[ws], pill.window === self, !pill.isHidden else { continue }
+            result.append((ws, pill.convert(pill.bounds, to: view)))
+        }
+        // Visual order: top row first (AppKit y grows upward), then left to right.
+        return result.sorted {
+            if abs($0.frame.midY - $1.frame.midY) > pillH / 2 { return $0.frame.midY > $1.frame.midY }
+            return $0.frame.minX < $1.frame.minX
+        }
+    }
+
+    /// Reorder (and, across monitors, move) a workspace by running `hub reorder`.
+    func performWorkspaceDrop(ws: String, sourceMonitor: Int, target: PillDropTarget?) {
+        guard let hub = hubScriptPath() else { return }
+        let args = reorderArguments(ws: ws, target: target, sourceMonitor: sourceMonitor, dropMonitor: monitorIndex)
+        Process.launchedProcess(launchPath: hub, arguments: args)
     }
 
     // Install timer for checking notifications
