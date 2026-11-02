@@ -1557,7 +1557,13 @@ cmd_new() {
         ws_prompt="$(printf '%s' "$ws_prompt_b64" | base64 -d 2>/dev/null || true)"
     fi
 
-    if [[ -z "$ws_name" || -z "$ws_id" ]]; then
+    # An older dialog binary can suggest a letter that now belongs to another
+    # alt+key action. Let the locked shell allocator choose a reachable ID.
+    if [[ "$ws_id" =~ ^[A-Z]$ ]] && ! _is_valid_workspace_id "$ws_id"; then
+        ws_id=""
+    fi
+
+    if [[ -z "$ws_name" || ( -n "$ws_id" && ! "$ws_id" =~ ^[1-9A-Z]$ ) ]]; then
         fail "Invalid dialog result"
         return
     fi
@@ -1813,8 +1819,15 @@ Examples:
 EOF
 }
 
-# Allocate the first unused workspace ID, mirroring nextWorkspaceID() in
-# lib/new_workspace_dialog.swift (alphabet at line 436-437).
+# Print workspace IDs in shortcut order. This makes the plain alt+key mappings
+# in aerospace.toml the source of truth: letters used by another Hub action are
+# not available for automatic workspace assignment.
+_workspace_ids() {
+    sed -nE "s/^[[:space:]]*alt-([1-9a-z])[[:space:]]*=[[:space:]]*'workspace ([1-9A-Z])'.*/\\2/p" \
+        "$CONFIG_DIR/aerospace.toml"
+}
+
+# Allocate the first unused ID that has a plain alt+key workspace shortcut.
 _alloc_workspace_id() {
     local existing="${1:-}"
     if [[ -z "$existing" ]]; then
@@ -1822,22 +1835,18 @@ _alloc_workspace_id() {
     fi
     local used
     used="$(echo "$existing" | jq -c '[.[].workspace_id]' 2>/dev/null || echo "[]")"
-    local ids=(1 2 3 4 5 6 7 8 9 A B C D E F G I M N O P Q R S T U V W X Y Z)
     local id
-    for id in "${ids[@]}"; do
+    while IFS= read -r id; do
         if ! echo "$used" | jq -e --arg id "$id" 'index($id) // empty' >/dev/null 2>&1; then
             echo "$id"
             return 0
         fi
-    done
+    done < <(_workspace_ids)
     return 1
 }
 
 _is_valid_workspace_id() {
-    case "$1" in
-        1|2|3|4|5|6|7|8|9|A|B|C|D|E|F|G|I|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z) return 0 ;;
-        *) return 1 ;;
-    esac
+    _workspace_ids | grep -qxF "$1"
 }
 
 _read_envrc_color() {
@@ -2004,7 +2013,7 @@ _cmd_new_cli() {
     # happens inside _create_workspace under the lock to avoid races
     if [[ -n "$opt_id" ]]; then
         if ! _is_valid_workspace_id "$opt_id"; then
-            fail "Invalid workspace ID: $opt_id (allowed: 1-9, A-G, I, M-Z)"
+            fail "Invalid workspace ID: $opt_id (allowed: keys bound to workspaces in aerospace.toml)"
             return 2
         fi
         ws_id="$opt_id"
