@@ -231,3 +231,25 @@ run_notify() {
     run jq -r '.[0].uid // empty' "$WORKSPACES_FILE"
     [[ -n "$output" ]]
 }
+
+@test "reorder: --monitor alone keeps the ID and only changes monitor" {
+    seed_workspaces "1:a:/tmp/1" "2:b:/tmp/2"
+    cat > "$STUB_BIN/aerospace" <<SH
+#!/usr/bin/env bash
+echo "aerospace \$*" >> "$STUB_CALLS"
+case "\$*" in
+    "list-workspaces --focused") echo 1 ;;
+    "list-workspaces --monitor all --empty no") printf '1\n2\n' ;;
+    "list-monitors --format"*) printf '1|Built-in\n2|DELL\n' ;;
+    "list-workspaces --monitor 1") printf '1\n2\n' ;;
+esac
+exit 0
+SH
+    chmod +x "$STUB_BIN/aerospace"
+    run hub_fn cmd_reorder 2 --monitor 2
+    [[ "$status" -eq 0 ]]
+    [[ "$(ids_by_name)" == "1=a,2=b" ]]
+    run jq -r '.[] | select(.name == "b") | .monitor' "$WORKSPACES_FILE"
+    [[ "$output" == "DELL" ]]
+    grep -q "move-workspace-to-monitor --workspace 2 2" "$STUB_CALLS"
+}

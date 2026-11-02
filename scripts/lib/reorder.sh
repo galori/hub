@@ -84,6 +84,7 @@ _reorder_move_windows() {
 _print_reorder_usage() {
     cat <<'EOF'
 Usage: hub reorder <ws> (--after <id> | --before <id> | --first) [--monitor <name>]
+       hub reorder <ws> --monitor <name>      (keep the ID, only change monitor)
        hub reorder left|right
 
 Move workspace <ws> to a new place in the Hub Bar. It takes the ID of its new
@@ -156,7 +157,7 @@ cmd_reorder() {
             done
             ;;
     esac
-    [[ -z "$mode" ]] && { fail "Say where: --after, --before or --first"; _print_reorder_usage; return 2; }
+    [[ -z "$mode" && -z "$monitor" ]] && { fail "Say where: --after, --before, --first or --monitor"; _print_reorder_usage; return 2; }
 
     _is_valid_workspace_id "$src" && [[ "$src" != "Z" ]] || { fail "Cannot move workspace '$src'"; return 2; }
     if [[ ! -f "$WORKSPACES_FILE" ]] || ! jq -e --arg id "$src" 'any(.[]; .workspace_id == $id)' "$WORKSPACES_FILE" >/dev/null 2>&1; then
@@ -189,7 +190,11 @@ cmd_reorder() {
     local used plan rc=0
     used="$( { jq -r '.[].workspace_id' "$WORKSPACES_FILE" 2>/dev/null
                aerospace list-workspaces --monitor all --empty no 2>/dev/null; } | sort -u)"
-    plan="$(_reorder_plan "$src" "$after" "$used")" || rc=$?
+    if [[ -n "$mode" ]]; then
+        plan="$(_reorder_plan "$src" "$after" "$used")" || rc=$?
+    else
+        plan=""   # --monitor alone: keep the ID, only change monitor
+    fi
     if [[ "$rc" -eq 1 ]]; then
         _hub_lock_release
         fail "No free workspace slot"
