@@ -166,3 +166,24 @@ run_ensure_general_workspace() {
     name="$(jq -r '.[] | select(.workspace_id == "Z") | .name' "$WORKSPACES_FILE")"
     [[ "$name" == "MyGeneral" ]]
 }
+
+@test "dialog workspace ID is reallocated when its alt key is reserved" {
+    local fake_dialog="$HOME/fake-new-workspace-dialog"
+    cat > "$fake_dialog" <<'SCRIPT'
+#!/usr/bin/env bash
+printf 'Test\t-\t-\tN\t-\t-\t-\t-\t-\n' > "$HUB_NEW_WORKSPACE_RESULT"
+SCRIPT
+    chmod +x "$fake_dialog"
+
+    run bash -c '
+        export HOME="$1" WORKSPACES_FILE="$2" APPS_FILE="$3"
+        export DIALOG_BIN="$4" HUB_NEW_WORKSPACE_RESULT="$5"
+        source "$6" >/dev/null 2>&1
+        _create_workspace() { printf "id=%s\n" "$4"; }
+        cmd_new
+    ' _ "$HOME" "$WORKSPACES_FILE" "$APPS_FILE" "$fake_dialog" \
+        "$HOME/dialog-result" "$HUB_SCRIPT"
+
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "id=" ]]
+}

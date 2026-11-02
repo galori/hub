@@ -180,3 +180,43 @@ teardown() {
     result="$(jq 'length' "$RECENT_REPOS_FILE")"
     [[ "$result" == "20" ]]
 }
+
+# ---------------------------------------------------------------------------
+# Workspace ID allocation skips letters hub binds to alt+<letter>
+# ---------------------------------------------------------------------------
+
+# Letters whose plain alt+<letter> binding is not `workspace <LETTER>` (focus
+# keys, the app switcher, ...). Such a workspace could not be reached by keyboard.
+_reserved_alt_letters() {
+    grep -E "^[[:space:]]*alt-[a-z][[:space:]]*=" "$REPO_DIR/config/aerospace.toml" \
+        | grep -v -E "=[[:space:]]*'workspace [A-Z]'" \
+        | sed -E 's/^[[:space:]]*alt-([a-z]).*/\1/' \
+        | tr 'a-z' 'A-Z'
+}
+
+@test "reserved alt letters match the known hub bindings" {
+    result="$(_reserved_alt_letters | sort | tr -d '\n')"
+    [[ "$result" == "HJKLN" ]]
+}
+
+@test "_alloc_workspace_id never returns a reserved alt+<letter> ID" {
+    reserved="$(_reserved_alt_letters)"
+    allocated=""
+    for _ in $(seq 1 40); do
+        used="$(jq -nc --arg s "$allocated" '[$s | split(" ")[] | select(. != "") | {workspace_id: .}]')"
+        id="$(bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; _alloc_workspace_id '$used'")" || break
+        allocated="$allocated $id"
+    done
+    for letter in $reserved; do
+        [[ " $allocated " != *" $letter "* ]] || { echo "allocated reserved $letter: $allocated"; false; }
+    done
+    # Everything else is still handed out.
+    [[ " $allocated " == *" Y "* ]]
+}
+
+@test "_is_valid_workspace_id rejects reserved alt+<letter> IDs" {
+    for letter in $(_reserved_alt_letters); do
+        run bash -c "source '$HUB_SCRIPT' >/dev/null 2>&1; _is_valid_workspace_id $letter"
+        [[ "$status" -ne 0 ]]
+    done
+}
