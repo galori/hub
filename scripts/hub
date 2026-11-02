@@ -127,6 +127,7 @@ print_usage() {
     echo "  remove        Remove a workspace (current or by ID)"
     echo "  rename        Rename a workspace (current or by ID)"
     echo "  monitor       Move the focused window or workspace to another monitor (move-window/move-workspace/restore)"
+    echo "  reorder       Move a workspace to a new place in the Hub Bar (--after/--before/--first, left/right)"
     echo "  apps          Manage configured app launcher slots (list/add/edit/remove/reset)"
     echo "  actions       Manage custom actions shown in the Hub Bar overlay"
   echo "  open          Open configured apps in current workspace"
@@ -1105,6 +1106,8 @@ APPS_FLOW_LIB="$SCRIPT_DIR/lib/apps_flow.sh"
 [ -f "$APPS_FLOW_LIB" ] && source "$APPS_FLOW_LIB"
 ACTIONS_FLOW_LIB="$SCRIPT_DIR/lib/actions_flow.sh"
 [ -f "$ACTIONS_FLOW_LIB" ] && source "$ACTIONS_FLOW_LIB"
+REORDER_LIB="$SCRIPT_DIR/lib/reorder.sh"
+[ -f "$REORDER_LIB" ] && source "$REORDER_LIB"
 
 # --- Commands ---
 
@@ -1706,7 +1709,8 @@ _create_workspace() {
     updated="$(echo "$existing" | jq --arg name "$ws_name" --arg path "$ws_path" \
         --arg root "$ws_root" --arg id "$ws_id" --arg color "$ws_color" \
         --arg monitor "$ws_monitor_name" \
-        '. + [{name: $name, path: $path, root_repo: $root, workspace_id: $id}
+        --arg uid "$(uuidgen 2>/dev/null || echo "$RANDOM$RANDOM$SECONDS")" \
+        '. + [{name: $name, path: $path, root_repo: $root, workspace_id: $id, uid: $uid}
               + (if $color != "" then {color: $color} else {} end)
               + (if $monitor != "" then {monitor: $monitor} else {} end)]')"
 
@@ -2095,12 +2099,16 @@ _build_prompt_cmd() {
     printf '%s' "$prompt" > "$prompt_file"
     local quoted_id quoted_bin quoted_pf
     quoted_id=$(printf '%q' "$ws_id")
+    local ws_uid quoted_uid
+    ws_uid="$(jq -r --arg id "$ws_id" '[.[] | select(.workspace_id == $id) | .uid // empty][0] // empty' "$WORKSPACES_FILE" 2>/dev/null || true)"
+    quoted_uid=$(printf '%q' "$ws_uid")
     quoted_bin=$(printf '%q' "$claude_bin")
     quoted_pf=$(printf '%q' "$prompt_file")
     cat > "$wrapper_script" <<WRAPPER
 #!/bin/zsh
 source "\$HOME/.zshrc" 2>/dev/null
 export HUB_WORKSPACE_ID=${quoted_id}
+export HUB_WORKSPACE_UID=${quoted_uid}
 exec "\$SHELL" -i -c '${quoted_bin} "\$1"; exec "\$SHELL" -i' zsh "\$(cat ${quoted_pf})"
 WRAPPER
     chmod +x "$wrapper_script"
@@ -4298,6 +4306,7 @@ hub_main() {
         next)     cmd_next ;;
         prev)     cmd_prev ;;
         monitor)  cmd_monitor "$@" ;;
+        reorder)  cmd_reorder "$@" ;;
         apps)     cmd_apps "$@" ;;
         actions)  cmd_actions "$@" ;;
         open)     cmd_open "$@" ;;
