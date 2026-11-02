@@ -96,7 +96,7 @@ Stops all managed services and restores the Dock and menu bar.
 
 Press **`Ctrl+Alt+N`** from anywhere to open the new workspace dialog.
 
-Opens a dialog to create a named workspace. Supports picking a git repo (with optional worktree creation), assigning a workspace key (1-9, A-Z), and automatically switching to it with a terminal open at the project path.
+Opens a dialog to create a named workspace. Supports picking a git repo (with optional worktree creation), assigning an available workspace key with a direct Alt shortcut, and automatically switching to it with a terminal open at the project path.
 
 CLI alternative: `hub new`
 
