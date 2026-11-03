@@ -76,6 +76,32 @@ func focusedWorkspaceID() -> String? {
     return out.isEmpty ? nil : out
 }
 
+// The URL without its credentials, query and fragment, for the log and the HUD.
+// Sign-in and magic-link URLs carry one-time codes and tokens in the query.
+// Keep in step with url_redact in scripts/lib/open_url.sh.
+func redactedURLString(_ raw: String) -> String {
+    let clean = String(String.UnicodeScalarView(raw.unicodeScalars.filter {
+        !CharacterSet.controlCharacters.contains($0)
+    }))
+    let cut = clean.firstIndex(where: { $0 == "?" || $0 == "#" })
+    var head = cut.map { String(clean[..<$0]) } ?? clean
+    var marker = ""
+    if let cut = cut {
+        marker = clean[cut] == "?" ? "?…" : "#…"
+    }
+    if let schemeEnd = head.range(of: "://") {
+        let afterScheme = head[schemeEnd.upperBound...]
+        let authorityEnd = afterScheme.firstIndex(of: "/") ?? afterScheme.endIndex
+        let authority = afterScheme[..<authorityEnd]
+        if let at = authority.lastIndex(of: "@") {
+            head = String(head[..<schemeEnd.upperBound])
+                + String(authority[authority.index(after: at)...])
+                + String(afterScheme[authorityEnd...])
+        }
+    }
+    return String(head.prefix(300)) + marker
+}
+
 func openURL(_ url: URL) {
     let urlString = url.absoluteString
     // Capture the focused workspace NOW (synchronously, before launching the
@@ -83,14 +109,15 @@ func openURL(_ url: URL) {
     // Delegate the launch + corral to `hub open-url`, which reuses the same
     // launch/poll/move-to-workspace logic as the keyboard launcher.
     guard let hub = hubScriptPath() else {
-        try? "error: hub_path not found; cannot open \(urlString)\n".appendLine(to: "/tmp/hub_handler.log")
+        try? "error: hub_path not found; cannot open \(redactedURLString(urlString))\n".appendLine(to: "/tmp/hub_handler.log")
         return
     }
     let wsID = focusedWorkspaceID() ?? ""
     let escapedURL = urlString.replacingOccurrences(of: "'", with: "'\\''")
     let escapedWS = wsID.replacingOccurrences(of: "'", with: "'\\''")
     let cmd = "'\(hub)' open-url '\(escapedURL)' '\(escapedWS)'"
-    try? "cmd: \(cmd)\nurl: \(urlString)\nws: \(wsID)\n".appendLine(to: "/tmp/hub_handler.log")
+    let shownURL = redactedURLString(urlString)
+    try? "cmd: '\(hub)' open-url '\(shownURL)' '\(escapedWS)'\nurl: \(shownURL)\nws: \(wsID)\n".appendLine(to: "/tmp/hub_handler.log")
     Process.launchedProcess(launchPath: "/bin/sh", arguments: ["-c", cmd])
 }
 
@@ -108,7 +135,7 @@ extension String {
 var hideWork: DispatchWorkItem?
 
 func showURL(_ urlString: String) {
-    urlLabel.stringValue = "Opening URL in current workspace: \(urlString)"
+    urlLabel.stringValue = "Opening URL in current workspace: \(redactedURLString(urlString))"
     cv.layoutSubtreeIfNeeded()
     let fittingH = max(cv.fittingSize.height + 8, 100)
     let rect = NSRect(
@@ -154,7 +181,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func handleGetURL(_ event: NSAppleEventDescriptor, withReplyEvent: NSAppleEventDescriptor) {
         let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue ?? "(no URL)"
-        try? "received: \(urlString)\n".appendLine(to: "/tmp/hub_handler.log")
+        try? "received: \(redactedURLString(urlString))\n".appendLine(to: "/tmp/hub_handler.log")
         showURL(urlString)
     }
 
