@@ -35,12 +35,14 @@ This is a simple repo. Use a concise title and one-paragraph body; no ticket num
 
 - `scripts/hub` - Main shell script (install, up, down, new, list, remove, rename, open, apps, tree commands)
 - `scripts/lib/apps_flow.sh` - Shared helpers for the app-picker and `hub apps` subcommand (sourced by scripts/hub)
+- `scripts/lib/open_url.sh` - Helpers for `hub open-url`: encoding the URL for launch templates, redacting it for logs, and URL groups with their per-group lock and state (sourced by scripts/hub). Must stay bash 3.2 compatible; the HTTP handler starts `hub open-url` with Launch Services' minimal PATH, so it runs under `/bin/bash`
 - `scripts/lib/swift_prebuilt.sh` - Fingerprint-checked prebuilt-binary install helpers (sourced by scripts/hub); lets `hub install` skip swiftc entirely when a matching binary is committed
 - `scripts/lib/swift_tools_manifest.sh` - Canonical list of Swift tools/sources that ship prebuilt binaries; shared by scripts/hub, scripts/build-swift-prebuilt.sh, and scripts/check-swift-prebuilt.sh
 - `scripts/build-swift-prebuilt.sh` - Rebuilds all `lib/prebuilt/` binaries (universal arm64+x86_64) from current sources; run after editing `lib/*.swift` and commit the result. Requires a local Swift toolchain
 - `scripts/check-swift-prebuilt.sh` - CI guard that fails if `lib/prebuilt/` is stale relative to `lib/*.swift`
 - `lib/prebuilt/` - Committed prebuilt Swift binaries + `.sha256` fingerprints, so ordinary installs need no Xcode/Command Line Tools. Local compilation is opt-in via `HUB_SHOULD_BUILD_SWIFT=1`
-- `config/app_presets.json` - Curated `CFBundleIdentifier` → launch-cmd database; deployed to `~/.config/hub/app_presets.json` by install
+- `config/app_presets.json` - Curated `CFBundleIdentifier` → launch-cmd database (`launch`, `url_launch`, `first_url_launch`, `tab_launch`); deployed to `~/.config/hub/app_presets.json` by install. `hub open-url` also reads `tab_launch` from the repo copy, so a preset added there works before the next install
+- `config/url_groups.json` - URL groups for `hub open-url` (AWS IAM Identity Center sign-in pages by default): a matching URL opens a window or joins the group's window as a tab. A file of the same name in `~/.config/hub/` replaces it
 - `config/aerospace.toml` - AeroSpace config template (`__HUB_SCRIPT__` placeholder replaced during install)
 - `config/action_presets.json` - Shipped `hub actions` presets (`pr`, `jira`, `web`); `{actions_dir}` expands to the deployed scripts dir
 - `default-actions/` - Generic scripts behind the default actions; deployed to `~/.config/hub/actions/` by install. Anything user-specific comes from env vars (`HUB_JIRA_HOST`, `HUB_WEB_URL_CMD`) that the script must error on when unset — never hardcode hosts or paths here
@@ -56,7 +58,7 @@ This is a simple repo. Use a concise title and one-paragraph body; no ticket num
 - `lib/progress_banner.swift` - Shared progress, modal overlay, and testing-banner HUD (compiled to `~/.config/hub/progress_banner`)
 - `lib/app_switcher.swift` - Cmd-Tab-style app-slot switcher (compiled to `~/.config/hub/app_switcher`)
 - `lib/log_viewer.swift` - GUI log viewer for `hub log --window` (compiled to `~/.config/hub/log_viewer`)
-- `lib/http_handler.swift` - HTTP/HTTPS URL handler daemon; receives Apple Events, shows HUD, opens URL in slot-2 browser (compiled into `~/Applications/HubHTTPHandler.app`)
+- `lib/http_handler.swift` - HTTP/HTTPS URL handler daemon; receives Apple Events, shows HUD, opens URL in slot-2 browser through `hub open-url` (compiled into `~/Applications/HubHTTPHandler.app`). It logs and shows URLs without their query or fragment
 - `lib/browser_ctl.swift` - Browser control helper for focus/tab management (compiled to `~/.config/hub/browser_ctl`)
 - `lib/spatial_order.swift` - CGWindowList geometry helper; in default mode takes window IDs as args and prints them sorted left-to-right; in `--tree` mode reconstructs and prints the AeroSpace tiling tree (compiled to `~/.config/hub/spatial_order`)
 - `lib/float_nudge.swift` - Helper that nudges floating windows below the Hub Bar (compiled to `~/.config/hub/float_nudge`)

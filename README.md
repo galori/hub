@@ -153,6 +153,35 @@ hub open 1         # open just the first configured app (e.g., iTerm)
 hub open 2         # open just the second configured app (e.g., Safari)
 ```
 
+### Links from other apps
+
+While Hub is up it is the default browser. A link from any app opens in the slot 2 app of `apps.json`, in a new window on the current workspace.
+
+Sign-in pages are grouped. When an AWS session ends, every tool that needs it (Claude Code, Kiro, Codex, the `aws` CLI) starts its own `aws sso login`, and each one asks for a browser window. Hub opens the first sign-in page in a window and adds the rest to that window as tabs. The window moves to the workspace you are on. The same URL twice within 30 seconds opens once. A window is only reused for 10 minutes, the lifetime of one login.
+
+This tidies the windows. It does not merge the logins: each tool still waits for its own page. Finishing one page does not finish the others.
+
+The groups live in `config/url_groups.json`. To change them, put a file with the same name in `~/.config/hub/`; it replaces the shipped one.
+
+```json
+{
+  "aws-sso": {
+    "match": [
+      { "host": "^oidc\\.[a-z0-9-]+\\.amazonaws\\.com(\\.cn)?$", "path": "^/authorize$" },
+      { "host": "^device\\.sso\\.[a-z0-9-]+\\.amazonaws\\.com(\\.cn)?$" }
+    ],
+    "dedupe_seconds": 30,
+    "reuse_window_seconds": 600
+  }
+}
+```
+
+`host` and `path` are regular expressions. A URL matches when its host and path match one entry. Only `http` and `https` URLs with a plain host match; a URL with a user name, or with odd characters before the path, is never grouped.
+
+Adding a tab needs a `tab_launch` command in the slot 2 entry of `apps.json`, or in the preset for that app. Hub ships one for Safari. It can use `{url}` and `{window_id}`. Put `{url}` in single quotes, and pass it to the browser as an argument, not inside a script. Without a `tab_launch` command, every page gets its own window, but the 30 second repeat check still applies. If the tab command fails, Hub opens a window, so no URL is lost.
+
+Hub keeps the query and fragment of a URL out of `hub log`, the on-screen HUD and `/tmp/hub_handler.log`, because sign-in and magic-link URLs carry one-time codes there. The browser still gets the whole URL. To check what Hub did with a link, run `hub log` and look for `group`.
+
 ## Guiding Principles
 
 - **Keyboard-first**: Everything should be keyboard-only accessible, similar to how AeroSpace is designed for keyboard use, but also usable with the mouse.
