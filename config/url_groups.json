@@ -1,0 +1,11 @@
+{
+  "aws-sso": {
+    "description": "AWS IAM Identity Center sign-in pages that `aws sso login` opens, for the browser and device-code flows. The first page opens a window; later pages join it as tabs.",
+    "match": [
+      { "host": "^oidc\\.[a-z0-9-]+\\.amazonaws\\.com(\\.cn)?$", "path": "^/authorize$" },
+      { "host": "^device\\.sso\\.[a-z0-9-]+\\.amazonaws\\.com(\\.cn)?$" }
+    ],
+    "dedupe_seconds": 30,
+    "reuse_window_seconds": 600
+  }
+}
