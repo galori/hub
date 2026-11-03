@@ -1108,6 +1108,8 @@ ACTIONS_FLOW_LIB="$SCRIPT_DIR/lib/actions_flow.sh"
 [ -f "$ACTIONS_FLOW_LIB" ] && source "$ACTIONS_FLOW_LIB"
 REORDER_LIB="$SCRIPT_DIR/lib/reorder.sh"
 [ -f "$REORDER_LIB" ] && source "$REORDER_LIB"
+OPEN_URL_LIB="$SCRIPT_DIR/lib/open_url.sh"
+[ -f "$OPEN_URL_LIB" ] && source "$OPEN_URL_LIB"
 
 # --- Commands ---
 
@@ -2876,18 +2878,38 @@ nudge_float_window() {
     ) &
 }
 
-# _launch_and_corral APP_NAME LAUNCH_CMD WS_ID [LAUNCH_DIR]
+# _hub_redact_open_url TEXT
+# Prints TEXT with the URL that cmd_open_url is opening (OPEN_URL_RAW, and
+# OPEN_URL_ENC, the encoded form launch commands see) replaced by its redacted
+# form (OPEN_URL_SHOWN). Launch errors can echo the URL; the log must not.
+_hub_redact_open_url() {
+    local text="$1"
+    if [[ -n "${OPEN_URL_RAW:-}" ]]; then
+        text="${text//"$OPEN_URL_RAW"/${OPEN_URL_SHOWN:-}}"
+        if [[ -n "${OPEN_URL_ENC:-}" ]]; then
+            text="${text//"$OPEN_URL_ENC"/${OPEN_URL_SHOWN:-}}"
+        fi
+    fi
+    printf '%s' "$text"
+}
+
+# _launch_and_corral APP_NAME LAUNCH_CMD WS_ID [LAUNCH_DIR] [LOG_CMD]
 # Runs LAUNCH_CMD, waits (up to 8s) for a NEW window of APP_NAME to appear, then
 # moves it to WS_ID (if it didn't already land there) and focuses it. This is the
 # shared core used by both the keyboard launcher (open_app_slot) and URL opens
 # (cmd_open_url) so windows always end up on the intended workspace, regardless
 # of where the app decides to place them.
+# LOG_CMD, when given, is what the log shows in place of LAUNCH_CMD (URL opens
+# pass the command with the query hidden).
 # Sets OPEN_APP_SLOT_WID (the new window id, or "" if none appeared) and
 # OPEN_APP_SLOT_CORRALLED (true if a move was needed).
 _launch_and_corral() {
-    local app_name="$1" launch_cmd="$2" ws_id="$3" launch_dir="${4:-}"
+    local app_name="$1" launch_cmd="$2" ws_id="$3" launch_dir="${4:-}" log_cmd="${5:-}"
+    if [[ -z "$log_cmd" ]]; then
+        log_cmd="$launch_cmd"
+    fi
 
-    hub_log "CMD" "launch $app_name on workspace $ws_id: $launch_cmd"
+    hub_log "CMD" "launch $app_name on workspace $ws_id: $log_cmd"
 
     # Snapshot existing window IDs for this app
     local before_ids
@@ -2929,13 +2951,13 @@ _launch_and_corral() {
         hub_log "OUT" "$app_name launched: window $new_wid on workspace $ws_id"
         # Capture any launch errors
         local _err
-        _err="$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)"
+        _err="$(_hub_redact_open_url "$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)")"
         [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err" || true
     else
         OPEN_APP_SLOT_WID=""
         hub_log "ERR" "$app_name: window did not appear within 8s"
         local _err
-        _err="$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)"
+        _err="$(_hub_redact_open_url "$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)")"
         [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err" || true
     fi
     # Never let the trailing conditional's exit status (1 when _err is empty)
@@ -2948,48 +2970,231 @@ _app_has_any_windows() {
     aerospace list-windows --all --format '%{app-name}' 2>/dev/null | grep -qxF "$app_name"
 }
 
+# _open_url_fill_template TEMPLATE URL
+# Prints TEMPLATE with {url} replaced by URL (single quotes escaped). A template
+# without {url} gets URL appended as one single-quoted argument.
+_open_url_fill_template() {
+    local template="$1" url="$2"
+    local esc_url="${url//\'/\'\\\'\'}"
+    if [[ "$template" == *"{url}"* ]]; then
+        printf '%s' "${template//\{url\}/$esc_url}"
+    else
+        printf '%s' "$template '$esc_url'"
+    fi
+}
+
+# _open_url_new_window SAFE_URL SHOWN WS_ID APP_INFO APP_NAME
+# Opens SAFE_URL (already passed through url_encode_for_launch) in a new window
+# of the browser and corrals the window to WS_ID. SHOWN is the redacted URL the
+# log shows. Sets OPEN_APP_SLOT_WID like _launch_and_corral.
+_open_url_new_window() {
+    local safe_url="$1" shown="$2" ws_id="$3" app_info="$4" app_name="$5"
+    local template app_launch app_url_launch app_first_url_launch
+    app_launch="$(printf '%s' "$app_info" | jq -r '.launch // ""')"
+    app_url_launch="$(printf '%s' "$app_info" | jq -r '.url_launch // ""')"
+    app_first_url_launch="$(printf '%s' "$app_info" | jq -r '.first_url_launch // ""')"
+
+    # If the browser has no windows anywhere, prefer a cold-start URL command so
+    # apps like Safari do not need a warm "make new document" AppleScript before
+    # they exist.
+    if ! _app_has_any_windows "$app_name" && [[ -n "$app_first_url_launch" ]]; then
+        template="$app_first_url_launch"
+    elif [[ -n "$app_url_launch" ]]; then
+        template="$app_url_launch"
+    else
+        template="$app_launch"
+    fi
+
+    OPEN_APP_SLOT_WID=""
+    OPEN_APP_SLOT_CORRALLED=false
+    _launch_and_corral "$app_name" \
+        "$(_open_url_fill_template "$template" "$safe_url")" "$ws_id" "" \
+        "$(_open_url_fill_template "$template" "$shown")"
+}
+
+# _url_window_alive WINDOW_ID APP_NAME
+# Returns 0 if AeroSpace still lists WINDOW_ID as a window of APP_NAME.
+_url_window_alive() {
+    local wid="$1" app_name="$2" windows
+    windows="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null || true)"
+    grep -qxF "$wid|$app_name" <<< "$windows"
+}
+
+# _url_window_raise WINDOW_ID WS_ID
+# Brings an existing window to workspace WS_ID and focuses it.
+_url_window_raise() {
+    local wid="$1" ws_id="$2" win_ws
+    win_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${wid}|" | cut -d'|' -f2 || echo "")"
+    if [[ "$win_ws" != "$ws_id" ]]; then
+        aerospace move-node-to-workspace --window-id "$wid" "$ws_id" 2>/dev/null || true
+    fi
+    aerospace focus --window-id "$wid" 2>/dev/null || true
+}
+
+# _run_with_timeout SECONDS COMMAND [ARG...]
+# Runs COMMAND and stops it after SECONDS. Returns its status, or 143 if it was
+# stopped. A browser that hangs must not hold a group's lock for long.
+_run_with_timeout() {
+    local ticks=$(( $1 * 10 )) rc=0 pid
+    shift
+    "$@" &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if [[ "$ticks" -le 0 ]]; then
+            kill "$pid" 2>/dev/null || true
+            break
+        fi
+        sleep 0.1
+        ticks=$(( ticks - 1 ))
+    done
+    wait "$pid" 2>/dev/null || rc=$?
+    return "$rc"
+}
+
+# _open_url_tab_template APP_INFO APP_NAME
+# Prints the command template that adds a tab to an open window of the browser:
+# the slot's own tab_launch, else the one in the preset for that app. Returns 1
+# if there is none. The template can use {url} and {window_id}.
+_open_url_tab_template() {
+    local app_info="$1" app_name="$2" template file
+    template="$(printf '%s' "$app_info" | jq -r '.tab_launch // ""' 2>/dev/null || true)"
+    if [[ -n "$template" ]]; then
+        printf '%s' "$template"
+        return 0
+    fi
+    for file in "$APP_PRESETS_FILE" "$APP_PRESETS_SRC"; do
+        [[ -f "$file" ]] || continue
+        template="$(jq -r --arg name "$app_name" \
+            '[to_entries[] | select(.value.name == $name) | .value.tab_launch // empty] | first // empty' \
+            "$file" 2>/dev/null || true)"
+        if [[ -n "$template" ]]; then
+            printf '%s' "$template"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# _open_url_as_tab WINDOW_ID SAFE_URL SHOWN APP_INFO APP_NAME
+# Adds SAFE_URL as a tab to the browser window WINDOW_ID. Returns 1 if the
+# browser has no tab command or the command fails; the caller then opens a
+# window instead, so a URL is never lost.
+_open_url_as_tab() {
+    local wid="$1" safe_url="$2" shown="$3" app_info="$4" app_name="$5"
+    local template cmd log_cmd err
+    [[ "$wid" =~ ^[0-9]+$ ]] || return 1
+    template="$(_open_url_tab_template "$app_info" "$app_name")" || return 1
+    template="${template//\{window_id\}/$wid}"
+    cmd="$(_open_url_fill_template "$template" "$safe_url")"
+    log_cmd="$(_open_url_fill_template "$template" "$shown")"
+    hub_log "CMD" "add tab to $app_name window $wid: $log_cmd"
+    if ! _run_with_timeout 10 bash -c "$cmd" >/dev/null 2>"$HUB_OPEN_ERR"; then
+        err="$(_hub_redact_open_url "$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)")"
+        hub_log "ERR" "$app_name could not add a tab to window $wid: ${err:-no error output}"
+        return 1
+    fi
+    return 0
+}
+
+# _open_url_in_group GROUP SAFE_URL SHOWN HASH WS_ID APP_INFO APP_NAME
+# Opens a URL of a group (see url_group_for). The first page opens a window and
+# later pages join it as tabs, so a burst of sign-in pages from several tools
+# is one window. The same URL twice in a short time is one page. Call it with
+# the group's lock held.
+_open_url_in_group() {
+    local group="$1" safe_url="$2" shown="$3" hash="$4" ws_id="$5" app_info="$6" app_name="$7"
+    local id="[${hash:0:8}]" now dedupe_secs reuse_secs wid=""
+    now="$(date +%s)"
+    dedupe_secs="$(url_group_setting "$group" dedupe_seconds 30)"
+    reuse_secs="$(url_group_setting "$group" reuse_window_seconds 600)"
+
+    # The group's window, if it is still open and was used recently enough.
+    url_group_window_load "$group"
+    if [[ -n "$URL_GROUP_WINDOW_ID" && "$URL_GROUP_WINDOW_APP" == "$app_name" ]]; then
+        if [[ $(( now - URL_GROUP_WINDOW_TS )) -le "$reuse_secs" ]] \
+            && _url_window_alive "$URL_GROUP_WINDOW_ID" "$app_name"; then
+            wid="$URL_GROUP_WINDOW_ID"
+        fi
+    fi
+
+    # The same URL again is a retry of a page that is already open.
+    if url_group_seen_recently "$group" "$hash" "$dedupe_secs"; then
+        hub_log "OUT" "open-url $id group $group: same URL seen in the last ${dedupe_secs}s, skipped"
+        if [[ -n "$wid" ]]; then
+            _url_window_raise "$wid" "$ws_id"
+        fi
+        return 0
+    fi
+
+    # Another page of the group is open: add this one to that window as a tab.
+    if [[ -n "$wid" ]] && _open_url_as_tab "$wid" "$safe_url" "$shown" "$app_info" "$app_name"; then
+        _url_window_raise "$wid" "$ws_id"
+        url_group_window_save "$group" "$wid" "$app_name"
+        url_group_record_seen "$group" "$hash" "$dedupe_secs"
+        hub_log "OUT" "open-url $id group $group: opened as a tab in window $wid"
+        return 0
+    fi
+
+    # First page of the group, or its window is gone: open a window and keep it.
+    _open_url_new_window "$safe_url" "$shown" "$ws_id" "$app_info" "$app_name"
+    if [[ -n "$OPEN_APP_SLOT_WID" ]]; then
+        url_group_window_save "$group" "$OPEN_APP_SLOT_WID" "$app_name"
+        url_group_record_seen "$group" "$hash" "$dedupe_secs"
+        hub_log "OUT" "open-url $id group $group: opened in new window $OPEN_APP_SLOT_WID"
+    fi
+    return 0
+}
+
 # cmd_open_url URL [WS_ID] — open URL in the slot-2 browser and corral the new
 # window to WS_ID (defaults to the currently focused workspace). Called by the
 # http_handler daemon so URLs opened via `open <url>` land where the user is.
+# URLs that belong to a group (config/url_groups.json) are collected into one
+# window; see _open_url_in_group.
 cmd_open_url() {
     local url="$1"
     local ws_id="${2:-}"
     [[ -z "$ws_id" ]] && ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
     [[ -z "$url" || -z "$ws_id" ]] && return 1
-    hub_log "INPUT" "open-url $url (workspace $ws_id)"
 
-    # Resolve the slot-2 (index 1) browser launch command. If the browser has no
-    # windows anywhere, prefer a cold-start URL command so apps like Safari do not
-    # need a warm "make new document" AppleScript before they exist.
-    local app_info
+    # Query values in sign-in and magic-link URLs are secrets. The log and the
+    # launch-command log get the redacted form, plus a short hash to tell
+    # entries apart. OPEN_URL_* are read by _hub_redact_open_url, which also
+    # cleans launch errors that echo the URL.
+    local shown hash
+    shown="$(url_redact "$url")"
+    hash="$(url_hash "$url")"
+    local OPEN_URL_RAW="$url" OPEN_URL_ENC="" OPEN_URL_SHOWN="$shown"
+    hub_log "INPUT" "open-url $shown [${hash:0:8}] (workspace $ws_id)"
+
+    # Launch templates run through `bash -c` (and some embed the URL in an
+    # AppleScript string), so the URL must not carry quote or expansion syntax.
+    local safe_url
+    if ! safe_url="$(url_encode_for_launch "$url")"; then
+        hub_log "ERR" "open-url $shown: refused a URL with control characters"
+        return 1
+    fi
+    OPEN_URL_ENC="$safe_url"
+
+    # Slot 2 (index 1) is the browser.
+    local app_info app_name
     app_info="$(jq -c 'if length > 1 then .[1] else empty end' \
         "$APPS_FILE" 2>/dev/null)" || return 1
     [[ -z "$app_info" ]] && return 1
-    local app_name launch_cmd app_launch app_url_launch app_first_url_launch
     app_name="$(printf '%s' "$app_info" | jq -r '.name // ""')"
-    app_launch="$(printf '%s' "$app_info" | jq -r '.launch // ""')"
-    app_url_launch="$(printf '%s' "$app_info" | jq -r '.url_launch // ""')"
-    app_first_url_launch="$(printf '%s' "$app_info" | jq -r '.first_url_launch // ""')"
 
-    if ! _app_has_any_windows "$app_name" && [[ -n "$app_first_url_launch" ]]; then
-        launch_cmd="$app_first_url_launch"
-    elif [[ -n "$app_url_launch" ]]; then
-        launch_cmd="$app_url_launch"
-    else
-        launch_cmd="$app_launch"
+    local group
+    group="$(url_group_for "$url")"
+    if [[ -n "$group" ]]; then
+        if url_group_lock_acquire "$group"; then
+            local rc=0
+            _open_url_in_group "$group" "$safe_url" "$shown" "$hash" "$ws_id" "$app_info" "$app_name" || rc=$?
+            url_group_lock_release "$group"
+            return "$rc"
+        fi
+        hub_log "ERR" "open-url [${hash:0:8}]: could not lock group $group; opening a new window"
     fi
 
-    # Substitute {url}; if the launch command has no placeholder, append the URL.
-    local esc_url="${url//\'/\'\\\'\'}"
-    if [[ "$launch_cmd" == *"{url}"* ]]; then
-        launch_cmd="${launch_cmd//\{url\}/$esc_url}"
-    else
-        launch_cmd="$launch_cmd '$esc_url'"
-    fi
-
-    OPEN_APP_SLOT_WID=""
-    OPEN_APP_SLOT_CORRALLED=false
-    _launch_and_corral "$app_name" "$launch_cmd" "$ws_id"
+    _open_url_new_window "$safe_url" "$shown" "$ws_id" "$app_info" "$app_name"
 }
 
 open_app_slot() {

@@ -66,6 +66,7 @@
     "launch": "osascript -e 'tell application \"Safari\"' -e 'activate' -e 'make new document' -e 'end tell'",
     "first_url_launch": "open -a Safari \"{url}\"",
     "url_launch": "osascript -e 'tell application \"Safari\"' -e 'activate' -e 'make new document' -e 'set URL of document 1 to \"{url}\"' -e 'end tell'",
+    "tab_launch": "osascript -e 'on run argv' -e 'set theURL to item 1 of argv' -e 'set theID to (item 2 of argv) as integer' -e 'tell application \"Safari\"' -e 'set w to first window whose id is theID' -e 'set current tab of w to (make new tab at end of tabs of w with properties {URL:theURL})' -e 'end tell' -e 'end run' -- '{url}' {window_id}",
     "description": "Activates Safari and creates a new document (empty window)"
   },
   "com.apple.TextEdit": {
