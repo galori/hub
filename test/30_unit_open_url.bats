@@ -29,6 +29,7 @@ make_fake_launcher() {
     for a in "\$@"; do printf ' [%s]' "\$a"; done
     printf '\n'
 } >> "\$STUB_CALLS"
+[ -n "\${FAKE_LAUNCH_STDERR:-}" ] && echo "launch failed for \$*" >&2
 sleep "\${FAKE_LAUNCH_DELAY:-0.3}"
 n=\$(( \$(cat "\$FAKE_NEXT_ID") + 1 ))
 echo "\$n" > "\$FAKE_NEXT_ID"
@@ -181,4 +182,78 @@ teardown() {
 
     [ "$status" -ne 0 ]
     ! grep -q '^browser-' "$STUB_CALLS"
+}
+
+# ---------------------------------------------------------------------------
+# Query values stay out of the logs
+# ---------------------------------------------------------------------------
+
+@test "url_redact keeps scheme, host and path and hides the query" {
+    export URL='https://oidc.us-west-2.amazonaws.com/authorize?state=abc&code_challenge=xyz'
+
+    run hub_eval 'url_redact "$URL"'
+
+    [ "$status" -eq 0 ]
+    [ "$output" = 'https://oidc.us-west-2.amazonaws.com/authorize?…' ]
+}
+
+@test "url_redact drops credentials and fragments" {
+    export URL='https://user:pw@x.test:8443/a/b?t=1#frag'
+    run hub_eval 'url_redact "$URL"'
+    [ "$status" -eq 0 ]
+    [ "$output" = 'https://x.test:8443/a/b?…' ]
+
+    export URL='https://x.test/a#section'
+    run hub_eval 'url_redact "$URL"'
+    [ "$status" -eq 0 ]
+    [ "$output" = 'https://x.test/a#…' ]
+}
+
+@test "url_redact leaves a URL without query or fragment alone" {
+    export URL='https://x.test/a/b'
+    run hub_eval 'url_redact "$URL"'
+    [ "$status" -eq 0 ]
+    [ "$output" = 'https://x.test/a/b' ]
+
+    export URL='https://x.test'
+    run hub_eval 'url_redact "$URL"'
+    [ "$status" -eq 0 ]
+    [ "$output" = 'https://x.test' ]
+}
+
+@test "url_redact never prints control characters" {
+    export URL=$'https://x.test/a\nFAKE LOG LINE/b?q=1'
+
+    run hub_eval 'url_redact "$URL"'
+
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 1 ]
+    [ "$output" = 'https://x.test/aFAKE LOG LINE/b?…' ]
+}
+
+@test "open-url keeps query values out of hub.log" {
+    export URL='https://oidc.us-west-2.amazonaws.com/authorize?state=SECRETSTATE&code_challenge=SECRETCHALLENGE'
+
+    run hub_eval 'cmd_open_url "$URL" 1'
+
+    [ "$status" -eq 0 ]
+    grep -qF 'open-url https://oidc.us-west-2.amazonaws.com/authorize?… [' "$HUB_CONFIG_DIR/hub.log"
+    grep -Eq 'open-url [^ ]+ \[[0-9a-f]{8}\] \(workspace 1\)' "$HUB_CONFIG_DIR/hub.log"
+    grep -qF 'launch Browser on workspace 1:' "$HUB_CONFIG_DIR/hub.log"
+    ! grep -q 'SECRETSTATE' "$HUB_CONFIG_DIR/hub.log"
+    ! grep -q 'SECRETCHALLENGE' "$HUB_CONFIG_DIR/hub.log"
+    # The browser still gets the whole URL.
+    grep -qF 'browser-first [https://oidc.us-west-2.amazonaws.com/authorize?state=SECRETSTATE&code_challenge=SECRETCHALLENGE]' "$STUB_CALLS"
+}
+
+@test "open-url keeps the URL out of logged launch errors" {
+    export FAKE_LAUNCH_STDERR=1
+    export URL='https://x.test/cb?token=ab$cd'
+
+    run hub_eval 'cmd_open_url "$URL" 1'
+
+    [ "$status" -eq 0 ]
+    grep -q 'launch stderr' "$HUB_CONFIG_DIR/hub.log"
+    ! grep -qF 'ab$cd' "$HUB_CONFIG_DIR/hub.log"
+    ! grep -qF 'ab%24cd' "$HUB_CONFIG_DIR/hub.log"
 }

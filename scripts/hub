@@ -2878,18 +2878,38 @@ nudge_float_window() {
     ) &
 }
 
-# _launch_and_corral APP_NAME LAUNCH_CMD WS_ID [LAUNCH_DIR]
+# _hub_redact_open_url TEXT
+# Prints TEXT with the URL that cmd_open_url is opening (OPEN_URL_RAW, and
+# OPEN_URL_ENC, the encoded form launch commands see) replaced by its redacted
+# form (OPEN_URL_SHOWN). Launch errors can echo the URL; the log must not.
+_hub_redact_open_url() {
+    local text="$1"
+    if [[ -n "${OPEN_URL_RAW:-}" ]]; then
+        text="${text//"$OPEN_URL_RAW"/${OPEN_URL_SHOWN:-}}"
+        if [[ -n "${OPEN_URL_ENC:-}" ]]; then
+            text="${text//"$OPEN_URL_ENC"/${OPEN_URL_SHOWN:-}}"
+        fi
+    fi
+    printf '%s' "$text"
+}
+
+# _launch_and_corral APP_NAME LAUNCH_CMD WS_ID [LAUNCH_DIR] [LOG_CMD]
 # Runs LAUNCH_CMD, waits (up to 8s) for a NEW window of APP_NAME to appear, then
 # moves it to WS_ID (if it didn't already land there) and focuses it. This is the
 # shared core used by both the keyboard launcher (open_app_slot) and URL opens
 # (cmd_open_url) so windows always end up on the intended workspace, regardless
 # of where the app decides to place them.
+# LOG_CMD, when given, is what the log shows in place of LAUNCH_CMD (URL opens
+# pass the command with the query hidden).
 # Sets OPEN_APP_SLOT_WID (the new window id, or "" if none appeared) and
 # OPEN_APP_SLOT_CORRALLED (true if a move was needed).
 _launch_and_corral() {
-    local app_name="$1" launch_cmd="$2" ws_id="$3" launch_dir="${4:-}"
+    local app_name="$1" launch_cmd="$2" ws_id="$3" launch_dir="${4:-}" log_cmd="${5:-}"
+    if [[ -z "$log_cmd" ]]; then
+        log_cmd="$launch_cmd"
+    fi
 
-    hub_log "CMD" "launch $app_name on workspace $ws_id: $launch_cmd"
+    hub_log "CMD" "launch $app_name on workspace $ws_id: $log_cmd"
 
     # Snapshot existing window IDs for this app
     local before_ids
@@ -2931,13 +2951,13 @@ _launch_and_corral() {
         hub_log "OUT" "$app_name launched: window $new_wid on workspace $ws_id"
         # Capture any launch errors
         local _err
-        _err="$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)"
+        _err="$(_hub_redact_open_url "$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)")"
         [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err" || true
     else
         OPEN_APP_SLOT_WID=""
         hub_log "ERR" "$app_name: window did not appear within 8s"
         local _err
-        _err="$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)"
+        _err="$(_hub_redact_open_url "$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)")"
         [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err" || true
     fi
     # Never let the trailing conditional's exit status (1 when _err is empty)
@@ -2950,6 +2970,48 @@ _app_has_any_windows() {
     aerospace list-windows --all --format '%{app-name}' 2>/dev/null | grep -qxF "$app_name"
 }
 
+# _open_url_fill_template TEMPLATE URL
+# Prints TEMPLATE with {url} replaced by URL (single quotes escaped). A template
+# without {url} gets URL appended as one single-quoted argument.
+_open_url_fill_template() {
+    local template="$1" url="$2"
+    local esc_url="${url//\'/\'\\\'\'}"
+    if [[ "$template" == *"{url}"* ]]; then
+        printf '%s' "${template//\{url\}/$esc_url}"
+    else
+        printf '%s' "$template '$esc_url'"
+    fi
+}
+
+# _open_url_new_window SAFE_URL SHOWN WS_ID APP_INFO APP_NAME
+# Opens SAFE_URL (already passed through url_encode_for_launch) in a new window
+# of the browser and corrals the window to WS_ID. SHOWN is the redacted URL the
+# log shows. Sets OPEN_APP_SLOT_WID like _launch_and_corral.
+_open_url_new_window() {
+    local safe_url="$1" shown="$2" ws_id="$3" app_info="$4" app_name="$5"
+    local template app_launch app_url_launch app_first_url_launch
+    app_launch="$(printf '%s' "$app_info" | jq -r '.launch // ""')"
+    app_url_launch="$(printf '%s' "$app_info" | jq -r '.url_launch // ""')"
+    app_first_url_launch="$(printf '%s' "$app_info" | jq -r '.first_url_launch // ""')"
+
+    # If the browser has no windows anywhere, prefer a cold-start URL command so
+    # apps like Safari do not need a warm "make new document" AppleScript before
+    # they exist.
+    if ! _app_has_any_windows "$app_name" && [[ -n "$app_first_url_launch" ]]; then
+        template="$app_first_url_launch"
+    elif [[ -n "$app_url_launch" ]]; then
+        template="$app_url_launch"
+    else
+        template="$app_launch"
+    fi
+
+    OPEN_APP_SLOT_WID=""
+    OPEN_APP_SLOT_CORRALLED=false
+    _launch_and_corral "$app_name" \
+        "$(_open_url_fill_template "$template" "$safe_url")" "$ws_id" "" \
+        "$(_open_url_fill_template "$template" "$shown")"
+}
+
 # cmd_open_url URL [WS_ID] — open URL in the slot-2 browser and corral the new
 # window to WS_ID (defaults to the currently focused workspace). Called by the
 # http_handler daemon so URLs opened via `open <url>` land where the user is.
@@ -2958,48 +3020,34 @@ cmd_open_url() {
     local ws_id="${2:-}"
     [[ -z "$ws_id" ]] && ws_id="$(aerospace list-workspaces --focused 2>/dev/null || echo "")"
     [[ -z "$url" || -z "$ws_id" ]] && return 1
-    hub_log "INPUT" "open-url $url (workspace $ws_id)"
+
+    # Query values in sign-in and magic-link URLs are secrets. The log and the
+    # launch-command log get the redacted form, plus a short hash to tell
+    # entries apart. OPEN_URL_* are read by _hub_redact_open_url, which also
+    # cleans launch errors that echo the URL.
+    local shown hash
+    shown="$(url_redact "$url")"
+    hash="$(url_hash "$url")"
+    local OPEN_URL_RAW="$url" OPEN_URL_ENC="" OPEN_URL_SHOWN="$shown"
+    hub_log "INPUT" "open-url $shown [${hash:0:8}] (workspace $ws_id)"
 
     # Launch templates run through `bash -c` (and some embed the URL in an
     # AppleScript string), so the URL must not carry quote or expansion syntax.
     local safe_url
     if ! safe_url="$(url_encode_for_launch "$url")"; then
-        hub_log "ERR" "open-url: refused a URL with control characters"
+        hub_log "ERR" "open-url $shown: refused a URL with control characters"
         return 1
     fi
+    OPEN_URL_ENC="$safe_url"
 
-    # Resolve the slot-2 (index 1) browser launch command. If the browser has no
-    # windows anywhere, prefer a cold-start URL command so apps like Safari do not
-    # need a warm "make new document" AppleScript before they exist.
-    local app_info
+    # Slot 2 (index 1) is the browser.
+    local app_info app_name
     app_info="$(jq -c 'if length > 1 then .[1] else empty end' \
         "$APPS_FILE" 2>/dev/null)" || return 1
     [[ -z "$app_info" ]] && return 1
-    local app_name launch_cmd app_launch app_url_launch app_first_url_launch
     app_name="$(printf '%s' "$app_info" | jq -r '.name // ""')"
-    app_launch="$(printf '%s' "$app_info" | jq -r '.launch // ""')"
-    app_url_launch="$(printf '%s' "$app_info" | jq -r '.url_launch // ""')"
-    app_first_url_launch="$(printf '%s' "$app_info" | jq -r '.first_url_launch // ""')"
 
-    if ! _app_has_any_windows "$app_name" && [[ -n "$app_first_url_launch" ]]; then
-        launch_cmd="$app_first_url_launch"
-    elif [[ -n "$app_url_launch" ]]; then
-        launch_cmd="$app_url_launch"
-    else
-        launch_cmd="$app_launch"
-    fi
-
-    # Substitute {url}; if the launch command has no placeholder, append the URL.
-    local esc_url="${safe_url//\'/\'\\\'\'}"
-    if [[ "$launch_cmd" == *"{url}"* ]]; then
-        launch_cmd="${launch_cmd//\{url\}/$esc_url}"
-    else
-        launch_cmd="$launch_cmd '$esc_url'"
-    fi
-
-    OPEN_APP_SLOT_WID=""
-    OPEN_APP_SLOT_CORRALLED=false
-    _launch_and_corral "$app_name" "$launch_cmd" "$ws_id"
+    _open_url_new_window "$safe_url" "$shown" "$ws_id" "$app_info" "$app_name"
 }
 
 open_app_slot() {

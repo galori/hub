@@ -26,3 +26,40 @@ url_encode_for_launch() {
     url="${url// /%20}"
     printf '%s' "$url"
 }
+
+# url_redact URL
+# Prints URL as scheme://host[:port]/path, followed by "?…" or "#…" when a
+# query or fragment was cut. Sign-in and magic-link URLs carry one-time codes
+# and tokens in the query, which must not end up in logs or on screen.
+url_redact() {
+    local url="$1" base marker="" rest after authority path scheme
+    # A newline in the URL must not start a forged log line.
+    url="${url//[[:cntrl:]]/}"
+    base="${url%%[?#]*}"
+    rest="${url#"$base"}"
+    case "$rest" in
+        \?*) marker='?…' ;;
+        \#*) marker='#…' ;;
+    esac
+    case "$base" in
+        *://*)
+            scheme="${base%%://*}"
+            after="${base#*://}"
+            authority="${after%%/*}"
+            path=""
+            if [[ "$after" == */* ]]; then
+                path="/${after#*/}"
+            fi
+            authority="${authority##*@}"
+            base="$scheme://$authority$path"
+            ;;
+    esac
+    printf '%s%s' "${base:0:300}" "$marker"
+}
+
+# url_hash URL
+# Prints the SHA-256 of URL. Logs show the first 8 characters so entries about
+# one URL can be matched without revealing it.
+url_hash() {
+    printf '%s' "$1" | shasum -a 256 | awk '{print $1}'
+}
