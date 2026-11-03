@@ -1108,6 +1108,8 @@ ACTIONS_FLOW_LIB="$SCRIPT_DIR/lib/actions_flow.sh"
 [ -f "$ACTIONS_FLOW_LIB" ] && source "$ACTIONS_FLOW_LIB"
 REORDER_LIB="$SCRIPT_DIR/lib/reorder.sh"
 [ -f "$REORDER_LIB" ] && source "$REORDER_LIB"
+OPEN_URL_LIB="$SCRIPT_DIR/lib/open_url.sh"
+[ -f "$OPEN_URL_LIB" ] && source "$OPEN_URL_LIB"
 
 # --- Commands ---
 
@@ -2958,6 +2960,14 @@ cmd_open_url() {
     [[ -z "$url" || -z "$ws_id" ]] && return 1
     hub_log "INPUT" "open-url $url (workspace $ws_id)"
 
+    # Launch templates run through `bash -c` (and some embed the URL in an
+    # AppleScript string), so the URL must not carry quote or expansion syntax.
+    local safe_url
+    if ! safe_url="$(url_encode_for_launch "$url")"; then
+        hub_log "ERR" "open-url: refused a URL with control characters"
+        return 1
+    fi
+
     # Resolve the slot-2 (index 1) browser launch command. If the browser has no
     # windows anywhere, prefer a cold-start URL command so apps like Safari do not
     # need a warm "make new document" AppleScript before they exist.
@@ -2980,7 +2990,7 @@ cmd_open_url() {
     fi
 
     # Substitute {url}; if the launch command has no placeholder, append the URL.
-    local esc_url="${url//\'/\'\\\'\'}"
+    local esc_url="${safe_url//\'/\'\\\'\'}"
     if [[ "$launch_cmd" == *"{url}"* ]]; then
         launch_cmd="${launch_cmd//\{url\}/$esc_url}"
     else
