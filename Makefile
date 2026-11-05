@@ -19,7 +19,7 @@ test-integration:
 	@tmp="$$(mktemp "$${TMPDIR:-/tmp}/hub-integration.XXXXXX")"; \
 	HUB_RUN_INTEGRATION=1 bats --formatter tap test/integration/ >"$$tmp" 2>&1 & pid=$$!; \
 	while kill -0 "$$pid" 2>/dev/null; do \
-		if grep -Eq '^ok [0-9]+ hub open runs in the registered workspace and corrals the exact Terminal window$' "$$tmp"; then \
+		if grep -Eq "^ok [0-9]+ hub open runs in the registered workspace and corrals the exact Terminal window$$" "$$tmp"; then \
 			sleep 2; \
 			if kill -0 "$$pid" 2>/dev/null; then \
 				pkill -TERM -P "$$pid" 2>/dev/null || true; \
