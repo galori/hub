@@ -193,3 +193,15 @@ JSON
     [[ "$output" == *"Skipped live service reload"* ]]
     [[ "$output" == *"Skipped shell alias install"* ]]
 }
+
+
+@test "install deploys the stable terminal command runner" {
+    run bash -c "
+        export HOME='$HOME' HUB_HOME='$HOME' HUB_CONFIG_DIR='$HUB_CONFIG_DIR' HUB_RUNTIME_DIR='$HUB_RUNTIME_DIR'
+        source '$HUB_SCRIPT' >/dev/null 2>&1
+        deploy_terminal_command_runner
+    "
+    [[ "$status" -eq 0 ]]
+    [[ -x "$HOME/.config/hub/terminal_command_runner" ]]
+    [[ "$(stat -f '%Lp' "$HOME/.config/hub/terminal_command_runner")" == "700" ]]
+}

@@ -151,7 +151,18 @@ CLI alternative:
 hub open           # open all configured apps in current workspace
 hub open 1         # open just the first configured app (e.g., iTerm)
 hub open 2         # open just the second configured app (e.g., Safari)
+hub open 1 --workspace A -- command arg1
+hub open 1 --workspace A -- zsh -lc 'command one | command two'
 ```
+
+The literal `--` separates Hub options from the command argv. Command mode
+requires terminal slot 1 and an explicit workspace ID. It always creates a new
+terminal. Hub passes every token after `--` without shell reparsing, so shell
+operators work only when an explicit shell such as `zsh -lc` receives them.
+
+Hub reports that the terminal runner accepted the request. It does not report
+the eventual command exit status. The terminal stays open after the command
+finishes and starts an interactive login shell.
 
 ### Links from other apps
 

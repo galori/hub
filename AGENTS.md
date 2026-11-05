@@ -38,6 +38,7 @@ This is a simple repo. Use a concise title and one-paragraph body; no ticket num
 - `scripts/lib/open_url.sh` - Helpers for `hub open-url`: encoding the URL for launch templates, redacting it for logs, and URL groups with their per-group lock and state (sourced by scripts/hub). Must stay bash 3.2 compatible; the HTTP handler starts `hub open-url` with Launch Services' minimal PATH, so it runs under `/bin/bash`
 - `scripts/lib/swift_prebuilt.sh` - Fingerprint-checked prebuilt-binary install helpers (sourced by scripts/hub); lets `hub install` skip swiftc entirely when a matching binary is committed
 - `scripts/lib/swift_tools_manifest.sh` - Canonical list of Swift tools/sources that ship prebuilt binaries; shared by scripts/hub, scripts/build-swift-prebuilt.sh, and scripts/check-swift-prebuilt.sh
+- `scripts/lib/terminal_command_runner.zsh` - Stable zsh runner for opaque NUL-delimited terminal command requests; deployed to `~/.config/hub/terminal_command_runner`
 - `scripts/build-swift-prebuilt.sh` - Rebuilds all `lib/prebuilt/` binaries (universal arm64+x86_64) from current sources; run after editing `lib/*.swift` and commit the result. Requires a local Swift toolchain
 - `scripts/check-swift-prebuilt.sh` - CI guard that fails if `lib/prebuilt/` is stale relative to `lib/*.swift`
 - `lib/prebuilt/` - Committed prebuilt Swift binaries + `.sha256` fingerprints, so ordinary installs need no Xcode/Command Line Tools. Local compilation is opt-in via `HUB_SHOULD_BUILD_SWIFT=1`
