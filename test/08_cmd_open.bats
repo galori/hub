@@ -175,8 +175,7 @@ open_app_slot() {
     cp "$TERMINAL_COMMAND_REQUEST_PATH" "$OPEN_RECORD.payload"
     return 0
 }
-export OPEN_RECORD="$4"
-shift 4
+shift 3
 cmd_open "$@"
 SH
     chmod +x "$HOME/run-command-open.sh"
