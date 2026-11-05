@@ -2947,7 +2947,40 @@ _hub_redact_open_url() {
 # Terminal command requests -------------------------------------------------
 # Command mode never places user argv in a launch template. It writes the
 # workspace and argv as NUL-delimited fields, then gives the terminal only the
-# stable runner path and opaque request/ack paths.
+# stable runner path and opaque request, acknowledgement, and decision paths.
+
+_terminal_command_atomic_write() {
+    local path="$1" value="$2"
+    [[ -n "$path" && "$path" == /* && ! -e "$path" && ! -L "$path" ]] || return 1
+    local tmp="${path}.tmp.$$.$RANDOM"
+    ( umask 077; printf '%s\n' "$value" > "$tmp" ) || return 1
+    chmod 600 "$tmp" 2>/dev/null || true
+    if ln "$tmp" "$path" 2>/dev/null; then
+        rm -f "$tmp"
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
+_terminal_command_claim_owner_alive() {
+    local claim="$1" base owner
+    base="${claim##*/}"
+    owner="${base#*.claimed.}"
+    owner="${owner%%.*}"
+    [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null
+}
+
+_terminal_command_request_has_live_claim() {
+    local request="$1" claim
+    while IFS= read -r claim; do
+        [[ -n "$claim" ]] || continue
+        if _terminal_command_claim_owner_alive "$claim"; then
+            return 0
+        fi
+    done < <(find "$(dirname "$request")" -type f -name "$(basename "$request").claimed.*" -print 2>/dev/null || true)
+    return 1
+}
 
 _terminal_command_request_dir_prepare() {
     local dir="$HUB_TERMINAL_REQUEST_DIR"
@@ -2961,19 +2994,34 @@ _terminal_command_request_dir_prepare() {
         chmod 600 "$marker" 2>/dev/null || true
     fi
     [[ -f "$marker" && ! -L "$marker" ]] || return 1
-    # Reclaim old files by renaming them first. The atomic rename prevents a
-    # runner that still has the original path from claiming the file after the
-    # prune begins.
-    local stale_file stale_path
+
+    # Reclaim old request, acknowledgement, decision, and temporary files. A
+    # claimed payload is retained while its runner PID is alive, even when the
+    # file is old, so pruning cannot remove data from a live runner.
+    local max_age="${HUB_TERMINAL_REQUEST_MAX_AGE_MINUTES:-10}"
+    [[ "$max_age" =~ ^[0-9]+$ ]] || max_age=10
+    local stale_file stale_path base payload
     while IFS= read -r stale_file; do
         [[ -n "$stale_file" ]] || continue
+        base="${stale_file##*/}"
+        if [[ "$base" == *.claimed.* ]]; then
+            _terminal_command_claim_owner_alive "$stale_file" && continue
+        elif [[ "$base" == *.ack || "$base" == *.decision || "$base" == *.ack.tmp.* || "$base" == *.decision.tmp.* ]]; then
+            case "$base" in
+                *.ack.tmp.*) payload="${stale_file%%.ack.tmp.*}" ;;
+                *.decision.tmp.*) payload="${stale_file%%.decision.tmp.*}" ;;
+                *.ack) payload="${stale_file%.ack}" ;;
+                *.decision) payload="${stale_file%.decision}" ;;
+            esac
+            _terminal_command_request_has_live_claim "$payload" && continue
+        fi
         stale_path="${stale_file}.stale.$$.$RANDOM"
         if mv "$stale_file" "$stale_path" 2>/dev/null; then
             rm -f "$stale_path"
         fi
-    done < <(find "$dir" -type f \( -name 'request.*' -o -name 'request.*.ack' \) \
-        -mmin +"${HUB_TERMINAL_REQUEST_MAX_AGE_MINUTES:-10}" -print 2>/dev/null || true)
+    done < <(find "$dir" -type f ! -name '.hub-terminal-command-dir' -mmin +"$max_age" -print 2>/dev/null || true)
 }
+
 
 _terminal_command_request_create() {
     local workspace_path="$1"
@@ -2985,8 +3033,8 @@ _terminal_command_request_create() {
     local request
     request="$(mktemp "$HUB_TERMINAL_REQUEST_DIR/request.XXXXXX")" || return 1
     chmod 600 "$request" || { rm -f "$request"; return 1; }
-    local ack="${request}.ack"
-    rm -f "$ack"
+    local ack="${request}.ack" decision="${request}.decision"
+    rm -f "$ack" "$decision"
 
     if ! {
         printf '%s\0' "$workspace_path"
@@ -2998,31 +3046,56 @@ _terminal_command_request_create() {
     chmod 600 "$request" || { rm -f "$request"; return 1; }
     TERMINAL_COMMAND_REQUEST_PATH="$request"
     TERMINAL_COMMAND_ACK_PATH="$ack"
-    export TERMINAL_COMMAND_REQUEST_PATH TERMINAL_COMMAND_ACK_PATH
+    TERMINAL_COMMAND_DECISION_PATH="$decision"
+    export TERMINAL_COMMAND_REQUEST_PATH TERMINAL_COMMAND_ACK_PATH TERMINAL_COMMAND_DECISION_PATH
 }
 
 _terminal_command_request_abandon() {
     local request="${1:-${TERMINAL_COMMAND_REQUEST_PATH:-}}"
-    local ack="${2:-${TERMINAL_COMMAND_ACK_PATH:-}}"
     [[ -n "$request" ]] && [[ -e "$request" ]] && {
         local abandoned="${request}.abandoned.$$.$RANDOM"
         mv "$request" "$abandoned" 2>/dev/null || true
         rm -f "$abandoned"
     }
-    [[ -n "$ack" ]] && rm -f "$ack"
     return 0
 }
 
+_terminal_command_request_cancel() {
+    local request="${1:-${TERMINAL_COMMAND_REQUEST_PATH:-}}"
+    local decision="${2:-${TERMINAL_COMMAND_DECISION_PATH:-}}"
+    [[ -n "$decision" ]] || return 0
+    local existing=""
+    if [[ -e "$decision" && ! -L "$decision" ]]; then
+        existing="$(cat "$decision" 2>/dev/null || true)"
+        [[ "$existing" == "RUN" ]] && return 1
+        [[ "$existing" == "CANCEL" ]] && { _terminal_command_request_abandon "$request"; return 0; }
+    fi
+    _terminal_command_atomic_write "$decision" CANCEL >/dev/null 2>&1 || true
+    _terminal_command_request_abandon "$request"
+    return 0
+}
+
+_terminal_command_request_go() {
+    local decision="${1:-${TERMINAL_COMMAND_DECISION_PATH:-}}"
+    [[ -n "$decision" ]] || return 1
+    if _terminal_command_atomic_write "$decision" RUN >/dev/null 2>&1; then
+        return 0
+    fi
+    [[ "$(cat "$decision" 2>/dev/null || true)" == "RUN" ]]
+}
+
 _terminal_command_request_cleanup() {
-    _terminal_command_request_abandon "${TERMINAL_COMMAND_REQUEST_PATH:-}" "${TERMINAL_COMMAND_ACK_PATH:-}"
+    _terminal_command_request_abandon "${TERMINAL_COMMAND_REQUEST_PATH:-}"
+    rm -f "${TERMINAL_COMMAND_ACK_PATH:-}"
     TERMINAL_COMMAND_REQUEST_PATH=""
     TERMINAL_COMMAND_ACK_PATH=""
-    export TERMINAL_COMMAND_REQUEST_PATH TERMINAL_COMMAND_ACK_PATH
+    TERMINAL_COMMAND_DECISION_PATH=""
+    export TERMINAL_COMMAND_REQUEST_PATH TERMINAL_COMMAND_ACK_PATH TERMINAL_COMMAND_DECISION_PATH
 }
 
 _terminal_command_runner_invocation() {
-    local request="$1" ack="$2"
-    printf '%q %q %q' "$TERMINAL_COMMAND_RUNNER_BIN" "$request" "$ack"
+    local request="$1" ack="$2" decision="$3"
+    printf '%q %q %q %q' "$TERMINAL_COMMAND_RUNNER_BIN" "$request" "$ack" "$decision"
 }
 
 # Returns 0 for READY, 1 for the runner's immediate ERROR, and 2 for timeout.
@@ -3058,7 +3131,7 @@ _app_launch_lock_key() {
 }
 
 _app_launch_lock_clear_stale() {
-    local lock="$1" holder mtime now stale_age
+    local lock="$1" holder
     holder="$(readlink "$lock" 2>/dev/null || true)"
     case "$holder" in
         ''|*[!0-9]*)
@@ -3066,18 +3139,14 @@ _app_launch_lock_clear_stale() {
             return 0
             ;;
     esac
-    if ! kill -0 "$holder" 2>/dev/null; then
-        rm -f "$lock"
-        return 0
+    # A live owner remains authoritative even when the lock is old. The
+    # bounded acquire timeout handles an unresponsive owner without allowing
+    # concurrent launches to corrupt window correlation.
+    if kill -0 "$holder" 2>/dev/null; then
+        return 1
     fi
-    stale_age="${HUB_APP_LAUNCH_LOCK_STALE_SECONDS:-60}"
-    [[ "$stale_age" =~ ^[0-9]+$ ]] || stale_age=60
-    mtime="$(stat -f %m "$lock" 2>/dev/null || echo 0)"
-    now="$(date +%s)"
-    if [[ "$mtime" =~ ^[0-9]+$ && "$now" =~ ^[0-9]+$ ]] \
-        && (( now - mtime > stale_age )); then
-        rm -f "$lock"
-    fi
+    rm -f "$lock"
+    return 0
 }
 
 _app_launch_lock_acquire() {
@@ -3560,6 +3629,7 @@ open_app_slot() {
             if [[ "$verbose" == "true" || "$command_mode" == "true" ]]; then
                 warn "$app_name: command terminal did not appear"
             fi
+            _terminal_command_request_cancel
             _terminal_command_request_cleanup
             return 1
         fi
@@ -3574,6 +3644,13 @@ open_app_slot() {
             if [[ "$verbose" == "true" || "$command_mode" == "true" ]]; then
                 warn "$app_name: command runner did not accept the request"
             fi
+            _terminal_command_request_cancel
+            _terminal_command_request_cleanup
+            return 1
+        fi
+        if ! _terminal_command_request_go; then
+            hub_log "ERR" "$app_name: command runner could not receive the run decision"
+            _terminal_command_request_cancel
             _terminal_command_request_cleanup
             return 1
         fi
@@ -3817,10 +3894,10 @@ cmd_open() {
             return 1
         }
         local runner_cmd
-        runner_cmd="$(_terminal_command_runner_invocation "$TERMINAL_COMMAND_REQUEST_PATH" "$TERMINAL_COMMAND_ACK_PATH")"
+        runner_cmd="$(_terminal_command_runner_invocation "$TERMINAL_COMMAND_REQUEST_PATH" "$TERMINAL_COMMAND_ACK_PATH" "$TERMINAL_COMMAND_DECISION_PATH")"
         hub_log "INPUT" "run command in terminal slot 1 on workspace $ws_id"
         progress_start "Run command in ${command_app_name}"
-        trap 'progress_stop 2>/dev/null || true; _terminal_command_request_cleanup; trap - EXIT' EXIT
+        trap 'progress_stop 2>/dev/null || true; _terminal_command_request_cancel; _terminal_command_request_cleanup; trap - EXIT' EXIT
         local command_status=0
         open_app_slot 1 "$ws_id" "$ws_path" false true "$runner_cmd" true || command_status=$?
         progress_stop

@@ -91,6 +91,7 @@ never touch `test/integration/`.
 | `05_screenshot_bar_cropped.bats` | macOS Sequoia only — `screenshot-bar-cropped` does not leak green desktop pixels in normal mode |
 | `06_fullscreen_revealed_menu_bar_screenshot.bats` | macOS Tahoe+ — screenshot crop verifies the Hub Bar top strip is visible below the revealed menu bar in Hub fullscreen |
 | `07_right_shift_fullscreen.bats` | Double-tap right Shift toggles AeroSpace fullscreen for the focused window and restores it |
+| `08_terminal_command.bats` | `hub open 1 --workspace ID -- COMMAND` runs in the registered directory and corrals the exact new Terminal window |
 
 ---
 

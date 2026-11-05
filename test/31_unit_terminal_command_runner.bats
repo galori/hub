@@ -47,12 +47,14 @@ SH
 
     local request="$HUB_TERMINAL_REQUEST_DIR/request.test"
     local ack="$HUB_TERMINAL_REQUEST_DIR/request.test.ack"
+    local decision="$HUB_TERMINAL_REQUEST_DIR/request.test.decision"
     printf '%s\0%s\0%s\0%s\0%s\0' "$workspace" "$executable" "" 'two words' $'line\nnext' > "$request"
-    chmod 600 "$request"
+    printf 'RUN\n' > "$decision"
+    chmod 600 "$request" "$decision"
 
     run env HOME="$TERMINAL_TEST_DIR/home" SHELL="$shell_stub" \
         ARGV_RECORD="$record" CWD_RECORD="$cwd_record" SHELL_RECORD="$shell_record" \
-        "$RUNNER" "$request" "$ack"
+        "$RUNNER" "$request" "$ack" "$decision"
     [[ "$status" -eq 0 ]]
     [[ "$(cat "$cwd_record")" == "$workspace" ]]
     [[ "$(cat "$shell_record")" == "-il" ]]
@@ -68,6 +70,7 @@ SH
     local secret='secret-command-value'
     local request="$HUB_TERMINAL_REQUEST_DIR/request.bad"
     local ack="$HUB_TERMINAL_REQUEST_DIR/request.bad.ack"
+    local decision="$HUB_TERMINAL_REQUEST_DIR/request.bad.decision"
     cat > "$executable" <<SH
 #!/bin/sh
 printf '%s\n' '$secret' > "$TERMINAL_TEST_DIR/executed"
@@ -76,7 +79,7 @@ SH
     printf '%s\0%s\0' "$TERMINAL_TEST_DIR/missing" "$executable" > "$request"
     chmod 600 "$request"
 
-    run env HOME="$TERMINAL_TEST_DIR/home" SHELL=/bin/sh "$RUNNER" "$request" "$ack"
+    run env HOME="$TERMINAL_TEST_DIR/home" SHELL=/bin/sh "$RUNNER" "$request" "$ack" "$decision"
     [[ "$status" -ne 0 ]]
     [[ "$(cat "$ack")" == ERROR* ]]
     [[ "$(cat "$ack")" != *"$secret"* ]]
@@ -97,12 +100,13 @@ SH
         source '$HUB' >/dev/null 2>&1
         _terminal_command_request_create '$workspace' 'cmd' '' 'line
 next'
-        printf '%s\\n' \"\$TERMINAL_COMMAND_REQUEST_PATH\" \"\$TERMINAL_COMMAND_ACK_PATH\"
+        printf '%s\\n' \"\$TERMINAL_COMMAND_REQUEST_PATH\" \"\$TERMINAL_COMMAND_ACK_PATH\" \"\$TERMINAL_COMMAND_DECISION_PATH\"
     "
     [[ "$status" -eq 0 ]]
-    local request ack
+    local request ack decision
     request="$(printf '%s\n' "$output" | sed -n '1p')"
     ack="$(printf '%s\n' "$output" | sed -n '2p')"
+    decision="$(printf '%s\n' "$output" | sed -n '3p')"
     [[ -f "$request" ]]
     [[ "$(stat -f '%Lp' "$request")" == "600" ]]
     [[ "$(stat -f '%Lp' "$HUB_TERMINAL_REQUEST_DIR")" == "700" ]]
@@ -110,11 +114,12 @@ next'
     run bash -c "
         export HOME='$HOME' HUB_HOME='$HOME' HUB_CONFIG_DIR='$HUB_CONFIG_DIR' HUB_RUNTIME_DIR='$HUB_RUNTIME_DIR' HUB_TERMINAL_REQUEST_DIR='$HUB_TERMINAL_REQUEST_DIR'
         source '$HUB' >/dev/null 2>&1
-        TERMINAL_COMMAND_REQUEST_PATH='$request' TERMINAL_COMMAND_ACK_PATH='$ack' _terminal_command_request_cleanup
+        TERMINAL_COMMAND_REQUEST_PATH='$request' TERMINAL_COMMAND_ACK_PATH='$ack' TERMINAL_COMMAND_DECISION_PATH='$decision' _terminal_command_request_cleanup
     "
     [[ "$status" -eq 0 ]]
     [[ ! -e "$request" ]]
     [[ ! -e "$ack" ]]
+    [[ ! -e "$decision" ]]
 }
 
 @test "runner prints a short nonzero status and then starts the interactive shell" {
@@ -134,11 +139,13 @@ SH
     chmod +x "$shell_stub"
     local request="$HUB_TERMINAL_REQUEST_DIR/request.fail"
     local ack="$HUB_TERMINAL_REQUEST_DIR/request.fail.ack"
+    local decision="$HUB_TERMINAL_REQUEST_DIR/request.fail.decision"
     printf '%s\0%s\0' "$TERMINAL_TEST_DIR" "$executable" > "$request"
-    chmod 600 "$request"
+    printf 'RUN\n' > "$decision"
+    chmod 600 "$request" "$decision"
 
     run env HOME="$TERMINAL_TEST_DIR/home" SHELL="$shell_stub" SHELL_RECORD="$shell_record" \
-        "$RUNNER" "$request" "$ack"
+        "$RUNNER" "$request" "$ack" "$decision"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"17"* ]]
     [[ "$(cat "$shell_record")" == "-il" ]]
@@ -154,9 +161,56 @@ SH
     chmod 600 "$target"
     ln -s "$target" "$request"
 
-    run env HOME="$TERMINAL_TEST_DIR/home" SHELL=/bin/sh "$RUNNER" "$request" "$ack"
+    run env HOME="$TERMINAL_TEST_DIR/home" SHELL=/bin/sh "$RUNNER" "$request" "$ack" "$request.decision"
     [[ "$status" -ne 0 ]]
     [[ "$(cat "$ack")" == ERROR* ]]
     [[ -L "$request" ]]
     [[ -f "$target" ]]
+}
+
+@test "runner does not execute before Hub sends a run decision" {
+    local workspace="$TERMINAL_TEST_DIR/workspace-no-run"
+    local executable="$TERMINAL_TEST_DIR/late-command"
+    local shell_stub="$TERMINAL_TEST_DIR/no-run-shell"
+    mkdir -p "$workspace"
+    cat > "$executable" <<SH
+#!/bin/sh
+touch "$TERMINAL_TEST_DIR/executed"
+SH
+    chmod +x "$executable"
+    cat > "$shell_stub" <<'SH'
+#!/bin/sh
+exit 0
+SH
+    chmod +x "$shell_stub"
+
+    local request="$HUB_TERMINAL_REQUEST_DIR/request.no-run"
+    local ack="$request.ack"
+    local decision="$request.decision"
+    printf '%s\0%s\0' "$workspace" "$executable" > "$request"
+    chmod 600 "$request"
+
+    run env HOME="$TERMINAL_TEST_DIR/home" SHELL="$shell_stub" \
+        HUB_COMMAND_DECISION_ATTEMPTS=2 HUB_COMMAND_DECISION_INTERVAL=0.01 \
+        "$RUNNER" "$request" "$ack" "$decision"
+    [[ "$status" -ne 0 ]]
+    [[ ! -e "$TERMINAL_TEST_DIR/executed" ]]
+}
+
+@test "request pruning removes dead claims but keeps live claims" {
+    local dead="$HUB_TERMINAL_REQUEST_DIR/.claimed.999999.1"
+    local live="$HUB_TERMINAL_REQUEST_DIR/.claimed.$$.$RANDOM"
+    printf 'dead' > "$dead"
+    printf 'live' > "$live"
+    chmod 600 "$dead" "$live"
+    touch -t 200001010000 "$dead" "$live"
+
+    run bash -c "
+        export HOME='$HOME' HUB_HOME='$HOME' HUB_CONFIG_DIR='$HUB_CONFIG_DIR' HUB_RUNTIME_DIR='$HUB_RUNTIME_DIR' HUB_TERMINAL_REQUEST_DIR='$HUB_TERMINAL_REQUEST_DIR'
+        source '$HUB' >/dev/null 2>&1
+        _terminal_command_request_dir_prepare
+    "
+    [[ "$status" -eq 0 ]]
+    [[ ! -e "$dead" ]]
+    [[ -e "$live" ]]
 }

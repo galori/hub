@@ -77,3 +77,20 @@ teardown() {
     "
     [[ "$status" -eq 0 ]]
 }
+
+@test "a live old app lock is not stolen" {
+    run bash -c "
+        export HOME='$HOME' HUB_HOME='$HOME' HUB_CONFIG_DIR='$HUB_CONFIG_DIR' HUB_RUNTIME_DIR='$HUB_RUNTIME_DIR' HUB_APP_LAUNCH_LOCK_TIMEOUT=0 HUB_APP_LAUNCH_LOCK_STALE_SECONDS=0
+        source '$HUB' >/dev/null 2>&1
+        mkdir -p \"\$HUB_APP_LAUNCH_LOCK_DIR\"
+        key=\"\$(_app_launch_lock_key Terminal)\"
+        lock=\"\$HUB_APP_LAUNCH_LOCK_DIR/\$key.lock\"
+        ln -s \"\$\$\" \"\$lock\"
+        touch -t 200001010000 \"\$lock\"
+        if _app_launch_lock_acquire Terminal; then
+            exit 11
+        fi
+        [[ -L \"\$lock\" ]]
+    "
+    [[ "$status" -eq 0 ]]
+}
