@@ -60,12 +60,15 @@ teardown() {
 [{"name":"Terminal","prompt_launch":"{prompt_cmd}"}]
 JSON
     printf '[{"name":"Main","path":"%s","workspace_id":"A","uid":"u"}]\n' "$workspace" > "$WORKSPACES_FILE"
-    run bash -c "
-        export HOME='$HOME' HUB_HOME='$HOME' HUB_CONFIG_DIR='$HUB_CONFIG_DIR' HUB_RUNTIME_DIR='$HUB_RUNTIME_DIR' APPS_FILE='$APPS_FILE' WORKSPACES_FILE='$WORKSPACES_FILE'
-        source '$HUB' >/dev/null 2>&1
-        wrapper=\"\$(_build_prompt_cmd 'prompt' '1' false A '$workspace')\"
-        grep -q 'cd --' \"\$wrapper\"
-        zsh -n \"\$wrapper\"
-    "
+    run env \
+        HOME="$HOME" HUB_HOME="$HOME" HUB_CONFIG_DIR="$HUB_CONFIG_DIR" HUB_RUNTIME_DIR="$HUB_RUNTIME_DIR" \
+        APPS_FILE="$APPS_FILE" WORKSPACES_FILE="$WORKSPACES_FILE" \
+        TEST_WORKSPACE="$workspace" HUB_SCRIPT="$HUB" \
+        bash -c '
+        source "$HUB_SCRIPT" >/dev/null 2>&1
+        wrapper="$(_build_prompt_cmd prompt 1 false A "$TEST_WORKSPACE")"
+        grep -q "cd --" "$wrapper"
+        zsh -n "$wrapper"
+    '
     [[ "$status" -eq 0 ]]
 }

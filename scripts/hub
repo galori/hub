@@ -3110,6 +3110,7 @@ _app_launch_lock_release() {
         rm -f "$lock"
     fi
     [[ "$lock" == "${APP_LAUNCH_LOCK_DIR_CURRENT:-}" ]] && APP_LAUNCH_LOCK_DIR_CURRENT=""
+    return 0
 }
 
 # _launch_and_corral APP_NAME LAUNCH_CMD WS_ID [LAUNCH_DIR] [LOG_CMD]

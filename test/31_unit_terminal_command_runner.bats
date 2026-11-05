@@ -14,6 +14,8 @@ setup() {
     export HUB_TERMINAL_REQUEST_DIR="$HUB_RUNTIME_DIR/terminal-commands"
     mkdir -p "$HUB_TERMINAL_REQUEST_DIR"
     chmod 700 "$HUB_TERMINAL_REQUEST_DIR"
+    : > "$HUB_TERMINAL_REQUEST_DIR/.hub-terminal-command-dir"
+    chmod 600 "$HUB_TERMINAL_REQUEST_DIR/.hub-terminal-command-dir"
 }
 
 teardown() {
