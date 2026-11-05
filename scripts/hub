@@ -82,8 +82,17 @@ LOG_VIEWER_SRC="$LIB_DIR/log_viewer.swift"
 : "${HUB_RENAME_RESULT:=$HUB_RUNTIME_DIR/rename}"
 : "${HUB_CONFIRM_STATE:=$HUB_RUNTIME_DIR/confirm-state}"
 : "${HUB_OPEN_ERR:=$HUB_RUNTIME_DIR/open-err}"
+TERMINAL_COMMAND_RUNNER_SRC="$SCRIPT_DIR/lib/terminal_command_runner.zsh"
+: "${TERMINAL_COMMAND_RUNNER_BIN:=$HUB_CONFIG_DIR/terminal_command_runner}"
+: "${HUB_TERMINAL_REQUEST_DIR:=$HUB_RUNTIME_DIR/terminal-commands}"
+: "${HUB_APP_LAUNCH_LOCK_DIR:=$HUB_RUNTIME_DIR/app-launch-locks}"
+: "${HUB_OPEN_POLL_ATTEMPTS:=32}"
+: "${HUB_OPEN_POLL_INTERVAL:=0.25}"
+: "${HUB_COMMAND_ACK_ATTEMPTS:=40}"
+: "${HUB_COMMAND_ACK_INTERVAL:=0.05}"
+: "${HUB_APP_LAUNCH_LOCK_TIMEOUT:=12}"
 : "${HUB_OVERLAY_PIDFILE:=$HUB_CONFIG_DIR/overlay.pid}"
-export HUB_HOME HUB_CONFIG_DIR HUB_RUNTIME_DIR HUB_APPLICATIONS_DIR
+export HUB_HOME HUB_CONFIG_DIR HUB_RUNTIME_DIR HUB_APPLICATIONS_DIR HUB_TERMINAL_REQUEST_DIR
 export HUB_NEW_WORKSPACE_RESULT HUB_RENAME_RESULT HUB_CONFIRM_STATE APP_SWITCHER_RESULT COMMAND_PALETTE_RESULT
 export APPS_FILE ACTIONS_FILE ACTION_PRESETS_FILE ACTIONS_DIR ICONS_DIR
 
@@ -168,6 +177,8 @@ print_usage() {
     echo "  hub open           # interactive: focus or launch an app"
     echo "  hub open 1         # focus app 1 (or launch if not running)"
     echo "  hub open 1 --force # always launch a new window of app 1"
+    echo "  hub open 1 --workspace A -- command arg1"
+    echo "  hub open 1 --workspace A -- zsh -lc 'command one | command two'"
     echo "  hub open --all     # launch any missing apps into current workspace"
     echo "  hub tree           # show tiling tree for the focused workspace"
     echo "  hub tree --all     # show tiling tree for all non-empty workspaces"
@@ -177,6 +188,9 @@ print_usage() {
     echo "  Use 'hub apps' to manage up to 5 slots. Slot 1 = terminal, slot 2 = browser."
     echo "  Presets auto-wire prompt_launch (for 'hub new --prompt') and url_launch (for URL handling)."
     echo "  Placeholders: {path} = workspace folder, {workspace} = workspace ID."
+    echo "  Command mode uses -- to pass an exact argv to a new slot-1 terminal."
+    echo "  Shell operators require an explicit shell, for example: zsh -lc '...'"
+    echo "  Command mode reports launch acceptance, not the command exit status; the terminal stays open."
     echo "  Use 'hub actions' to manage text-slug actions in the Hub Bar overlay."
 }
 
@@ -1172,6 +1186,17 @@ deploy_aerospace_config() {
     fi
 }
 
+deploy_terminal_command_runner() {
+    mkdir -p "$(dirname "$TERMINAL_COMMAND_RUNNER_BIN")"
+    if [[ -f "$TERMINAL_COMMAND_RUNNER_SRC" ]]; then
+        cp "$TERMINAL_COMMAND_RUNNER_SRC" "$TERMINAL_COMMAND_RUNNER_BIN"
+        chmod 700 "$TERMINAL_COMMAND_RUNNER_BIN"
+        success "Terminal command runner deployed to $TERMINAL_COMMAND_RUNNER_BIN"
+    else
+        warn "Terminal command runner source not found — command mode unavailable"
+    fi
+}
+
 deploy_app_presets() {
     mkdir -p "$(dirname "$APPS_FILE")"
     if [[ -f "$APP_PRESETS_SRC" ]]; then
@@ -1182,36 +1207,55 @@ deploy_app_presets() {
     if [[ -f "$APPS_FILE" && -f "$APP_PRESETS_FILE" ]]; then
         local ghostty_preset
         ghostty_preset="$(jq -c '."com.mitchellh.ghostty" // empty' "$APP_PRESETS_FILE" 2>/dev/null || true)"
-        if [[ -n "$ghostty_preset" ]]; then
-            local apps_tmp
-            apps_tmp="$(mktemp "${APPS_FILE}.XXXXXX")"
-            if jq --argjson preset "$ghostty_preset" '
+        local old_iterm='osascript -e '"'"'tell application "iTerm2"'"'"' -e '"'"'activate'"'"' -e '"'"'set w to (create window with default profile)'"'"' -e '"'"'tell current session of w'"'"' -e '"'"'write text "cd {path} && {prompt_cmd}"'"'"' -e '"'"'end tell'"'"' -e '"'"'end tell'"'"''
+        local new_iterm='osascript -e '"'"'tell application "iTerm2"'"'"' -e '"'"'activate'"'"' -e '"'"'set w to (create window with default profile)'"'"' -e '"'"'tell current session of w'"'"' -e '"'"'write text "{prompt_cmd}"'"'"' -e '"'"'end tell'"'"' -e '"'"'end tell'"'"''
+        local old_terminal='osascript -e '"'"'tell application "Terminal"'"'"' -e '"'"'activate'"'"' -e '"'"'do script "cd {path} && {prompt_cmd}"'"'"' -e '"'"'end tell'"'"''
+        local new_terminal='osascript -e '"'"'tell application "Terminal"'"'"' -e '"'"'activate'"'"' -e '"'"'do script "{prompt_cmd}"'"'"' -e '"'"'end tell'"'"''
+        local old_ghostty='open -na Ghostty.app --args --working-directory="{path}" --quit-after-last-window-closed=false -e zsh -lc '"'"'{prompt_cmd}; exec zsh -il'"'"''
+        local new_ghostty='open -na Ghostty.app --args --quit-after-last-window-closed=false -e zsh -lc '"'"'{prompt_cmd}; exec zsh -il'"'"''
+        local old_wezterm='open -na WezTerm --args start --cwd {path} -- {prompt_cmd}'
+        local new_wezterm='open -na WezTerm --args start -- {prompt_cmd}'
+        local apps_tmp
+        apps_tmp="$(mktemp "${APPS_FILE}.XXXXXX")"
+        [[ -z "$ghostty_preset" ]] && ghostty_preset=null
+        if jq --argjson ghostty "$ghostty_preset" \
+            --arg old_iterm "$old_iterm" --arg new_iterm "$new_iterm" \
+            --arg old_terminal "$old_terminal" --arg new_terminal "$new_terminal" \
+            --arg old_ghostty "$old_ghostty" --arg new_ghostty "$new_ghostty" \
+            --arg old_wezterm "$old_wezterm" --arg new_wezterm "$new_wezterm" '
                 map(
-                    if (.name == "Ghostty" and (
+                    if (.name == "Ghostty" and $ghostty != null and (
                         ((.launch // "") | contains("System Events")) or
                         ((.prompt_launch // "") | contains("System Events"))
                     )) then
                         . + {
-                            launch: $preset.launch,
-                            first_launch: $preset.first_launch,
-                            prompt_launch: $preset.prompt_launch,
-                            first_prompt_launch: $preset.first_prompt_launch
+                            launch: $ghostty.launch,
+                            first_launch: $ghostty.first_launch,
+                            prompt_launch: $ghostty.prompt_launch,
+                            first_prompt_launch: $ghostty.first_prompt_launch
                         }
-                    else
-                        .
-                    end
+                    else . end
+                    | if (.name == "iTerm2" and (.prompt_launch // "") == $old_iterm)
+                      then .prompt_launch = $new_iterm else . end
+                    | if (.name == "Terminal" and (.prompt_launch // "") == $old_terminal)
+                      then .prompt_launch = $new_terminal else . end
+                    | if (.name == "Ghostty" and (.prompt_launch // "") == $old_ghostty)
+                      then .prompt_launch = $new_ghostty else . end
+                    | if (.name == "Ghostty" and (.first_prompt_launch // "") == $old_ghostty)
+                      then .first_prompt_launch = $new_ghostty else . end
+                    | if (.name == "WezTerm" and (.prompt_launch // "") == $old_wezterm)
+                      then .prompt_launch = $new_wezterm else . end
                 )
             ' "$APPS_FILE" > "$apps_tmp"; then
-                if ! cmp -s "$APPS_FILE" "$apps_tmp"; then
-                    mv "$apps_tmp" "$APPS_FILE"
-                    success "Updated Ghostty app slot to native launch command"
-                else
-                    rm -f "$apps_tmp"
-                fi
+            if ! cmp -s "$APPS_FILE" "$apps_tmp"; then
+                mv "$apps_tmp" "$APPS_FILE"
+                success "Updated installed terminal prompt templates"
             else
                 rm -f "$apps_tmp"
-                warn "Could not update Ghostty app slot"
             fi
+        else
+            rm -f "$apps_tmp"
+            warn "Could not update installed terminal prompt templates"
         fi
     fi
 }
@@ -1417,6 +1461,9 @@ cmd_install() {
 
     # --- Deploy app presets database ---
     deploy_app_presets
+
+    # --- Deploy the stable terminal command runner ---
+    deploy_terminal_command_runner
 
     # --- Deploy action presets database ---
     deploy_action_presets
@@ -1729,7 +1776,7 @@ _create_workspace() {
     # Build the prompt wrapper now that ws_id is finalized — HUB_WORKSPACE_ID
     # can be baked in for exact workspace identification by the notify hook.
     local prompt_cmd
-    prompt_cmd="$(_build_prompt_cmd "$ws_prompt" "$ws_apps" "$ws_apps_set" "$ws_id")"
+    prompt_cmd="$(_build_prompt_cmd "$ws_prompt" "$ws_apps" "$ws_apps_set" "$ws_id" "$ws_path")"
 
     # Update recent_repos.json (skip for no-repo workspaces)
     if [[ "$no_repo" == "false" ]]; then
@@ -2073,12 +2120,14 @@ _cmd_new_cli() {
 #
 # Args: $1 = prompt text, $2 = ws_apps list, $3 = apps_set ("true" if user
 # passed an explicit --apps list), $4 = ws_id (baked into wrapper for exact
-# workspace identification by the notify hook)
+# workspace identification by the notify hook), $5 = workspace path (the
+# wrapper performs the authoritative cd before Claude starts)
 _build_prompt_cmd() {
     local prompt="$1"
     local ws_apps="$2"
     local apps_set="${3:-false}"
     local ws_id="${4:-}"
+    local ws_path="${5:-}"
     [[ -z "$prompt" ]] && return 0
 
     local prompt_slot=""
@@ -2108,18 +2157,20 @@ _build_prompt_cmd() {
     # pending-prompt process in ps. The final exec "$SHELL" -i keeps the terminal open.
     local prompt_file="${wrapper_script}.prompt"
     printf '%s' "$prompt" > "$prompt_file"
-    local quoted_id quoted_bin quoted_pf
+    local quoted_id quoted_bin quoted_pf quoted_path
     quoted_id=$(printf '%q' "$ws_id")
     local ws_uid quoted_uid
     ws_uid="$(jq -r --arg id "$ws_id" '[.[] | select(.workspace_id == $id) | .uid // empty][0] // empty' "$WORKSPACES_FILE" 2>/dev/null || true)"
     quoted_uid=$(printf '%q' "$ws_uid")
     quoted_bin=$(printf '%q' "$claude_bin")
     quoted_pf=$(printf '%q' "$prompt_file")
+    quoted_path=$(printf '%q' "$ws_path")
     cat > "$wrapper_script" <<WRAPPER
 #!/bin/zsh
 source "\$HOME/.zshrc" 2>/dev/null
 export HUB_WORKSPACE_ID=${quoted_id}
 export HUB_WORKSPACE_UID=${quoted_uid}
+cd -- ${quoted_path} || { print -u2 -- "Hub: could not enter the workspace"; exec "\$SHELL" -il; }
 exec "\$SHELL" -i -c '${quoted_bin} "\$1"; exec "\$SHELL" -i' zsh "\$(cat ${quoted_pf})"
 WRAPPER
     chmod +x "$wrapper_script"
@@ -2893,8 +2944,176 @@ _hub_redact_open_url() {
     printf '%s' "$text"
 }
 
+# Terminal command requests -------------------------------------------------
+# Command mode never places user argv in a launch template. It writes the
+# workspace and argv as NUL-delimited fields, then gives the terminal only the
+# stable runner path and opaque request/ack paths.
+
+_terminal_command_request_dir_prepare() {
+    local dir="$HUB_TERMINAL_REQUEST_DIR"
+    mkdir -p "$dir" || return 1
+    [[ -d "$dir" && ! -L "$dir" ]] || return 1
+    chmod 700 "$dir" || return 1
+    local marker="$dir/.hub-terminal-command-dir"
+    [[ ! -L "$marker" ]] || return 1
+    if [[ ! -e "$marker" ]]; then
+        ( umask 077; : > "$marker" ) || return 1
+        chmod 600 "$marker" 2>/dev/null || true
+    fi
+    [[ -f "$marker" && ! -L "$marker" ]] || return 1
+    # Reclaim old files by renaming them first. The atomic rename prevents a
+    # runner that still has the original path from claiming the file after the
+    # prune begins.
+    local stale_file stale_path
+    while IFS= read -r stale_file; do
+        [[ -n "$stale_file" ]] || continue
+        stale_path="${stale_file}.stale.$$.$RANDOM"
+        if mv "$stale_file" "$stale_path" 2>/dev/null; then
+            rm -f "$stale_path"
+        fi
+    done < <(find "$dir" -type f \( -name 'request.*' -o -name 'request.*.ack' \) \
+        -mmin +"${HUB_TERMINAL_REQUEST_MAX_AGE_MINUTES:-10}" -print 2>/dev/null || true)
+}
+
+_terminal_command_request_create() {
+    local workspace_path="$1"
+    shift
+    local -a command_argv=("$@")
+    [[ -n "$workspace_path" && ${#command_argv[@]} -gt 0 ]] || return 1
+    _terminal_command_request_dir_prepare || return 1
+
+    local request
+    request="$(mktemp "$HUB_TERMINAL_REQUEST_DIR/request.XXXXXX")" || return 1
+    chmod 600 "$request" || { rm -f "$request"; return 1; }
+    local ack="${request}.ack"
+    rm -f "$ack"
+
+    if ! {
+        printf '%s\0' "$workspace_path"
+        printf '%s\0' "${command_argv[@]}"
+    } > "$request"; then
+        rm -f "$request"
+        return 1
+    fi
+    chmod 600 "$request" || { rm -f "$request"; return 1; }
+    TERMINAL_COMMAND_REQUEST_PATH="$request"
+    TERMINAL_COMMAND_ACK_PATH="$ack"
+    export TERMINAL_COMMAND_REQUEST_PATH TERMINAL_COMMAND_ACK_PATH
+}
+
+_terminal_command_request_abandon() {
+    local request="${1:-${TERMINAL_COMMAND_REQUEST_PATH:-}}"
+    local ack="${2:-${TERMINAL_COMMAND_ACK_PATH:-}}"
+    [[ -n "$request" ]] && [[ -e "$request" ]] && {
+        local abandoned="${request}.abandoned.$$.$RANDOM"
+        mv "$request" "$abandoned" 2>/dev/null || true
+        rm -f "$abandoned"
+    }
+    [[ -n "$ack" ]] && rm -f "$ack"
+    return 0
+}
+
+_terminal_command_request_cleanup() {
+    _terminal_command_request_abandon "${TERMINAL_COMMAND_REQUEST_PATH:-}" "${TERMINAL_COMMAND_ACK_PATH:-}"
+    TERMINAL_COMMAND_REQUEST_PATH=""
+    TERMINAL_COMMAND_ACK_PATH=""
+    export TERMINAL_COMMAND_REQUEST_PATH TERMINAL_COMMAND_ACK_PATH
+}
+
+_terminal_command_runner_invocation() {
+    local request="$1" ack="$2"
+    printf '%q %q %q' "$TERMINAL_COMMAND_RUNNER_BIN" "$request" "$ack"
+}
+
+# Returns 0 for READY, 1 for the runner's immediate ERROR, and 2 for timeout.
+_terminal_command_ack_wait() {
+    local ack="$1" attempts="${HUB_COMMAND_ACK_ATTEMPTS:-40}" interval="${HUB_COMMAND_ACK_INTERVAL:-0.05}"
+    [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=40
+    [[ "$interval" =~ ^[0-9]+([.][0-9]+)?$ ]] || interval=0.05
+    local value=""
+    local i
+    for ((i=0; i<attempts; i++)); do
+        if [[ -f "$ack" ]]; then
+            value="$(cat "$ack" 2>/dev/null || true)"
+            case "$value" in
+                READY) return 0 ;;
+                ERROR*) return 1 ;;
+            esac
+        fi
+        sleep "$interval"
+    done
+    return 2
+}
+
+# Per-app launch lock. A PID symlink is created atomically on macOS. The owner
+# PID permits stale lock recovery after a killed launcher, while the bounded wait
+# prevents a broken owner from blocking all future opens.
+_app_launch_lock_key() {
+    local app_name="$1" digest
+    digest="$(printf '%s' "$app_name" | md5 -q 2>/dev/null || true)"
+    if [[ -z "$digest" ]]; then
+        digest="$(printf '%s' "$app_name" | cksum | cut -d' ' -f1)"
+    fi
+    printf '%s' "${digest//[^a-zA-Z0-9]/}"
+}
+
+_app_launch_lock_clear_stale() {
+    local lock="$1" holder mtime now stale_age
+    holder="$(readlink "$lock" 2>/dev/null || true)"
+    case "$holder" in
+        ''|*[!0-9]*)
+            rm -f "$lock"
+            return 0
+            ;;
+    esac
+    if ! kill -0 "$holder" 2>/dev/null; then
+        rm -f "$lock"
+        return 0
+    fi
+    stale_age="${HUB_APP_LAUNCH_LOCK_STALE_SECONDS:-60}"
+    [[ "$stale_age" =~ ^[0-9]+$ ]] || stale_age=60
+    mtime="$(stat -f %m "$lock" 2>/dev/null || echo 0)"
+    now="$(date +%s)"
+    if [[ "$mtime" =~ ^[0-9]+$ && "$now" =~ ^[0-9]+$ ]] \
+        && (( now - mtime > stale_age )); then
+        rm -f "$lock"
+    fi
+}
+
+_app_launch_lock_acquire() {
+    local app_name="$1" key lock deadline timeout
+    key="$(_app_launch_lock_key "$app_name")"
+    [[ -n "$key" ]] || key=app
+    mkdir -p "$HUB_APP_LAUNCH_LOCK_DIR" || return 1
+    lock="$HUB_APP_LAUNCH_LOCK_DIR/$key.lock"
+    timeout="${HUB_APP_LAUNCH_LOCK_TIMEOUT:-12}"
+    [[ "$timeout" =~ ^[0-9]+$ ]] || timeout=12
+    deadline=$(( SECONDS + timeout ))
+    while ! ln -s "$$" "$lock" 2>/dev/null; do
+        _app_launch_lock_clear_stale "$lock"
+        if (( SECONDS >= deadline )); then
+            hub_log "ERR" "$app_name: timed out waiting for launch lock"
+            return 1
+        fi
+        sleep 0.05
+    done
+    APP_LAUNCH_LOCK_DIR_CURRENT="$lock"
+    APP_LAUNCH_LOCK_OWNER="$$"
+    return 0
+}
+
+_app_launch_lock_release() {
+    local lock="${1:-${APP_LAUNCH_LOCK_DIR_CURRENT:-}}" owner="${2:-$$}" current
+    [[ -n "$lock" ]] || return 0
+    current="$(readlink "$lock" 2>/dev/null || true)"
+    if [[ "$current" == "$owner" ]]; then
+        rm -f "$lock"
+    fi
+    [[ "$lock" == "${APP_LAUNCH_LOCK_DIR_CURRENT:-}" ]] && APP_LAUNCH_LOCK_DIR_CURRENT=""
+}
+
 # _launch_and_corral APP_NAME LAUNCH_CMD WS_ID [LAUNCH_DIR] [LOG_CMD]
-# Runs LAUNCH_CMD, waits (up to 8s) for a NEW window of APP_NAME to appear, then
+# Runs LAUNCH_CMD, waits for a NEW window of APP_NAME to appear, then
 # moves it to WS_ID (if it didn't already land there) and focuses it. This is the
 # shared core used by both the keyboard launcher (open_app_slot) and URL opens
 # (cmd_open_url) so windows always end up on the intended workspace, regardless
@@ -2904,28 +3123,48 @@ _hub_redact_open_url() {
 # Sets OPEN_APP_SLOT_WID (the new window id, or "" if none appeared) and
 # OPEN_APP_SLOT_CORRALLED (true if a move was needed).
 _launch_and_corral() {
-    local app_name="$1" launch_cmd="$2" ws_id="$3" launch_dir="${4:-}" log_cmd="${5:-}"
+    local app_name="$1" launch_cmd="$2" ws_id="$3" launch_dir="${4:-}" log_cmd="${5:-}" strict="${6:-false}"
+    local before_ids new_wid="" launch_err="" lockdir="" launch_rc=0 runner_ack_error=false
+    local poll_attempts="${HUB_OPEN_POLL_ATTEMPTS:-32}" poll_interval="${HUB_OPEN_POLL_INTERVAL:-0.25}"
+    [[ "$poll_attempts" =~ ^[0-9]+$ ]] || poll_attempts=32
+    [[ "$poll_interval" =~ ^[0-9]+([.][0-9]+)?$ ]] || poll_interval=0.25
+    OPEN_APP_SLOT_WID=""
+    OPEN_APP_SLOT_CORRALLED=false
     if [[ -z "$log_cmd" ]]; then
         log_cmd="$launch_cmd"
     fi
 
+    if ! _app_launch_lock_acquire "$app_name"; then
+        [[ "$strict" == "true" ]] && return 1
+        return 0
+    fi
+    lockdir="${APP_LAUNCH_LOCK_DIR_CURRENT:-}"
+
+    launch_err="$(mktemp "$HUB_RUNTIME_DIR/open-err.XXXXXX" 2>/dev/null || true)"
+    if [[ -z "$launch_err" ]]; then
+        hub_log "ERR" "$app_name: could not create launch diagnostics file"
+        _app_launch_lock_release "$lockdir"
+        [[ "$strict" == "true" ]] && return 1
+        return 0
+    fi
+    chmod 600 "$launch_err" 2>/dev/null || true
+
     hub_log "CMD" "launch $app_name on workspace $ws_id: $log_cmd"
 
-    # Snapshot existing window IDs for this app
-    local before_ids
+    # Snapshot existing window IDs for this app while holding the app lock.
     before_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
 
     # cd into the workspace path first so apps like Ghostty that inherit the
     # parent process cwd (rather than honoring --working-directory) start in the
-    # right directory.
+    # right directory. The command runner also owns its authoritative cd.
     local cd_prefix=""
     [[ -n "$launch_dir" && -d "$launch_dir" ]] && cd_prefix="cd $(printf '%q' "$launch_dir") && "
-    bash -c "${cd_prefix}${launch_cmd}" >/dev/null 2>"$HUB_OPEN_ERR" &
+    bash -c "${cd_prefix}${launch_cmd}" >/dev/null 2>"$launch_err" &
 
-    # Poll for a new window (up to 8 seconds)
-    local new_wid=""
-    for _ in $(seq 1 32); do
-        sleep 0.25
+    # Poll for a new window while the lock prevents another launch of this app
+    # from being mistaken for ours.
+    for ((i=1; i<=poll_attempts; i++)); do
+        sleep "$poll_interval"
         local after_ids
         after_ids="$(aerospace list-windows --all --format '%{window-id}|%{app-name}' 2>/dev/null | grep "|${app_name}$" | cut -d'|' -f1 || echo "")"
         while IFS= read -r wid; do
@@ -2935,33 +3174,52 @@ _launch_and_corral() {
                 break 2
             fi
         done <<< "$after_ids"
+        if [[ "$strict" == "true" && -z "$new_wid" && -f "${TERMINAL_COMMAND_ACK_PATH:-}" ]]; then
+            local runner_ack_value
+            runner_ack_value="$(cat "$TERMINAL_COMMAND_ACK_PATH" 2>/dev/null || true)"
+            if [[ "$runner_ack_value" == ERROR* ]]; then
+                runner_ack_error=true
+                break
+            fi
+        fi
     done
 
-    # Move to the correct workspace if needed, then focus
+    # Move to the correct workspace if needed, then focus.
     if [[ -n "$new_wid" ]]; then
         local win_ws
         win_ws="$(aerospace list-windows --all --format '%{window-id}|%{workspace}' 2>/dev/null | grep "^${new_wid}|" | cut -d'|' -f2 || echo "")"
         if [[ "$win_ws" != "$ws_id" ]]; then
             progress_step "Corralling ${app_name}…"
-            aerospace move-node-to-workspace --window-id "$new_wid" "$ws_id" 2>/dev/null || true
-            OPEN_APP_SLOT_CORRALLED=true
+            if aerospace move-node-to-workspace --window-id "$new_wid" "$ws_id" 2>/dev/null; then
+                OPEN_APP_SLOT_CORRALLED=true
+            else
+                launch_rc=1
+                hub_log "ERR" "$app_name: could not move window $new_wid to workspace $ws_id"
+            fi
         fi
         aerospace focus --window-id "$new_wid" 2>/dev/null || true
         OPEN_APP_SLOT_WID="$new_wid"
         hub_log "OUT" "$app_name launched: window $new_wid on workspace $ws_id"
-        # Capture any launch errors
-        local _err
-        _err="$(_hub_redact_open_url "$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)")"
-        [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err" || true
     else
-        OPEN_APP_SLOT_WID=""
-        hub_log "ERR" "$app_name: window did not appear within 8s"
-        local _err
-        _err="$(_hub_redact_open_url "$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)")"
-        [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err" || true
+        launch_rc=1
+        if [[ "$runner_ack_error" == "true" ]]; then
+            hub_log "ERR" "$app_name: command runner rejected the request before a window appeared"
+        else
+            hub_log "ERR" "$app_name: window did not appear within launch timeout"
+        fi
     fi
-    # Never let the trailing conditional's exit status (1 when _err is empty)
-    # propagate out under `set -e` and abort the caller mid-workspace-setup.
+
+    # Capture launch errors without sharing a mutable file with another app.
+    local _err
+    _err="$(_hub_redact_open_url "$(cat "$launch_err" 2>/dev/null || true)")"
+    [[ -n "$_err" ]] && hub_log "ERR" "$app_name launch stderr: $_err" || true
+    rm -f "$launch_err"
+    _app_launch_lock_release "$lockdir"
+
+    if [[ "$strict" == "true" ]]; then
+        return "$launch_rc"
+    fi
+    # Ordinary app and URL opens retain their best-effort status behavior.
     return 0
 }
 
@@ -3081,18 +3339,23 @@ _open_url_tab_template() {
 # window instead, so a URL is never lost.
 _open_url_as_tab() {
     local wid="$1" safe_url="$2" shown="$3" app_info="$4" app_name="$5"
-    local template cmd log_cmd err
+    local template cmd log_cmd err err_file
     [[ "$wid" =~ ^[0-9]+$ ]] || return 1
     template="$(_open_url_tab_template "$app_info" "$app_name")" || return 1
     template="${template//\{window_id\}/$wid}"
     cmd="$(_open_url_fill_template "$template" "$safe_url")"
     log_cmd="$(_open_url_fill_template "$template" "$shown")"
     hub_log "CMD" "add tab to $app_name window $wid: $log_cmd"
-    if ! _run_with_timeout 10 bash -c "$cmd" >/dev/null 2>"$HUB_OPEN_ERR"; then
-        err="$(_hub_redact_open_url "$(cat "$HUB_OPEN_ERR" 2>/dev/null || true)")"
+    err_file="$(mktemp "$HUB_RUNTIME_DIR/open-err.XXXXXX" 2>/dev/null || true)"
+    [[ -n "$err_file" ]] || return 1
+    chmod 600 "$err_file" 2>/dev/null || true
+    if ! _run_with_timeout 10 bash -c "$cmd" >/dev/null 2>"$err_file"; then
+        err="$(_hub_redact_open_url "$(cat "$err_file" 2>/dev/null || true)")"
+        rm -f "$err_file"
         hub_log "ERR" "$app_name could not add a tab to window $wid: ${err:-no error output}"
         return 1
     fi
+    rm -f "$err_file"
     return 0
 }
 
@@ -3204,6 +3467,7 @@ open_app_slot() {
     local verbose="${4:-false}"   # true = print status lines
     local force_new="${5:-false}" # true = always launch new window
     local prompt_cmd="${6:-}"
+    local command_mode="${7:-false}"
 
     local app_info
     app_info="$(jq -c --argjson i "$((slot - 1))" \
@@ -3263,13 +3527,20 @@ open_app_slot() {
     fi
 
     if [[ -n "$prompt_cmd" ]]; then
+        local prompt_launch_template=""
         if [[ "$has_any_windows" == "false" && -n "$app_first_prompt_launch" ]]; then
-            launch_cmd="$app_first_prompt_launch"
+            prompt_launch_template="$app_first_prompt_launch"
         elif [[ -n "$app_prompt_launch" ]]; then
-            launch_cmd="$app_prompt_launch"
-        elif [[ "$has_any_windows" == "false" && -n "$app_first_launch" ]]; then
-            launch_cmd="$app_first_launch"
+            prompt_launch_template="$app_prompt_launch"
         fi
+        if [[ "$prompt_launch_template" != *"{prompt_cmd}"* ]]; then
+            hub_log "ERR" "$app_name: configured prompt launch has no command runner placeholder"
+            if [[ "$verbose" == "true" || "$command_mode" == "true" ]]; then
+                warn "$app_name has no compatible command runner template"
+            fi
+            return 2
+        fi
+        launch_cmd="$prompt_launch_template"
     elif [[ "$has_any_windows" == "false" && -n "$app_first_launch" ]]; then
         launch_cmd="$app_first_launch"
     fi
@@ -3280,7 +3551,33 @@ open_app_slot() {
     launch_cmd="${launch_cmd//\{prompt_cmd\}/$prompt_cmd}"
 
     # Launch, wait for the new window, and corral it onto this workspace.
-    _launch_and_corral "$app_name" "$launch_cmd" "$ws_id" "$ws_path"
+    local launch_status=0
+    _launch_and_corral "$app_name" "$launch_cmd" "$ws_id" "$ws_path" "" "$command_mode" || launch_status=$?
+
+    if [[ "$command_mode" == "true" ]]; then
+        if (( launch_status != 0 )) || [[ -z "$OPEN_APP_SLOT_WID" ]]; then
+            if [[ "$verbose" == "true" || "$command_mode" == "true" ]]; then
+                warn "$app_name: command terminal did not appear"
+            fi
+            _terminal_command_request_cleanup
+            return 1
+        fi
+        local ack_status=0
+        _terminal_command_ack_wait "$TERMINAL_COMMAND_ACK_PATH" || ack_status=$?
+        if (( ack_status != 0 )); then
+            if (( ack_status == 1 )); then
+                hub_log "ERR" "$app_name: command runner rejected the request"
+            else
+                hub_log "ERR" "$app_name: command runner did not acknowledge the request"
+            fi
+            if [[ "$verbose" == "true" || "$command_mode" == "true" ]]; then
+                warn "$app_name: command runner did not accept the request"
+            fi
+            _terminal_command_request_cleanup
+            return 1
+        fi
+        _terminal_command_request_cleanup
+    fi
 
     if [[ -n "$OPEN_APP_SLOT_WID" ]]; then
         [[ "$verbose" == "true" ]] && success "$app_name opened" || true
@@ -3421,9 +3718,20 @@ cmd_open() {
     local open_all=false
     local force_new=false
     local requested_ws_id=""
+    local command_mode=false
+    local -a command_argv=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --)
+                command_mode=true
+                shift
+                while [[ $# -gt 0 ]]; do
+                    command_argv+=("$1")
+                    shift
+                done
+                break
+                ;;
             --all) open_all=true; shift ;;
             --force|--new) force_new=true; shift ;;
             --workspace)
@@ -3466,6 +3774,61 @@ cmd_open() {
 
     local ws_path
     ws_path="$(get_workspace_path "$ws_id")"
+
+    if [[ "$command_mode" == "true" ]]; then
+        if [[ "$open_all" == "true" ]]; then
+            fail "Command mode does not support --all"
+            return 2
+        fi
+        if [[ -z "$slot" || "$slot" != "1" ]]; then
+            fail "Command mode requires terminal slot 1"
+            return 2
+        fi
+        if [[ -z "$requested_ws_id" ]]; then
+            fail "Command mode requires --workspace ID"
+            return 2
+        fi
+        if [[ ${#command_argv[@]} -eq 0 ]]; then
+            fail "Command mode requires a command after --"
+            return 2
+        fi
+        if [[ -z "$ws_path" ]]; then
+            fail "Unknown workspace ID '$ws_id'"
+            return 2
+        fi
+        if [[ ! -d "$ws_path" ]]; then
+            fail "Workspace '$ws_id' path is not a directory"
+            return 2
+        fi
+        if [[ ! -x "$TERMINAL_COMMAND_RUNNER_BIN" ]]; then
+            fail "Terminal command runner is not installed. Run: hub install"
+            return 2
+        fi
+        local command_app_name
+        command_app_name="$(jq -r 'if length > 0 then .[0].name // empty else empty end' "$APPS_FILE" 2>/dev/null || true)"
+        if [[ -z "$command_app_name" ]]; then
+            fail "Terminal slot 1 is not configured"
+            return 2
+        fi
+
+        _terminal_command_request_create "$ws_path" "${command_argv[@]}" || {
+            fail "Could not prepare terminal command request"
+            return 1
+        }
+        local runner_cmd
+        runner_cmd="$(_terminal_command_runner_invocation "$TERMINAL_COMMAND_REQUEST_PATH" "$TERMINAL_COMMAND_ACK_PATH")"
+        hub_log "INPUT" "run command in terminal slot 1 on workspace $ws_id"
+        progress_start "Run command in ${command_app_name}"
+        trap 'progress_stop 2>/dev/null || true; _terminal_command_request_cleanup; trap - EXIT' EXIT
+        local command_status=0
+        open_app_slot 1 "$ws_id" "$ws_path" false true "$runner_cmd" true || command_status=$?
+        progress_stop
+        trap - EXIT
+        _terminal_command_request_cleanup
+        refresh_app_indicators
+        return "$command_status"
+    fi
+
     [[ -z "$ws_path" ]] && ws_path="$HOME"
 
     # Load app list

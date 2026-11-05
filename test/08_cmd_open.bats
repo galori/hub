@@ -19,7 +19,7 @@ JSON
 
     cat > "$APPS_FILE" <<'JSON'
 [
-  {"name":"iTerm2","launch":"echo launch-iterm {path}","icon":"iTerm2"},
+  {"name":"iTerm2","launch":"echo launch-iterm {path}","prompt_launch":"{prompt_cmd}","icon":"iTerm2"},
   {"name":"Chrome","launch":"echo launch-chrome","icon":"Google Chrome"}
 ]
 JSON
@@ -138,4 +138,140 @@ PARSE
     result="$(parse_open_args 6)"
     [[ "$result" == *"slot="* ]]
     [[ "$result" != *"slot=6"* ]]
+}
+
+
+# ---------------------------------------------------------------------------
+# Command mode: literal -- and strict terminal/workspace validation
+# ---------------------------------------------------------------------------
+
+@test "command mode preserves argv and forces a new terminal launch" {
+    local record="$HOME/open-record"
+    local runner="$HOME/runner"
+    mkdir -p /tmp/main
+    cat > "$runner" <<'SH'
+#!/bin/sh
+exit 0
+SH
+    chmod +x "$runner"
+    cat > "$HOME/run-command-open.sh" <<'SH'
+export HOME="$1"
+export HUB_HOME="$HOME"
+export HUB_CONFIG_DIR="$HOME/.config/hub"
+export HUB_RUNTIME_DIR="$HOME/runtime"
+export APPS_FILE="$HOME/.config/hub/apps.json"
+export WORKSPACES_FILE="$HOME/.config/hub/workspaces.json"
+export TERMINAL_COMMAND_RUNNER_BIN="$2"
+export STUB_CALLS="$HOME/stub_calls"
+source "$3" >/dev/null 2>&1
+progress_start() { :; }
+progress_stop() { :; }
+progress_step() { :; }
+progress_error() { :; }
+refresh_app_indicators() { :; }
+aerospace() { case "$*" in 'list-workspaces --focused') echo 9 ;; *) : ;; esac; }
+open_app_slot() {
+    printf '%s\n' "$*" > "$OPEN_RECORD"
+    cp "$TERMINAL_COMMAND_REQUEST_PATH" "$OPEN_RECORD.payload"
+    return 0
+}
+export OPEN_RECORD="$4"
+shift 4
+cmd_open "$@"
+SH
+    chmod +x "$HOME/run-command-open.sh"
+    run env HUB_OPEN_POLL_ATTEMPTS=1 OPEN_RECORD="$record" \
+        "$HOME/run-command-open.sh" "$HOME" "$runner" "$HUB" \
+        1 --workspace 1 -- '' 'two words' 'quote"value' 'glob*' '-leading' $'line\nnext'
+    [[ "$status" -eq 0 ]]
+    [[ "$(cat "$record")" == *" true "* || "$(cat "$record")" == *" true"* ]]
+    [[ "$(cat "$record")" == *"$runner"* ]]
+    [[ "$(cat "$record")" != *"two words"* ]]
+    printf '%s\0%s\0%s\0%s\0%s\0%s\0%s\0' /tmp/main '' 'two words' 'quote"value' 'glob*' '-leading' $'line\nnext' > "$record.expected"
+    cmp -s "$record.expected" "$record.payload"
+}
+
+@test "command mode rejects missing slot, all-apps mode, missing workspace, and unknown workspace" {
+    local runner="$HOME/runner"
+    cat > "$runner" <<'SH'
+#!/bin/sh
+exit 0
+SH
+    chmod +x "$runner"
+    export TERMINAL_COMMAND_RUNNER_BIN="$runner"
+    export PATH="$STUB_BIN:$PATH"
+    run "$HUB" open --workspace 1 -- echo hi
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"slot 1"* ]]
+    run "$HUB" open 2 --workspace 1 -- echo hi
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"slot 1"* ]]
+    run "$HUB" open 1 --workspace 1 --
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"command after --"* ]]
+    run "$HUB" open --all --workspace 1 -- echo hi
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"--all"* ]]
+    run "$HUB" open 1 -- echo hi
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"workspace"* ]]
+    run "$HUB" open 1 --workspace missing -- echo hi
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Unknown workspace"* ]]
+}
+
+@test "command mode rejects a registered workspace path that is not a directory" {
+    local runner="$HOME/runner"
+    cat > "$runner" <<'SH'
+#!/bin/sh
+exit 0
+SH
+    chmod +x "$runner"
+    printf 'not a directory\n' > "$HOME/not-a-directory"
+    cat > "$WORKSPACES_FILE" <<JSON
+[{"name":"File","path":"$HOME/not-a-directory","root_repo":"$HOME/not-a-directory","workspace_id":"1"}]
+JSON
+    export TERMINAL_COMMAND_RUNNER_BIN="$runner"
+    run "$HUB" open 1 --workspace 1 -- echo hi
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"directory"* ]]
+}
+
+
+@test "command mode rejects a terminal template without prompt_cmd support" {
+    local runner="$HOME/runner"
+    cat > "$runner" <<'SH'
+#!/bin/sh
+exit 0
+SH
+    chmod +x "$runner"
+    cat > "$APPS_FILE" <<'JSON'
+[{"name":"Warp","launch":"echo plain {path}","prompt_launch":"echo prompt without placeholder"}]
+JSON
+    mkdir -p /tmp/main
+    export TERMINAL_COMMAND_RUNNER_BIN="$runner"
+    export HUB_OPEN_POLL_ATTEMPTS=1
+    run "$HUB" open 1 --workspace 1 -- echo hi
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"compatible command runner"* || "$output" == *"placeholder"* ]]
+}
+
+
+@test "open_app_slot chooses first_prompt_launch cold and prompt_launch warm" {
+    cat > "$APPS_FILE" <<'JSON'
+[{"name":"Terminal","launch":"plain","first_launch":"first","first_prompt_launch":"first {prompt_cmd}","prompt_launch":"warm {prompt_cmd}"}]
+JSON
+    run bash -c "
+        export HOME='$HOME' HUB_HOME='$HOME' HUB_CONFIG_DIR='$HUB_CONFIG_DIR' HUB_RUNTIME_DIR='$HUB_RUNTIME_DIR' APPS_FILE='$APPS_FILE'
+        source '$HUB' >/dev/null 2>&1
+        progress_step() { :; }
+        _launch_and_corral() { printf '%s\\n' \"\$2\"; OPEN_APP_SLOT_WID=1; return 0; }
+        _app_has_any_windows() { return 1; }
+        open_app_slot 1 1 /tmp/main false true RUNNER false
+        _app_has_any_windows() { return 0; }
+        open_app_slot 1 1 /tmp/main false true RUNNER false
+    "
+    [[ "$status" -eq 0 ]]
+    [[ "$(printf '%s\n' "$output" | sed -n '1p')" == 'first RUNNER' ]]
+    [[ "$(printf '%s\n' "$output" | sed -n '2p')" == 'warm RUNNER' ]]
 }
