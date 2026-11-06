@@ -1322,13 +1322,20 @@ install_shell_integration() {
     success "Detected shell: $shell_name"
 
     local snippet_path="$REPO_DIR/.hub-shell-integration"
-    local script_path
+    local script_path env_helper
     script_path="$(printf '%q' "$REPO_DIR/scripts/hub")"
+    env_helper="$(printf '%q' "$REPO_DIR/scripts/lib/shell_env.sh")"
 
     if [[ "$shell_name" == "fish" ]]; then
+        # fish gets the alias only; the workspace-env helper is bash/zsh.
         echo "alias hub $script_path" > "$snippet_path"
     else
-        echo "alias hub=$script_path" > "$snippet_path"
+        # Source the workspace-env helper so HUB_WORKSPACE_ID / HUB_WORKSPACE_UID
+        # are set in every terminal hub opens (see scripts/lib/shell_env.sh).
+        {
+            echo "alias hub=$script_path"
+            echo "[ -f $env_helper ] && . $env_helper"
+        } > "$snippet_path"
     fi
     success "Created $snippet_path"
 

@@ -39,6 +39,7 @@ This is a simple repo. Use a concise title and one-paragraph body; no ticket num
 - `scripts/lib/swift_prebuilt.sh` - Fingerprint-checked prebuilt-binary install helpers (sourced by scripts/hub); lets `hub install` skip swiftc entirely when a matching binary is committed
 - `scripts/lib/swift_tools_manifest.sh` - Canonical list of Swift tools/sources that ship prebuilt binaries; shared by scripts/hub, scripts/build-swift-prebuilt.sh, and scripts/check-swift-prebuilt.sh
 - `scripts/lib/terminal_command_runner.zsh` - Stable zsh runner for opaque NUL-delimited terminal command requests; deployed to `~/.config/hub/terminal_command_runner`
+- `scripts/lib/shell_env.sh` - Sourced into every interactive bash/zsh session via `.hub-shell-integration`; derives the current workspace from `$PWD` against `workspaces.json` and exports `HUB_WORKSPACE_ID` / `HUB_WORKSPACE_UID` so they are set in every terminal hub opens, for all launchers. Runs at startup and on `chpwd`/`PROMPT_COMMAND` to handle osascript terminals that `cd` after `.zshrc`
 - `scripts/build-swift-prebuilt.sh` - Rebuilds all `lib/prebuilt/` binaries (universal arm64+x86_64) from current sources; run after editing `lib/*.swift` and commit the result. Requires a local Swift toolchain
 - `scripts/check-swift-prebuilt.sh` - CI guard that fails if `lib/prebuilt/` is stale relative to `lib/*.swift`
 - `lib/prebuilt/` - Committed prebuilt Swift binaries + `.sha256` fingerprints, so ordinary installs need no Xcode/Command Line Tools. Local compilation is opt-in via `HUB_SHOULD_BUILD_SWIFT=1`
