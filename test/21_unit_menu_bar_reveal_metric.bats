@@ -63,6 +63,16 @@ let clampedMetric = fullscreenTransientAerospaceMetric(rows: 0, menuBarRevealIns
 guard clampedMetric == 40 else {
     fail("expected invalid rows/inset to clamp to one Hub Bar row, got \(clampedMetric)")
 }
+// The notched-display menu-bar strip is layer 25; the bar must sit above it to receive clicks.
+guard HubBarWindow.fullscreenLevel(notched: true, hasNotifications: false).rawValue > 25 else {
+    fail("expected notched fullscreen bar to sit above the MenuBarAgent strip (layer 25)")
+}
+guard HubBarWindow.fullscreenLevel(notched: true, hasNotifications: true).rawValue < 0 else {
+    fail("expected notched fullscreen bar to drop below notifications while one is showing")
+}
+guard HubBarWindow.fullscreenLevel(notched: false, hasNotifications: false).rawValue < 0 else {
+    fail("expected non-notched fullscreen bar to stay below normal windows")
+}
 SWIFT
 
     swiftc -D HUB_BAR_TEST -O -o "$COMPILE_OUT/menu_bar_reveal_metric" \
