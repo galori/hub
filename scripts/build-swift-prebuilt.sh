@@ -39,10 +39,12 @@ build_one() {
     local -a extra_args=()
     [[ -n "$extra" ]] && extra_args=("$extra")
 
+    # x86_64 targets macOS 13: newer Command Line Tools ship the Swift back-deploy
+    # compatibility libraries for arm64 only, so an x86_64 macOS 11 slice cannot link.
     echo "Building $key (arm64 + x86_64)..."
     swiftc -O -target arm64-apple-macos11.0 -o "$tmp_dir/$key-arm64" \
         -framework Cocoa "${extra_args[@]}" "$main_src"
-    swiftc -O -target x86_64-apple-macos11.0 -o "$tmp_dir/$key-x86_64" \
+    swiftc -O -target x86_64-apple-macos13.0 -o "$tmp_dir/$key-x86_64" \
         -framework Cocoa "${extra_args[@]}" "$main_src"
     lipo -create -output "$SWIFT_PREBUILT_DIR/$key" \
         "$tmp_dir/$key-arm64" "$tmp_dir/$key-x86_64"

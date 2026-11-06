@@ -1884,9 +1884,23 @@ class HubBarWindow: NSWindow {
         // In fullscreen mode, drop significantly below notifications
         // kCGNormalWindowLevel = 0, notifications typically use 21+, 
         // so we use a negative value to ensure we stay below everything
-        level = isFullscreen 
-            ? NSWindow.Level(rawValue: -1)  // Well below normal windows
+        level = isFullscreen
+            ? HubBarWindow.fullscreenLevel(notched: hasNotch, hasNotifications: hasNotifications)
             : HubBarWindow.normalWindowLevel
+    }
+
+    private var hasNotch: Bool {
+        if #available(macOS 12.0, *) { return barScreen.safeAreaInsets.top > 0 }
+        return false
+    }
+
+    // On notched displays macOS keeps a full-width MenuBarAgent window (layer 25, menu-bar
+    // tall) on screen even while the menu bar is auto-hidden. A bar below it loses clicks in
+    // that strip, so sit just above it. While a notification is showing, drop back below so the
+    // banner stays visible.
+    static func fullscreenLevel(notched: Bool, hasNotifications: Bool) -> NSWindow.Level {
+        if notched && !hasNotifications { return NSWindow.Level(rawValue: 26) }
+        return NSWindow.Level(rawValue: -1)  // Well below normal windows
     }
 
     // Notch rect in window-local x coordinates (nil if no notch or not fullscreen)
