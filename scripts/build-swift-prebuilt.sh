@@ -27,29 +27,38 @@ mkdir -p "$SWIFT_PREBUILT_DIR"
 build_one() {
     local key="$1" src="$2"
     shift 2
-    local -a extra_sources=("$@")
+    local -a extra_sources=()
+    local has_extra_sources=false
+    if [[ "$#" -gt 0 ]]; then
+        extra_sources=("$@")
+        has_extra_sources=true
+    fi
     local tmp_dir
     tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/hub-swift-prebuilt.XXXXXX")"
 
     local main_src="$src"
-    if [[ ${#extra_sources[@]} -gt 0 ]]; then
+    local -a compile_sources=()
+    if [[ "$has_extra_sources" == true ]]; then
         # Multi-file Swift: only main.swift may have top-level code.
         cp "$src" "$tmp_dir/main.swift"
         main_src="$tmp_dir/main.swift"
+        compile_sources=("${extra_sources[@]}" "$main_src")
+    else
+        compile_sources=("$main_src")
     fi
 
     # x86_64 targets macOS 13: newer Command Line Tools ship the Swift back-deploy
     # compatibility libraries for arm64 only, so an x86_64 macOS 11 slice cannot link.
     echo "Building $key (arm64 + x86_64)..."
     swiftc -O -target arm64-apple-macos11.0 -o "$tmp_dir/$key-arm64" \
-        -framework Cocoa "${extra_sources[@]}" "$main_src"
+        -framework Cocoa "${compile_sources[@]}"
     swiftc -O -target x86_64-apple-macos13.0 -o "$tmp_dir/$key-x86_64" \
-        -framework Cocoa "${extra_sources[@]}" "$main_src"
+        -framework Cocoa "${compile_sources[@]}"
     lipo -create -output "$SWIFT_PREBUILT_DIR/$key" \
         "$tmp_dir/$key-arm64" "$tmp_dir/$key-x86_64"
     chmod +x "$SWIFT_PREBUILT_DIR/$key"
 
-    if [[ ${#extra_sources[@]} -gt 0 ]]; then
+    if [[ "$has_extra_sources" == true ]]; then
         swift_source_fingerprint "$src" "${extra_sources[@]}" > "$SWIFT_PREBUILT_DIR/$key.sha256"
     else
         swift_source_fingerprint "$src" > "$SWIFT_PREBUILT_DIR/$key.sha256"
