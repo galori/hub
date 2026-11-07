@@ -3430,6 +3430,7 @@ class HubBarController: NSObject {
     private var hotkeyMessageDispatchPending = false
 
     func start() {
+        publishHotkeyProcessIdentity()
         removeTransientBarHeightOverride(sync: false)
         writePIDFile()
         buildWindows()
@@ -3440,12 +3441,16 @@ class HubBarController: NSObject {
         installNotificationMonitor()
     }
 
-    private func installHotkeyIPC() {
+    private func publishHotkeyProcessIdentity() {
         guard let identity = HotkeyProcessIdentity.current() else { return }
         hotkeyProcessIdentity = identity
         if let data = try? JSONEncoder().encode(identity) {
             try? data.write(to: URL(fileURLWithPath: HotkeyPaths.barIdentityFile), options: .atomic)
         }
+    }
+
+    private func installHotkeyIPC() {
+        guard hotkeyProcessIdentity != nil else { return }
         do {
             hotkeyIPCListener = try HotkeyDatagram.listen(
                 at: HotkeyPaths.barSocket,

@@ -31,6 +31,27 @@ HUB_BAR_SRC="$REPO_DIR/lib/hub_bar.swift"
     grep -Fq 'message.senderPID == identity.pid' "$HUB_HOTKEYD_SRC"
 }
 
+@test "bar publishes process identity before building windows" {
+    local start_body identity_line windows_line listener_line identity_writer
+    start_body="$(sed -n '/^    func start() {/,/^    }/p' "$HUB_BAR_SRC")"
+    identity_line="$(printf '%s\n' "$start_body" \
+        | grep -n -F 'publishHotkeyProcessIdentity()' | cut -d: -f1)"
+    windows_line="$(printf '%s\n' "$start_body" \
+        | grep -n -F 'buildWindows()' | cut -d: -f1)"
+    listener_line="$(printf '%s\n' "$start_body" \
+        | grep -n -F 'installHotkeyIPC()' | cut -d: -f1)"
+    identity_writer="$(sed -n '/private func publishHotkeyProcessIdentity()/,/^    }/p' \
+        "$HUB_BAR_SRC")"
+
+    [[ -n "$identity_line" ]]
+    [[ -n "$windows_line" ]]
+    [[ -n "$listener_line" ]]
+    [[ "$identity_line" -lt "$windows_line" ]]
+    [[ "$windows_line" -lt "$listener_line" ]]
+    grep -Fq 'HotkeyProcessIdentity.current()' <<<"$identity_writer"
+    grep -Fq 'HotkeyPaths.barIdentityFile' <<<"$identity_writer"
+}
+
 @test "bar discards stale or future overlay requests before touching UI" {
     grep -Fq 'overlay.isFresh(maximumAge: 1)' "$HUB_BAR_SRC"
 }
