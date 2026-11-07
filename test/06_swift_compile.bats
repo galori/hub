@@ -6,6 +6,7 @@
 REPO_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 LIB_DIR="$REPO_DIR/lib"
 THEME_SRC="$LIB_DIR/theme.swift"
+HOTKEY_PROTOCOL_SRC="$LIB_DIR/hotkey_protocol.swift"
 
 setup() {
     if [[ -n "${SKIP_SWIFT_COMPILE:-}" ]]; then
@@ -28,12 +29,14 @@ teardown() {
 # the entry-point file to be named main.swift).
 compile_ui_file() {
     local src="$1"
+    shift
     local name
     name="$(basename "$src" .swift)"
     local tmp_dir
     tmp_dir="$(mktemp -d)"
     cp "$src" "$tmp_dir/main.swift"
-    swiftc -O -o "$COMPILE_OUT/$name" -framework Cocoa "$THEME_SRC" "$tmp_dir/main.swift" 2>&1
+    swiftc -O -o "$COMPILE_OUT/$name" -framework Cocoa \
+        "$THEME_SRC" "$@" "$tmp_dir/main.swift" 2>&1
     local rc=$?
     rm -rf "$tmp_dir"
     return $rc
@@ -45,6 +48,15 @@ compile_cli_file() {
     local name
     name="$(basename "$src" .swift)"
     swiftc -O -o "$COMPILE_OUT/$name" -framework Cocoa "$src" 2>&1
+}
+
+compile_hotkeyd() {
+    cp "$LIB_DIR/hub_hotkeyd.swift" "$COMPILE_OUT/main.swift"
+    swiftc -O -o "$COMPILE_OUT/hub_hotkeyd" -framework Cocoa \
+        "$LIB_DIR/hotkey_protocol.swift" \
+        "$LIB_DIR/hotkey_gesture.swift" \
+        "$LIB_DIR/hotkey_recovery_policy.swift" \
+        "$COMPILE_OUT/main.swift" 2>&1
 }
 
 @test "overlay.swift compiles without errors" {
@@ -93,11 +105,16 @@ compile_cli_file() {
 }
 
 @test "hub_bar.swift compiles without errors" {
-    run compile_ui_file "$LIB_DIR/hub_bar.swift"
+    run compile_ui_file "$LIB_DIR/hub_bar.swift" "$HOTKEY_PROTOCOL_SRC"
     [[ "$status" -eq 0 ]]
 }
 
 @test "command_palette.swift compiles without errors" {
     run compile_ui_file "$LIB_DIR/command_palette.swift"
     [[ "$status" -eq 0 ]]
+}
+
+@test "hub_hotkeyd.swift compiles without errors" {
+    run compile_hotkeyd
+    [[ "$status" -eq 0 ]] || { printf '%s\n' "$output"; return 1; }
 }

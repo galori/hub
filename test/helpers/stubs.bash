@@ -2,6 +2,8 @@
 # Source this file in bats setup() to get a fully-isolated environment.
 
 setup_stubs() {
+    unset HUB_SKIP_DEFAULT_BROWSER_CHANGE HUB_SKIP_SYSTEM_SETTINGS
+
     # Isolated config dir so tests never touch real ~/.config/hub
     export HUB_TEST_DIR
     HUB_TEST_DIR="$(mktemp -d)"
@@ -10,8 +12,16 @@ setup_stubs() {
     export HUB_CONFIG_DIR="$HOME/.config/hub"
     export HUB_RUNTIME_DIR="$HUB_TEST_DIR/runtime"
     export HUB_APPLICATIONS_DIR="$HOME/Applications"
+    export HUB_BAR_BIN="$HUB_CONFIG_DIR/hub_bar"
+    export HUB_BAR_PIDFILE="$HUB_CONFIG_DIR/hub_bar.pid"
+    export HUB_HOTKEYS_APP_PATH="$HUB_APPLICATIONS_DIR/Hub Hotkeys.app"
+    export HUB_HOTKEYS_BIN="$HUB_HOTKEYS_APP_PATH/Contents/MacOS/HubHotkeys"
+    export HUB_HOTKEYS_PLIST="$HUB_CONFIG_DIR/launchd/sh.hub.hotkeys.plist"
+    export HUB_SESSION_FILE="$HUB_CONFIG_DIR/hub-session"
+    export HUB_LIFECYCLE_LOCK_DIR="$HUB_RUNTIME_DIR/hub-lifecycle.lock"
     export APPS_FILE="$HUB_CONFIG_DIR/apps.json"
     export ACTIONS_FILE="$HUB_CONFIG_DIR/actions.json"
+    export ACTIONS_DIR="$HUB_CONFIG_DIR/actions"
     export ACTION_PRESETS_FILE="$HUB_CONFIG_DIR/action_presets.json"
     export ICONS_DIR="$HUB_CONFIG_DIR/icons"
     export AEROSPACE_CONFIG="$HOME/.aerospace.toml"

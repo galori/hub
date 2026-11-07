@@ -76,7 +76,7 @@ guard HubBarWindow.fullscreenLevel(notched: false, hasNotifications: false).rawV
 SWIFT
 
     swiftc -D HUB_BAR_TEST -O -o "$COMPILE_OUT/menu_bar_reveal_metric" \
-        -framework Cocoa "$THEME_SRC" "$harness"
+        -framework Cocoa "$THEME_SRC" "$LIB_DIR/hotkey_protocol.swift" "$harness"
     "$COMPILE_OUT/menu_bar_reveal_metric"
 }
 

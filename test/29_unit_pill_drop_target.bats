@@ -83,6 +83,7 @@ guard reorderArguments(ws: "2", target: nil, sourceMonitor: 1, dropMonitor: 2) =
     fail("bad args for empty monitor")
 }
 SWIFT
-    swiftc -D HUB_BAR_TEST -O -o "$COMPILE_OUT/drop_target" -framework Cocoa "$THEME_SRC" "$harness" 2>&1
+    swiftc -D HUB_BAR_TEST -O -o "$COMPILE_OUT/drop_target" -framework Cocoa \
+        "$THEME_SRC" "$REPO_DIR/lib/hotkey_protocol.swift" "$harness" 2>&1
     "$COMPILE_OUT/drop_target"
 }

@@ -21,6 +21,17 @@ HUB_BAR_SRC="$LIB_DIR/hub_bar.swift"
 : "${HUB_BAR_BIN:=$HUB_CONFIG_DIR/hub_bar}"
 : "${HUB_BAR_PIDFILE:=$HUB_CONFIG_DIR/hub_bar.pid}"
 HUB_BAR_LAUNCH_LABEL="sh.hub.hub_bar"
+HOTKEY_PROTOCOL_SRC="$LIB_DIR/hotkey_protocol.swift"
+HOTKEY_GESTURE_SRC="$LIB_DIR/hotkey_gesture.swift"
+HOTKEY_RECOVERY_POLICY_SRC="$LIB_DIR/hotkey_recovery_policy.swift"
+HOTKEY_DAEMON_SRC="$LIB_DIR/hub_hotkeyd.swift"
+: "${HUB_HOTKEYS_APP_PATH:=$HUB_APPLICATIONS_DIR/Hub Hotkeys.app}"
+HUB_HOTKEYS_EXECUTABLE="HubHotkeys"
+: "${HUB_HOTKEYS_BIN:=$HUB_HOTKEYS_APP_PATH/Contents/MacOS/$HUB_HOTKEYS_EXECUTABLE}"
+: "${HUB_HOTKEYS_PLIST:=$HUB_CONFIG_DIR/launchd/sh.hub.hotkeys.plist}"
+HUB_HOTKEYS_LABEL="sh.hub.hotkeys"
+: "${HUB_SESSION_FILE:=$HUB_CONFIG_DIR/hub-session}"
+: "${HUB_LIFECYCLE_LOCK_DIR:=$HUB_RUNTIME_DIR/hub-lifecycle.lock}"
 DIALOG_SRC="$LIB_DIR/new_workspace_dialog.swift"
 : "${DIALOG_BIN:=$HUB_CONFIG_DIR/new_workspace_dialog}"
 CONFIRM_SRC="$LIB_DIR/confirm_dialog.swift"
@@ -92,7 +103,8 @@ TERMINAL_COMMAND_RUNNER_SRC="$SCRIPT_DIR/lib/terminal_command_runner.zsh"
 : "${HUB_COMMAND_ACK_INTERVAL:=0.05}"
 : "${HUB_APP_LAUNCH_LOCK_TIMEOUT:=12}"
 : "${HUB_OVERLAY_PIDFILE:=$HUB_CONFIG_DIR/overlay.pid}"
-export HUB_HOME HUB_CONFIG_DIR HUB_RUNTIME_DIR HUB_APPLICATIONS_DIR HUB_TERMINAL_REQUEST_DIR
+export HUB_HOME HUB_CONFIG_DIR HUB_RUNTIME_DIR HUB_APPLICATIONS_DIR HUB_SESSION_FILE
+export HUB_LIFECYCLE_LOCK_DIR HUB_TERMINAL_REQUEST_DIR
 export HUB_NEW_WORKSPACE_RESULT HUB_RENAME_RESULT HUB_CONFIRM_STATE APP_SWITCHER_RESULT COMMAND_PALETTE_RESULT
 export APPS_FILE ACTIONS_FILE ACTION_PRESETS_FILE ACTIONS_DIR ICONS_DIR
 
@@ -148,7 +160,9 @@ print_usage() {
     echo "  auto-arrange-windows Arrange 2–4 windows in the current workspace"
     echo "  bar-reload    Restart the Hub Bar (fix rendering inconsistencies)"
     echo "  fullscreen    Hide/show the Dock and menu bar (on/off/toggle)"
+    echo "  hotkeys       Show listener status, restart it, or request Input Monitoring"
     echo "  repo-prefix   Show or hide the repo name prefix on workspace labels (on/off/toggle)"
+    echo "  cluster       Show or hide the mini status overlay"
     echo "  cluster-pin   Keep the mini status bar (cluster overlay) open and draggable (on/off/toggle)"
     echo "  config        Get/set Hub options (e.g. claude_binary)"
     echo "  log           Show the Hub action log (path + open in less; --window opens GUI viewer)"
@@ -613,8 +627,13 @@ compile_swift() {
     local name="$1"
     local src="$2"
     local bin="$3"
-    # Optional 4th arg: extra source file (e.g. theme.swift) compiled alongside src.
-    local extra="${4:-}"
+    shift 3
+    local -a extra_sources=()
+    local has_extra_sources=false
+    if [[ "$#" -gt 0 ]]; then
+        extra_sources=("$@")
+        has_extra_sources=true
+    fi
 
     if [[ ! -f "$src" ]]; then
         warn "$name source not found — skipping"
@@ -625,7 +644,12 @@ compile_swift() {
     local needs_build=false
     [[ ! -f "$bin" ]] && needs_build=true
     [[ -f "$bin" && "$src" -nt "$bin" ]] && needs_build=true
-    [[ -n "$extra" && -f "$extra" && "$extra" -nt "$bin" ]] && needs_build=true
+    local extra
+    if [[ "$has_extra_sources" == true ]]; then
+        for extra in "${extra_sources[@]}"; do
+            [[ -f "$extra" && "$extra" -nt "$bin" ]] && needs_build=true
+        done
+    fi
 
     if [[ "$needs_build" != true ]]; then
         info "$name up to date"
@@ -634,27 +658,25 @@ compile_swift() {
 
     mkdir -p "$(dirname "$bin")"
 
-    if [[ -n "$extra" ]]; then
-        if try_install_prebuilt_swift "$name" "$bin" "$src" "$extra"; then
+    if [[ "$has_extra_sources" == true ]]; then
+        if try_install_prebuilt_swift "$name" "$bin" "$src" "${extra_sources[@]}"; then
             success "$name installed from prebuilt: $bin"
             return
         fi
-    else
-        if try_install_prebuilt_swift "$name" "$bin" "$src"; then
-            success "$name installed from prebuilt: $bin"
-            return
-        fi
+    elif try_install_prebuilt_swift "$name" "$bin" "$src"; then
+        success "$name installed from prebuilt: $bin"
+        return
     fi
 
     swift_local_build_allowed "$name" || return
 
-    if [[ -n "$extra" ]]; then
+    if [[ "$has_extra_sources" == true ]]; then
         # Multi-file Swift: only a file named main.swift may have top-level code.
         # Copy the main source to a temp main.swift so the compiler accepts it.
         local tmp_dir
         tmp_dir="$(mktemp -d "$HUB_RUNTIME_DIR/swift.XXXXXX")"
         cp "$src" "$tmp_dir/main.swift"
-        if swiftc -O -o "$bin" -framework Cocoa "$extra" "$tmp_dir/main.swift" 2>/dev/null; then
+        if swiftc -O -o "$bin" -framework Cocoa "${extra_sources[@]}" "$tmp_dir/main.swift" 2>/dev/null; then
             success "$name compiled: $bin"
         else
             warn "$name compilation failed"
@@ -681,7 +703,8 @@ compile_all() {
     compile_swift "app_switcher"         "$APP_SWITCHER_SRC"  "$APP_SWITCHER_BIN"  "$THEME_SRC"
     compile_swift "command_palette"      "$COMMAND_PALETTE_SRC" "$COMMAND_PALETTE_BIN" "$THEME_SRC"
     compile_swift "log_viewer"           "$LOG_VIEWER_SRC"    "$LOG_VIEWER_BIN"    "$THEME_SRC"
-    compile_swift "hub_bar"           "$HUB_BAR_SRC"    "$HUB_BAR_BIN"    "$THEME_SRC"
+    compile_swift "hub_bar"              "$HUB_BAR_SRC"         "$HUB_BAR_BIN"         "$THEME_SRC" "$HOTKEY_PROTOCOL_SRC"
+    compile_swift "hub_hotkeyd"          "$HOTKEY_DAEMON_SRC"   "$HUB_HOTKEYS_BIN"     "$HOTKEY_PROTOCOL_SRC" "$HOTKEY_GESTURE_SRC" "$HOTKEY_RECOVERY_POLICY_SRC"
     # CLI-only helpers — no UI, no theme
     compile_swift "browser_ctl"          "$BROWSER_CTL_SRC"   "$BROWSER_CTL_BIN"
     compile_swift "spatial_order"        "$SPATIAL_ORDER_SRC" "$SPATIAL_ORDER_BIN"
@@ -690,6 +713,8 @@ compile_all() {
         cp "$REPO_DIR/assets/hub-logo.png" "$HUB_CONFIG_DIR/hub-logo.png"
         success "hub-logo.png deployed"
     fi
+    build_hotkeys_app
+    deploy_hotkeys_launch_agent
     build_http_handler
     build_hub_app
     pin_hub_dock_icon
@@ -703,6 +728,114 @@ plist_xml_escape() {
     value="${value//\"/&quot;}"
     value="${value//\'/&apos;}"
     printf '%s' "$value"
+}
+
+build_hotkeys_app() {
+    [[ -x "$HUB_HOTKEYS_BIN" ]] || return 0
+    local app="$HUB_HOTKEYS_APP_PATH"
+    local escaped_name escaped_bin plist
+    escaped_name="$(plist_xml_escape "Hub Hotkeys")"
+    escaped_bin="$(plist_xml_escape "$HUB_HOTKEYS_EXECUTABLE")"
+    plist="$app/Contents/Info.plist"
+    mkdir -p "$app/Contents/Resources"
+
+    cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>sh.hub.hotkeys</string>
+    <key>CFBundleName</key>
+    <string>$escaped_name</string>
+    <key>CFBundleDisplayName</key>
+    <string>$escaped_name</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleExecutable</key>
+    <string>$escaped_bin</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSInputMonitoringUsageDescription</key>
+    <string>Hub Hotkeys observes modifier-key gestures for Hub shortcuts.</string>
+</dict>
+</plist>
+PLIST
+
+    if command -v codesign >/dev/null 2>&1; then
+        codesign --force --deep --sign - "$app" 2>/dev/null || warn "Could not sign Hub Hotkeys.app"
+    fi
+    if [[ "${HUB_SKIP_LAUNCH_SERVICES:-0}" != "1" ]]; then
+        local lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+        "$lsregister" -f "$app" 2>/dev/null || true
+    fi
+    success "Hub Hotkeys.app built: $app"
+}
+
+deploy_hotkeys_launch_agent() {
+    [[ -x "$HUB_HOTKEYS_BIN" ]] || return 0
+    local plist="$HUB_HOTKEYS_PLIST"
+    local escaped_bin escaped_config escaped_runtime escaped_apps escaped_bar escaped_script escaped_path escaped_session escaped_lock
+    escaped_bin="$(plist_xml_escape "$HUB_HOTKEYS_BIN")"
+    escaped_config="$(plist_xml_escape "$HUB_CONFIG_DIR")"
+    escaped_runtime="$(plist_xml_escape "$HUB_RUNTIME_DIR")"
+    escaped_apps="$(plist_xml_escape "$HUB_APPLICATIONS_DIR")"
+    escaped_bar="$(plist_xml_escape "$HUB_BAR_BIN")"
+    escaped_script="$(plist_xml_escape "$REPO_DIR/scripts/hub")"
+    escaped_path="$(plist_xml_escape "$PATH")"
+    escaped_session="$(plist_xml_escape "$HUB_SESSION_FILE")"
+    escaped_lock="$(plist_xml_escape "$HUB_LIFECYCLE_LOCK_DIR")"
+    mkdir -p "$(dirname "$plist")"
+
+    cat > "$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$HUB_HOTKEYS_LABEL</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$escaped_bin</string>
+        <string>--daemon</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HUB_CONFIG_DIR</key>
+        <string>$escaped_config</string>
+        <key>HUB_RUNTIME_DIR</key>
+        <string>$escaped_runtime</string>
+        <key>HUB_APPLICATIONS_DIR</key>
+        <string>$escaped_apps</string>
+        <key>HUB_BAR_BIN</key>
+        <string>$escaped_bar</string>
+        <key>HUB_SCRIPT</key>
+        <string>$escaped_script</string>
+        <key>HUB_SESSION_FILE</key>
+        <string>$escaped_session</string>
+        <key>HUB_LIFECYCLE_LOCK_DIR</key>
+        <string>$escaped_lock</string>
+        <key>PATH</key>
+        <string>$escaped_path</string>
+    </dict>
+</dict>
+</plist>
+PLIST
+    chmod 600 "$plist"
 }
 
 http_handler_display_name() {
@@ -1380,8 +1513,19 @@ deploy_claude_commands() {
 
 reload_running_services() {
     if [[ -f "$HUB_BAR_PIDFILE" ]]; then
-        hub_bar_restart
-        success "Hub Bar restarted"
+        hub_environment_reload_services
+        success "Hub Bar and Hotkeys restarted"
+    elif hub_hotkeys_is_loaded; then
+        if hub_lifecycle_lock_acquire; then
+            if hub_hotkeys_bootstrap true; then
+                success "Hub Hotkeys restarted"
+            else
+                warn "Hub Hotkeys could not be restarted"
+            fi
+            hub_lifecycle_lock_release
+        else
+            warn "Hub lifecycle is busy; Hub Hotkeys was not restarted"
+        fi
     fi
     if pgrep -q AeroSpace; then
         aerospace reload-config 2>/dev/null || true
@@ -4133,6 +4277,127 @@ cmd_cluster_pin() {
     fi
 }
 
+cmd_cluster() {
+    local action="${1:-}"
+    case "$action" in
+        show|hide)
+            if [[ ! -x "$HUB_HOTKEYS_BIN" ]]; then
+                fail "Hub Hotkeys.app is not installed — run hub install"
+                return 1
+            fi
+            "$HUB_HOTKEYS_BIN" --overlay "$action"
+            ;;
+        *)
+            fail "Usage: hub cluster <show|hide>"
+            return 2
+            ;;
+    esac
+}
+
+cmd_hotkeys_status() {
+    local json=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json=true; shift ;;
+            -h|--help)
+                echo "Usage: hub hotkeys status [--json]"
+                return 0
+                ;;
+            *)
+                fail "Usage: hub hotkeys status [--json]"
+                return 2
+                ;;
+        esac
+    done
+
+    local launchd_loaded=false running=false updated_at now age
+    hub_hotkeys_is_loaded && launchd_loaded=true
+    if [[ -f "$HUB_RUNTIME_DIR/hub-hotkeyd-status.json" ]] \
+       && command -v jq >/dev/null 2>&1; then
+        updated_at="$(jq -r '.updatedAt // empty' "$HUB_RUNTIME_DIR/hub-hotkeyd-status.json" 2>/dev/null || true)"
+        now="$(date +%s)"
+        if [[ "$updated_at" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+            age="$(awk -v now="$now" -v updated="$updated_at" 'BEGIN { print now - updated }')"
+            if awk -v age="$age" 'BEGIN { exit !(age >= 0 && age <= 5) }'; then
+                running=true
+            fi
+        fi
+        if $json; then
+            jq --argjson loaded "$launchd_loaded" --argjson running "$running" \
+                '. + {launchdLoaded: $loaded, running: $running}' \
+                "$HUB_RUNTIME_DIR/hub-hotkeyd-status.json"
+        else
+            jq -r --argjson loaded "$launchd_loaded" --argjson running "$running" '
+                "Hub Hotkeys: " + (if $running then "running" else "stopped" end),
+                "LaunchAgent: " + (if $loaded then "loaded" else "not loaded" end),
+                "Input Monitoring: " + (.inputMonitoringPermission // "unknown"),
+                "Event tap: " + (.tapHealth // "unknown"),
+                "Event tap error: " + (.tapLastError // "none"),
+                "Listener heartbeat age: " + ((.listenerHeartbeatAge // -1) | tostring) + "s",
+                "Bar heartbeat age: " + ((.barHeartbeatAge // -1) | tostring) + "s",
+                "Bar heartbeat response: " + ((.barHeartbeatResponseLatency // -1) | tostring) + "s",
+                "Slow UI heartbeats: " + ((.slowBarHeartbeatCount // 0) | tostring),
+                "Fullscreen action failures: " + ((.fullscreenActionFailureCount // 0) | tostring),
+                "Dropped fullscreen actions: " + ((.droppedFullscreenActionCount // 0) | tostring),
+                "Last fullscreen action error: " + (.lastFullscreenActionError // "none"),
+                "Automatic recovery: " + (.recoveryState // "unknown"),
+                "Recent recovery events: " + ((.recoveryHistory // []) | length | tostring),
+                "Last recovery event: " + (((.recoveryHistory // []) | last | .result) // "none"),
+                "Last recovery error: " + (.lastRecoveryError // "none"),
+                "Last stack sample: " + (.lastRecoverySample // "none")
+            ' "$HUB_RUNTIME_DIR/hub-hotkeyd-status.json"
+        fi
+    elif $json; then
+        printf '{"running":false,"launchdLoaded":%s,"helperPID":null,"inputMonitoringPermission":"unknown","tapHealth":"notRunning","listenerHeartbeatAge":null,"barHeartbeatAge":null,"fullscreenActionFailureCount":0,"droppedFullscreenActionCount":0,"recoveryHistory":[]}\n' \
+            "$launchd_loaded"
+    else
+        echo "Hub Hotkeys: stopped"
+        if [[ "$launchd_loaded" == "true" ]]; then
+            echo "LaunchAgent: loaded"
+        else
+            echo "LaunchAgent: not loaded"
+        fi
+        echo "Run: hub up"
+    fi
+}
+
+cmd_hotkeys() {
+    local action="${1:-status}"
+    shift || true
+    case "$action" in
+        status)
+            cmd_hotkeys_status "$@"
+            ;;
+        restart)
+            if [[ ! -x "$HUB_HOTKEYS_BIN" || ! -f "$HUB_HOTKEYS_PLIST" ]]; then
+                fail "Hub Hotkeys.app is not installed — run hub install"
+                return 1
+            fi
+            hub_lifecycle_lock_acquire || return 1
+            local result=0
+            hub_hotkeys_bootstrap true || result=$?
+            hub_lifecycle_lock_release
+            return "$result"
+            ;;
+        request-access)
+            if [[ ! -x "$HUB_HOTKEYS_BIN" || ! -f "$HUB_HOTKEYS_PLIST" ]]; then
+                fail "Hub Hotkeys.app is not installed — run hub install"
+                return 1
+            fi
+            hub_hotkeys_bootstrap || return 1
+            "$HUB_HOTKEYS_BIN" --request-access || return 1
+            echo "Requested Input Monitoring access for Hub Hotkeys.app."
+            ;;
+        -h|--help)
+            echo "Usage: hub hotkeys <status [--json]|restart|request-access>"
+            ;;
+        *)
+            fail "Usage: hub hotkeys <status [--json]|restart|request-access>"
+            return 2
+            ;;
+    esac
+}
+
 cmd_bar_layout() {
     local action="${1:-}"
     local f="$HUB_CONFIG_DIR/layout_mode"
@@ -4218,7 +4483,7 @@ cmd_fullscreen() {
             hub_log INPUT "fullscreen on"
             _fullscreen_apply
             # Restart the Hub Bar after the menu bar hides so it reads the new visibleFrame.
-            (sleep 0.8; hub_bar_restart) >/dev/null 2>&1 &
+            (sleep 0.8; "$SCRIPT_DIR/hub" bar-restart) >/dev/null 2>&1 &
             disown
             ;;
         off)
@@ -4226,7 +4491,7 @@ cmd_fullscreen() {
             hub_log INPUT "fullscreen off"
             _fullscreen_restore
             # Restart the Hub Bar after the menu bar reappears so it reads the new visibleFrame.
-            (sleep 0.8; hub_bar_restart) >/dev/null 2>&1 &
+            (sleep 0.8; "$SCRIPT_DIR/hub" bar-restart) >/dev/null 2>&1 &
             disown
             ;;
         toggle)
@@ -4267,47 +4532,215 @@ ensure_general_workspace() {
     fi
 }
 
+hub_lifecycle_lock_acquire() {
+    mkdir -p "$(dirname "$HUB_LIFECYCLE_LOCK_DIR")"
+    local owner_path="$HUB_LIFECYCLE_LOCK_DIR/owner"
+    local attempts=0 owner
+    while ! mkdir "$HUB_LIFECYCLE_LOCK_DIR" 2>/dev/null; do
+        owner="$(cat "$owner_path" 2>/dev/null || true)"
+        if [[ "$owner" =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; then
+            rm -f "$owner_path"
+            rmdir "$HUB_LIFECYCLE_LOCK_DIR" 2>/dev/null || true
+        fi
+        attempts=$((attempts + 1))
+        if [[ "$attempts" -ge 400 ]]; then
+            fail "Hub lifecycle is busy"
+            return 1
+        fi
+        sleep 0.05
+    done
+    printf '%s\n' "$$" > "$owner_path"
+}
+
+hub_lifecycle_lock_release() {
+    local owner_path="$HUB_LIFECYCLE_LOCK_DIR/owner"
+    [[ "$(cat "$owner_path" 2>/dev/null || true)" == "$$" ]] || return 0
+    rm -f "$owner_path"
+    rmdir "$HUB_LIFECYCLE_LOCK_DIR" 2>/dev/null || true
+}
+
+hub_session_activate() {
+    mkdir -p "$HUB_CONFIG_DIR"
+    mkdir -p "$(dirname "$HUB_SESSION_FILE")"
+    if [[ -s "$HUB_SESSION_FILE" ]]; then return 0; fi
+    local session_id
+    session_id="$(uuidgen 2>/dev/null || printf '%s-%s-%s' "$$" "$(date +%s)" "$RANDOM")"
+    printf '%s\n' "$session_id" > "$HUB_SESSION_FILE"
+}
+
+hub_hotkeys_domain() {
+    printf 'gui/%s' "$(id -u)"
+}
+
+hub_hotkeys_is_loaded() {
+    local domain
+    domain="$(hub_hotkeys_domain)"
+    launchctl print "$domain/$HUB_HOTKEYS_LABEL" >/dev/null 2>&1
+}
+
+hub_hotkeys_bootstrap() {
+    local force="${1:-false}"
+    if [[ ! -x "$HUB_HOTKEYS_BIN" || ! -f "$HUB_HOTKEYS_PLIST" ]]; then
+        warn "Hub Hotkeys.app is not installed"
+        return 0
+    fi
+    local domain
+    domain="$(hub_hotkeys_domain)"
+    if hub_hotkeys_is_loaded; then
+        [[ "$force" == "true" ]] || return 0
+        launchctl bootout "$domain/$HUB_HOTKEYS_LABEL" >/dev/null 2>&1 || true
+    fi
+    if ! launchctl bootstrap "$domain" "$HUB_HOTKEYS_PLIST" >/dev/null 2>&1; then
+        warn "Could not start Hub Hotkeys.app"
+        return 1
+    fi
+}
+
+hub_hotkeys_stop() {
+    local domain
+    domain="$(hub_hotkeys_domain)"
+    if hub_hotkeys_is_loaded; then
+        launchctl bootout "$domain/$HUB_HOTKEYS_LABEL" >/dev/null 2>&1 || true
+    fi
+}
+
+hub_hotkeys_notify_bar_restart() {
+    hub_hotkeys_is_loaded || return 0
+    [[ -x "$HUB_HOTKEYS_BIN" ]] || return 0
+    "$HUB_HOTKEYS_BIN" --bar-restarting >/dev/null 2>&1 || true
+}
+
+hub_bar_process_is_target() {
+    local pid="$1" process_command
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    process_command="$(ps -p "$pid" -o command= 2>/dev/null | sed 's/^[[:space:]]*//')"
+    [[ "$process_command" == "$HUB_BAR_BIN" || "$process_command" == "$HUB_BAR_BIN "* ]]
+}
+
+hub_bar_is_running() {
+    [[ -f "$HUB_BAR_PIDFILE" ]] || return 1
+    local pid
+    pid="$(cat "$HUB_BAR_PIDFILE" 2>/dev/null || true)"
+    hub_bar_process_is_target "$pid"
+}
+
 hub_bar_refresh() {
     if [[ -f "$HUB_BAR_PIDFILE" ]]; then
-        local _pid
-        _pid="$(cat "$HUB_BAR_PIDFILE" 2>/dev/null || true)"
-        [[ -n "$_pid" ]] && kill -USR1 "$_pid" 2>/dev/null || true
+        local pid
+        pid="$(cat "$HUB_BAR_PIDFILE" 2>/dev/null || true)"
+        hub_bar_process_is_target "$pid" && kill -USR1 "$pid" 2>/dev/null || true
     fi
 }
 
 hub_bar_down() {
-    local _running=false
+    local was_running=false pid=""
     launchctl remove "$HUB_BAR_LAUNCH_LABEL" 2>/dev/null || true
     if [[ -f "$HUB_BAR_PIDFILE" ]]; then
-        local _pid
-        _pid="$(cat "$HUB_BAR_PIDFILE" 2>/dev/null || true)"
-        if [[ -n "$_pid" ]] && kill -0 "$_pid" 2>/dev/null; then
-            kill "$_pid" 2>/dev/null || true
-            local _i=0
-            while kill -0 "$_pid" 2>/dev/null && [[ $_i -lt 20 ]]; do sleep 0.1; ((_i++)); done
-            _running=true
+        pid="$(cat "$HUB_BAR_PIDFILE" 2>/dev/null || true)"
+        if hub_bar_process_is_target "$pid"; then
+            kill "$pid" 2>/dev/null || true
+            local attempts=0
+            while hub_bar_process_is_target "$pid" && [[ "$attempts" -lt 20 ]]; do
+                sleep 0.1
+                attempts=$((attempts + 1))
+            done
+            if hub_bar_process_is_target "$pid"; then
+                kill -KILL "$pid" 2>/dev/null || true
+                sleep 0.1
+            fi
+            if ! hub_bar_process_is_target "$pid"; then was_running=true; fi
         fi
-        rm -f "$HUB_BAR_PIDFILE"
+        if ! hub_bar_process_is_target "$pid"; then rm -f "$HUB_BAR_PIDFILE"; fi
     fi
     rm -f "$HUB_CONFIG_DIR/hub_bar_height_transient"
-    # Fallback: kill any stray process
-    pkill -f "hub_bar" 2>/dev/null || true
-    $_running
+    if ! hub_bar_is_running; then
+        rm -f "$HUB_CONFIG_DIR/hub_bar.identity" "$HUB_RUNTIME_DIR/hub-bar.sock"
+    fi
+    $was_running
+}
+
+hub_bar_start_locked() {
+    if [[ -x "$HUB_BAR_BIN" ]]; then
+        if hub_bar_is_running; then
+            warn "Hub Bar is already running"
+            return 1
+        fi
+        launchctl remove "$HUB_BAR_LAUNCH_LABEL" 2>/dev/null || true
+        rm -f "$HUB_BAR_PIDFILE" "$HUB_CONFIG_DIR/hub_bar.identity" "$HUB_RUNTIME_DIR/hub-bar.sock"
+        nohup "$HUB_BAR_BIN" >/dev/null 2>&1 &
+        disown
+        sleep 0.15
+        hub_bar_refresh
+    else
+        warn "hub_bar not compiled — run hub install first"
+        return 1
+    fi
+}
+
+hub_environment_start_bar_stack() {
+    hub_lifecycle_lock_acquire || return 1
+    hub_session_activate
+    local helper_loaded=false
+    hub_hotkeys_is_loaded && helper_loaded=true
+    if hub_bar_is_running && [[ "$helper_loaded" == "true" ]]; then
+        hub_lifecycle_lock_release
+        return 0
+    fi
+    if hub_bar_is_running; then
+        hub_hotkeys_notify_bar_restart
+        hub_bar_down >/dev/null 2>&1 || true
+    fi
+    hub_hotkeys_bootstrap || true
+    local result=0
+    hub_bar_start_locked || result=$?
+    hub_lifecycle_lock_release
+    return "$result"
+}
+
+hub_environment_reload_services() {
+    hub_lifecycle_lock_acquire || return 1
+    hub_session_activate
+    hub_hotkeys_notify_bar_restart
+    hub_bar_down >/dev/null 2>&1 || true
+    hub_hotkeys_bootstrap true || true
+    local result=0
+    hub_bar_start_locked || result=$?
+    hub_lifecycle_lock_release
+    return "$result"
+}
+
+hub_environment_stop_bar_stack() {
+    rm -f "$HUB_SESSION_FILE"
+    hub_lifecycle_lock_acquire || return 2
+    rm -f "$HUB_SESSION_FILE"
+    hub_hotkeys_stop
+    local result=1
+    hub_bar_down >/dev/null 2>&1 && result=0
+    hub_lifecycle_lock_release
+    return "$result"
 }
 
 hub_bar_restart() {
-    hub_bar_down 2>/dev/null || true
-    if [[ -x "$HUB_BAR_BIN" ]]; then
-        if launchctl submit -l "$HUB_BAR_LAUNCH_LABEL" -o /dev/null -e /dev/null -- "$HUB_BAR_BIN" 2>/dev/null; then
-            sleep 0.25
-        else
-            # Fallback for environments where launchctl submit is unavailable.
-            nohup "$HUB_BAR_BIN" >/dev/null 2>&1 &
-            disown
-            sleep 0.15
-        fi
-        hub_bar_refresh
+    hub_lifecycle_lock_acquire || return 1
+    hub_hotkeys_notify_bar_restart
+    hub_bar_down >/dev/null 2>&1 || true
+    local result=0
+    hub_bar_start_locked || result=$?
+    hub_lifecycle_lock_release
+    return "$result"
+}
+
+cmd_bar_recovery_start() {
+    local session_id="${1:-}" owner_pid="${2:-}"
+    if [[ -z "$session_id" || ! "$owner_pid" =~ ^[0-9]+$ ]]; then
+        fail "Usage: hub bar-recovery-start <session> <owner-pid>"
+        return 2
     fi
+    [[ "$(cat "$HUB_SESSION_FILE" 2>/dev/null || true)" == "$session_id" ]] || return 1
+    [[ "$(cat "$HUB_LIFECYCLE_LOCK_DIR/owner" 2>/dev/null || true)" == "$owner_pid" ]] || return 1
+    kill -0 "$owner_pid" 2>/dev/null || return 1
+    hub_bar_start_locked
 }
 
 save_and_set_hub_default_browser() {
@@ -4396,16 +4829,11 @@ cmd_up() {
     # Rebuild workspace labels cache (/tmp is cleared on reboot)
     rebuild_labels_file
 
-    # Launch Hub Bar daemon (kill stale instance first)
-    hub_bar_down 2>/dev/null || true
-    if [[ -x "$HUB_BAR_BIN" ]]; then
-        "$HUB_BAR_BIN" &>/dev/null &
-        disown
-        success "Hub Bar started"
+    if hub_environment_start_bar_stack; then
+        success "Hub Bar and Hotkeys started"
     else
-        warn "hub_bar not compiled — run hub install first"
+        warn "Hub Bar could not be started"
     fi
-    hub_bar_refresh
 
     if ! pgrep -q borders; then
         borders active_color=0xff00ff00 width=10.0 style=round &>/dev/null &
@@ -4467,6 +4895,13 @@ cmd_reboot() {
 cmd_down() {
     echo -e "${bold}Shutting down hub environment...${reset}\n"
 
+    local bar_stop_status=1
+    hub_environment_stop_bar_stack || bar_stop_status=$?
+    if [[ "$bar_stop_status" -eq 2 ]]; then
+        fail "Could not acquire the Hub lifecycle lock"
+        return 1
+    fi
+
     # Stop borders
     if pgrep -q borders; then
         killall borders 2>/dev/null || true
@@ -4476,7 +4911,7 @@ cmd_down() {
     fi
 
     # Stop Hub Bar
-    if hub_bar_down 2>/dev/null; then
+    if [[ "$bar_stop_status" -eq 0 ]]; then
         success "Hub Bar stopped"
     else
         warn "Hub Bar was not running"
@@ -4986,9 +5421,12 @@ hub_main() {
         bar-sync)     cmd_hub_bar_sync ;;
         bar-reload|bar-restart) hub_bar_restart ;;
         bar-refresh)  hub_bar_refresh ;;
-        bar-up)       hub_bar_restart ;;
+        bar-up)       hub_environment_start_bar_stack ;;
+        bar-recovery-start) cmd_bar_recovery_start "$@" ;;
         repo-prefix)  cmd_repo_prefix "$@" ;;
         cluster-pin)  cmd_cluster_pin "$@" ;;
+        cluster)      cmd_cluster "$@" ;;
+        hotkeys)      cmd_hotkeys "$@" ;;
         fullscreen)   cmd_fullscreen "$@" ;;
         # Compatibility no-op: older deployed AeroSpace configs may still call
         # this former automatic hook. Arrangement is now explicit-only.

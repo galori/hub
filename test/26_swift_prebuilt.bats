@@ -88,6 +88,49 @@ teardown() {
     [[ "$output" == *"HUB_SHOULD_BUILD_SWIFT=1"* ]]
 }
 
+@test "prebuilt builder handles tools without shared sources" {
+    local fixture="$HUB_TEST_DIR/prebuilt_builder"
+    mkdir -p "$fixture/scripts/lib" "$fixture/lib" "$fixture/bin" "$fixture/tmp"
+    cp "$REPO_DIR/scripts/build-swift-prebuilt.sh" "$fixture/scripts/"
+    cp "$REPO_DIR/scripts/lib/swift_prebuilt.sh" "$fixture/scripts/lib/"
+    cat > "$fixture/scripts/lib/swift_tools_manifest.sh" <<'MANIFEST'
+SWIFT_TOOLS_MANIFEST=(
+    "single_file|single_file.swift|"
+)
+MANIFEST
+    printf 'print("test")\n' > "$fixture/lib/single_file.swift"
+    cat > "$fixture/bin/swiftc" <<'SWIFTC'
+#!/usr/bin/env bash
+while (($#)); do
+    if [[ "$1" == "-o" ]]; then
+        printf '#!/bin/sh\nexit 0\n' > "$2"
+        shift 2
+    else
+        shift
+    fi
+done
+SWIFTC
+    cat > "$fixture/bin/lipo" <<'LIPO'
+#!/usr/bin/env bash
+while (($#)); do
+    case "$1" in
+        -output) output="$2"; shift 2 ;;
+        -*) shift ;;
+        *) input="$1"; shift ;;
+    esac
+done
+cp "$input" "$output"
+LIPO
+    chmod +x "$fixture/bin/swiftc" "$fixture/bin/lipo"
+
+    run /usr/bin/env PATH="$fixture/bin:$PATH" TMPDIR="$fixture/tmp" \
+        /bin/bash "$fixture/scripts/build-swift-prebuilt.sh"
+
+    [[ "$status" -eq 0 ]]
+    [[ -x "$fixture/lib/prebuilt/single_file" ]]
+    [[ -s "$fixture/lib/prebuilt/single_file.sha256" ]]
+}
+
 @test "check-swift-prebuilt.sh passes against the committed lib/prebuilt binaries" {
     run "$REPO_DIR/scripts/check-swift-prebuilt.sh"
 

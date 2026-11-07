@@ -17,6 +17,11 @@ teardown() {
     teardown_stubs
 }
 
+@test "test stubs clear host Hub skip overrides" {
+    [[ -z "${HUB_SKIP_DEFAULT_BROWSER_CHANGE:-}" ]]
+    [[ -z "${HUB_SKIP_SYSTEM_SETTINGS:-}" ]]
+}
+
 write_browser_ctl() {
     local current_browser="$1"
     cat > "$HOME/.config/hub/browser_ctl" <<SH

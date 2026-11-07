@@ -3409,24 +3409,6 @@ class VolumeSliderTarget: NSObject {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// MARK: – Cluster event-tap health
-// ──────────────────────────────────────────────────────────────────────────────
-
-// >>> cluster-tap-recovery (extracted and unit-tested by test/25_swift_cluster_tap_recovery.bats)
-enum ClusterTapRecovery { case healthy, reenable, recreate }
-
-/// What to do with the shift-cluster tap given the mach port's validity and the
-/// tap's enabled state. A disabled-but-valid tap can be switched back on in
-/// place; an invalidated port (e.g. after the WindowServer session is torn down
-/// across sleep/wake) can only be fixed by building a new tap.
-func clusterTapRecoveryAction(portIsValid: Bool, tapIsEnabled: Bool) -> ClusterTapRecovery {
-    if !portIsValid { return .recreate }
-    if !tapIsEnabled { return .reenable }
-    return .healthy
-}
-// <<< cluster-tap-recovery
-
-// ──────────────────────────────────────────────────────────────────────────────
 // MARK: – HubBarController
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -3440,153 +3422,117 @@ class HubBarController: NSObject {
     var nativeFullscreenDisplayIDs = Set<CGDirectDisplayID>()
     var menuBarRevealGeneration: Int = 0
     var pulseBright = true; var lastState = HubBarState()
-    var rightShiftWasDown = false
-    var rightShiftTapArmed = false
-    var lastRightShiftDownTime: CFAbsoluteTime = 0
-    var flagsChangedEventTap: CFMachPort?
-    var flagsChangedRunLoopSource: CFRunLoopSource?
-    var clusterTapWatchdogTimer: Timer?
+    private var hotkeyIPCListener: HotkeyDatagramListener?
+    private var hotkeyProcessIdentity: HotkeyProcessIdentity?
+    private let hotkeyMessageLock = NSLock()
+    private var pendingOverlayMessage: HotkeyMessage?
+    private var pendingHeartbeatMessage: HotkeyMessage?
+    private var hotkeyMessageDispatchPending = false
 
     func start() {
+        publishHotkeyProcessIdentity()
         removeTransientBarHeightOverride(sync: false)
         writePIDFile()
         buildWindows()
         installSignalSource()
-        installClusterTriggers()
+        installHotkeyIPC()
         startTimers()
         installMenuBarRevealMonitor()
         installNotificationMonitor()
     }
 
-    func installClusterTriggers() {
-        // Both-shift trigger and right-shift double-tap trigger via CGEventTap.
-        // NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) is silently broken on
-        // macOS 26 (Tahoe) even with Input Monitoring granted; CGEventTap works reliably.
-        if !createClusterEventTap() {
-            // Fallback: NSEvent monitor (works on pre-Tahoe without Input Monitoring issues)
-            NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { [weak self] ev in
-                guard let self = self else { return }
-                self.handleClusterModifierFlags(ev.modifierFlags.rawValue, event: ev)
+    private func publishHotkeyProcessIdentity() {
+        guard let identity = HotkeyProcessIdentity.current() else { return }
+        hotkeyProcessIdentity = identity
+        if let data = try? JSONEncoder().encode(identity) {
+            try? data.write(to: URL(fileURLWithPath: HotkeyPaths.barIdentityFile), options: .atomic)
+        }
+    }
+
+    private func installHotkeyIPC() {
+        guard hotkeyProcessIdentity != nil else { return }
+        do {
+            hotkeyIPCListener = try HotkeyDatagram.listen(
+                at: HotkeyPaths.barSocket,
+                queue: DispatchQueue(label: "sh.hub.bar.hotkey-ipc")
+            ) { [weak self] message in
+                self?.receiveHotkeyMessage(message)
             }
-        }
-
-        // Right-shift double-tap trigger: toggles AeroSpace fullscreen. A global keyDown
-        // monitor disarms the pending tap whenever a real key is struck in between,
-        // so ordinary typing (e.g. Shift for "New York") never fires it.
-        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
-            self?.rightShiftTapArmed = false
+            hotkeyIPCListener?.start()
+        } catch {
+            fputs("hub_bar: hotkey IPC unavailable: \(error.localizedDescription)\n", stderr)
         }
     }
 
-    // NX_DEVICELSHIFTKEYMASK = 0x0002, NX_DEVICERSHIFTKEYMASK = 0x0004
-    func handleClusterModifierFlags(_ raw: UInt, event: NSEvent) {
-        let bothShift = (raw & 0x0002 != 0) && (raw & 0x0004 != 0)
-        let primaryWindow = windows.first
-        if bothShift {
-            primaryWindow?.showClusterOverlay()
-        } else if primaryWindow?.clusterOverlay?.isVisible == true {
-            primaryWindow?.scheduleHideClusterOverlay()
-        }
-        handleRightShiftTap(event)
-    }
-
-    /// Builds (or rebuilds) the flagsChanged tap and wires it into the main run loop.
-    /// Returns false when macOS refuses to create the tap at all.
-    @discardableResult
-    func createClusterEventTap() -> Bool {
-        if let src = flagsChangedRunLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), src, .commonModes)
-            flagsChangedRunLoopSource = nil
-        }
-        if let tap = flagsChangedEventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            CFMachPortInvalidate(tap)
-            flagsChangedEventTap = nil
-        }
-        let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        let tapMask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
-        flagsChangedEventTap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: tapMask,
-            callback: { proxy, type, event, userInfo -> Unmanaged<CGEvent>? in
-                // macOS disables event taps (timeout or user input) without warning; once
-                // disabled the tap stays dead forever unless we explicitly re-enable it here.
-                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-                    if let userInfo = userInfo {
-                        let ctrl = Unmanaged<HubBarController>.fromOpaque(userInfo).takeUnretainedValue()
-                        if let tap = ctrl.flagsChangedEventTap {
-                            CGEvent.tapEnable(tap: tap, enable: true)
-                        }
-                    }
-                    return Unmanaged.passRetained(event)
-                }
-                if let userInfo = userInfo, let nsEv = NSEvent(cgEvent: event) {
-                    let ctrl = Unmanaged<HubBarController>.fromOpaque(userInfo).takeUnretainedValue()
-                    ctrl.handleClusterModifierFlags(nsEv.modifierFlags.rawValue, event: nsEv)
-                }
-                return Unmanaged.passRetained(event)
-            },
-            userInfo: selfPtr
-        )
-        guard let tap = flagsChangedEventTap else { return false }
-        let src = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        flagsChangedRunLoopSource = src
-        CFRunLoopAddSource(CFRunLoopGetMain(), src, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
-        return true
-    }
-
-    /// Polls the tap and repairs it. The in-callback re-enable only fires when macOS
-    /// bothers to deliver a tapDisabled event; after sleep/wake the tap can come back
-    /// silently disabled — or with a dead mach port — and never report anything again.
-    func checkClusterTapHealth() {
-        guard let tap = flagsChangedEventTap else { return }
-        let action = clusterTapRecoveryAction(portIsValid: CFMachPortIsValid(tap),
-                                              tapIsEnabled: CGEvent.tapIsEnabled(tap: tap))
-        switch action {
-        case .healthy:
+    private func receiveHotkeyMessage(_ message: HotkeyMessage) {
+        guard message.isCurrentVersion else { return }
+        switch message.kind {
+        case .overlay:
+            hotkeyMessageLock.lock()
+            pendingOverlayMessage = message
+            let shouldDispatch = !hotkeyMessageDispatchPending
+            hotkeyMessageDispatchPending = true
+            hotkeyMessageLock.unlock()
+            if shouldDispatch {
+                DispatchQueue.main.async { [weak self] in self?.applyPendingHotkeyMessages() }
+            }
+        case .heartbeatRequest:
+            hotkeyMessageLock.lock()
+            pendingHeartbeatMessage = message
+            let shouldDispatch = !hotkeyMessageDispatchPending
+            hotkeyMessageDispatchPending = true
+            hotkeyMessageLock.unlock()
+            if shouldDispatch {
+                DispatchQueue.main.async { [weak self] in self?.applyPendingHotkeyMessages() }
+            }
+        case .heartbeatReply, .barRestarting, .requestAccess:
             break
-        case .reenable:
-            CGEvent.tapEnable(tap: tap, enable: true)
-        case .recreate:
-            createClusterEventTap()
         }
     }
 
-    // NX_DEVICELSHIFTKEYMASK = 0x0002, NX_DEVICERSHIFTKEYMASK = 0x0004
-    private func handleRightShiftTap(_ ev: NSEvent) {
-        let raw = ev.modifierFlags.rawValue
-        let mods = ev.modifierFlags
-        let isolatedRightShift = (raw & 0x0004 != 0) && (raw & 0x0002 == 0)
-            && mods.intersection([.control, .option, .command, .capsLock, .function]).isEmpty
-        if isolatedRightShift {
-            if !rightShiftWasDown {
-                let now = CFAbsoluteTimeGetCurrent()
-                if rightShiftTapArmed && (now - lastRightShiftDownTime) < 0.4 {
-                    rightShiftTapArmed = false
-                    triggerFullscreenToggle()
-                } else {
-                    rightShiftTapArmed = true
-                    lastRightShiftDownTime = now
-                }
+    private func applyPendingHotkeyMessages() {
+        hotkeyMessageLock.lock()
+        let overlay = pendingOverlayMessage
+        let heartbeat = pendingHeartbeatMessage
+        pendingOverlayMessage = nil
+        pendingHeartbeatMessage = nil
+        hotkeyMessageDispatchPending = false
+        hotkeyMessageLock.unlock()
+
+        if let overlay,
+           overlay.isFresh(maximumAge: 1),
+           isCurrentHubSession(overlay.sessionID) {
+            if overlay.overlayVisible == true {
+                windows.first?.showClusterOverlay()
+            } else if overlay.overlayImmediate == true {
+                windows.first?.hideClusterOverlay()
+            } else {
+                windows.first?.scheduleHideClusterOverlay()
             }
-        } else {
-            // Disarm only when a real non-right-shift modifier or key is active.
-            // CGEventFlags includes 0x0100 (nonCoalesced) on key-up which is NOT a modifier;
-            // checking raw != 0 would incorrectly disarm on every key release.
-            let hasOtherMod = !mods.intersection([.control, .option, .command, .capsLock, .function]).isEmpty
-                || (raw & 0x0002) != 0  // left-shift NX bit
-            if hasOtherMod { rightShiftTapArmed = false }
         }
-        rightShiftWasDown = isolatedRightShift
+
+        guard let heartbeat,
+              heartbeat.isFresh(maximumAge: 5),
+              let sessionID = heartbeat.sessionID,
+              isCurrentHubSession(sessionID),
+              let identity = hotkeyProcessIdentity else {
+            return
+        }
+        let reply = HotkeyMessage(
+            kind: .heartbeatReply,
+            messageID: heartbeat.messageID,
+            processIdentity: identity,
+            sessionID: sessionID
+        )
+        _ = HotkeyDatagram.send(reply, to: HotkeyPaths.hotkeysSocket)
     }
 
-    private func triggerFullscreenToggle() {
-        let aerospace = FileManager.default.fileExists(atPath: "/opt/homebrew/bin/aerospace")
-            ? "/opt/homebrew/bin/aerospace" : "/usr/local/bin/aerospace"
-        Process.launchedProcess(launchPath: aerospace, arguments: ["fullscreen"])
+    private func isCurrentHubSession(_ candidate: String?) -> Bool {
+        guard let candidate,
+              let current = try? String(contentsOfFile: HotkeyPaths.sessionFile, encoding: .utf8) else {
+            return false
+        }
+        return candidate == current.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func installNotificationMonitor() {
@@ -3594,8 +3540,9 @@ class HubBarController: NSObject {
     }
 
     func writePIDFile() {
-        let path = NSHomeDirectory() + "/.config/hub/hub_bar.pid"
-        try? "\(ProcessInfo.processInfo.processIdentifier)\n".write(toFile: path, atomically: true, encoding: .utf8)
+        try? "\(ProcessInfo.processInfo.processIdentifier)\n".write(
+            toFile: HotkeyPaths.barPIDFile, atomically: true, encoding: .utf8
+        )
     }
 
     private func installMenuBarRevealMonitor() {
@@ -3923,17 +3870,10 @@ class HubBarController: NSObject {
                 for ws in state.claudeActive { if let pill = w.wsPills[ws] { pill.updatePulse(bright: bright) } }
             }
         }
-        clusterTapWatchdogTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            self?.checkClusterTapHealth()
-        }
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main) { [weak self] _ in
                 cleanupStaleClaudeActiveFlags()
                 self?.windows.forEach { $0.clusterOverlay?.updateBattery() }
-                // The tap often survives the sleep silently dead; check now and again
-                // shortly after, once the WindowServer session has fully come back.
-                self?.checkClusterTapHealth()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { self?.checkClusterTapHealth() }
             }
         // Re-front bars when returning from a native full-screen Space.
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification,
@@ -3975,7 +3915,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 // app publishes its PID so an early refresh cannot terminate a fresh process.
 signal(SIGUSR1, SIG_IGN)
 
-let pidFile = NSHomeDirectory() + "/.config/hub/hub_bar.pid"
+let pidFile = HotkeyPaths.barPIDFile
 if let existing = try? String(contentsOfFile: pidFile, encoding: .utf8),
    let existingPID = Int(existing.trimmingCharacters(in: .whitespacesAndNewlines)),
    existingPID != Int(ProcessInfo.processInfo.processIdentifier) {

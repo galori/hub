@@ -1,63 +1,85 @@
 #!/usr/bin/env bats
-# Unit tests for the shift-cluster event-tap health check.
-# The pure decision function is extracted from hub_bar.swift and compiled
-# standalone, so the recovery policy is testable without a live CGEventTap.
 
 REPO_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+HUB_HOTKEYD_SRC="$REPO_DIR/lib/hub_hotkeyd.swift"
 HUB_BAR_SRC="$REPO_DIR/lib/hub_bar.swift"
 
-setup() {
-    if [[ -n "${SKIP_SWIFT_COMPILE:-}" ]]; then
-        skip "SKIP_SWIFT_COMPILE set"
-    fi
-    if ! command -v swiftc &>/dev/null; then
-        skip "swiftc not available"
-    fi
-    COMPILE_OUT="$(mktemp -d)"
-    export CLANG_MODULE_CACHE_PATH="$COMPILE_OUT/module-cache"
-    mkdir -p "$CLANG_MODULE_CACHE_PATH"
-
-    sed -n '/>>> cluster-tap-recovery/,/<<< cluster-tap-recovery/p' "$HUB_BAR_SRC" \
-        > "$COMPILE_OUT/main.swift"
-    cat >> "$COMPILE_OUT/main.swift" <<'SWIFT'
-for valid in [true, false] {
-    for enabled in [true, false] {
-        print("\(valid) \(enabled) \(clusterTapRecoveryAction(portIsValid: valid, tapIsEnabled: enabled))")
-    }
-}
-SWIFT
-    BIN="$COMPILE_OUT/cluster_tap_recovery"
-    swiftc -O -o "$BIN" "$COMPILE_OUT/main.swift"
+@test "independent listener observes modifier changes and key-down events" {
+    grep -Fq 'eventsOfInterest: flagsChangedMask | keyDownMask' "$HUB_HOTKEYD_SRC"
+    grep -Fq 'return Unmanaged.passUnretained(event)' "$HUB_HOTKEYD_SRC"
+    ! grep -Fq 'CGEvent.tapCreate' "$HUB_BAR_SRC"
 }
 
-teardown() {
-    if [[ -n "${COMPILE_OUT:-}" ]]; then rm -rf "$COMPILE_OUT"; fi
+@test "listener re-enables disabled taps and retries failed creation with bounded backoff" {
+    grep -Fq 'CGEvent.tapEnable(tap: tap, enable: true)' "$HUB_HOTKEYD_SRC"
+    grep -Fq 'CFMachPortIsValid(tap)' "$HUB_HOTKEYD_SRC"
+    grep -Fq 'min(tapRetryDelay * 2, 30)' "$HUB_HOTKEYD_SRC"
+    grep -Fq 'resetGestureAndSynchronize()' "$HUB_HOTKEYD_SRC"
+    grep -Fq 'statusSnapshot().tapHealth != "healthy"' "$HUB_HOTKEYD_SRC"
+    grep -Fq '$0.tapHealth = "recreating"' "$HUB_HOTKEYD_SRC"
 }
 
-@test "a valid, enabled tap needs no recovery" {
-    run "$BIN"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"true true healthy"* ]]
+@test "sleep and session changes reset the listener grace period" {
+    grep -Fq 'NSWorkspace.didWakeNotification' "$HUB_HOTKEYD_SRC"
+    grep -Fq 'beginGracePeriod(reason: "wake")' "$HUB_HOTKEYD_SRC"
+    grep -Fq 'NSWorkspace.sessionDidBecomeActiveNotification' "$HUB_HOTKEYD_SRC"
 }
 
-@test "a valid but disabled tap is re-enabled in place" {
-    run "$BIN"
-    [[ "$output" == *"true false reenable"* ]]
+@test "bar heartbeat replies are scheduled on its main thread" {
+    grep -Fq 'DispatchQueue.main.async { [weak self] in self?.applyPendingHotkeyMessages() }' "$HUB_BAR_SRC"
+    grep -Fq 'HotkeyDatagram.send(reply, to: HotkeyPaths.hotkeysSocket)' "$HUB_BAR_SRC"
+    grep -Fq 'message.senderPID == identity.pid' "$HUB_HOTKEYD_SRC"
 }
 
-@test "an invalid mach port is recreated from scratch" {
-    run "$BIN"
-    [[ "$output" == *"false true recreate"* ]]
-    [[ "$output" == *"false false recreate"* ]]
+@test "bar publishes process identity before building windows" {
+    local start_body identity_line windows_line listener_line identity_writer
+    start_body="$(sed -n '/^    func start() {/,/^    }/p' "$HUB_BAR_SRC")"
+    identity_line="$(printf '%s\n' "$start_body" \
+        | grep -n -F 'publishHotkeyProcessIdentity()' | cut -d: -f1)"
+    windows_line="$(printf '%s\n' "$start_body" \
+        | grep -n -F 'buildWindows()' | cut -d: -f1)"
+    listener_line="$(printf '%s\n' "$start_body" \
+        | grep -n -F 'installHotkeyIPC()' | cut -d: -f1)"
+    identity_writer="$(sed -n '/private func publishHotkeyProcessIdentity()/,/^    }/p' \
+        "$HUB_BAR_SRC")"
+
+    [[ -n "$identity_line" ]]
+    [[ -n "$windows_line" ]]
+    [[ -n "$listener_line" ]]
+    [[ "$identity_line" -lt "$windows_line" ]]
+    [[ "$windows_line" -lt "$listener_line" ]]
+    grep -Fq 'HotkeyProcessIdentity.current()' <<<"$identity_writer"
+    grep -Fq 'HotkeyPaths.barIdentityFile' <<<"$identity_writer"
 }
 
-@test "hub_bar installs a periodic health check for the cluster tap" {
-    grep -q 'clusterTapWatchdogTimer' "$HUB_BAR_SRC"
-    grep -q 'checkClusterTapHealth' "$HUB_BAR_SRC"
+@test "bar discards stale or future overlay requests before touching UI" {
+    grep -Fq 'overlay.isFresh(maximumAge: 1)' "$HUB_BAR_SRC"
 }
 
-@test "hub_bar re-checks the cluster tap on wake from sleep" {
-    local wake_block
-    wake_block="$(sed -n '/NSWorkspace.didWakeNotification/,/^            }/p' "$HUB_BAR_SRC")"
-    [[ "$wake_block" == *'checkClusterTapHealth'* ]]
+@test "overlay resynchronization respects pinned visibility" {
+    grep -Fq 'sendOverlayState(snapshot.clusterOverlayVisible, immediate: snapshot.clusterOverlayVisible)' \
+        "$HUB_HOTKEYD_SRC"
+}
+
+@test "automatic recovery resamples health before terminating the recorded process" {
+    grep -Fq 'let stillStalledAfterSample = controlQueue.sync' "$HUB_HOTKEYD_SRC"
+    grep -Fq 'readBarIdentity() == recordedIdentity' "$HUB_HOTKEYD_SRC"
+    grep -Fq 'processIsUnchanged(identity)' "$HUB_HOTKEYD_SRC"
+}
+
+@test "automatic recovery rechecks the Hub session before terminating the bar" {
+    local recovery_body sample_guard termination_call session_guard_line
+    recovery_body="$(sed -n '/private func performAutomaticRecovery(sessionID: String)/,/^    }/p' \
+        "$HUB_HOTKEYD_SRC")"
+    sample_guard="$(printf '%s\n' "$recovery_body" \
+        | grep -n -F 'guard stillStalledAfterSample else {' | cut -d: -f1)"
+    termination_call="$(printf '%s\n' "$recovery_body" \
+        | grep -n -F 'switch terminateBarIfUnchanged(oldIdentity)' | cut -d: -f1)"
+    session_guard_line="$(printf '%s\n' "$recovery_body" \
+        | awk -v sample="$sample_guard" -v termination="$termination_call" \
+            'NR > sample && NR < termination && index($0, "guard activeSessionID() == sessionID else {") > 0 { print NR; exit }')"
+
+    [[ -n "$sample_guard" ]]
+    [[ -n "$termination_call" ]]
+    [[ -n "$session_guard_line" ]]
 }

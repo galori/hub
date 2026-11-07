@@ -50,6 +50,11 @@ The terminal you run tests from must have:
 These permissions cannot be granted in CI — they require interactive approval
 in a live GUI session.
 
+The dedicated integration runner must also grant **Input Monitoring** to
+`~/Applications/Hub Hotkeys.app`. If the helper's event tap is not healthy,
+the hotkey recovery test reports `hub hotkeys request-access` as the corrective
+step.
+
 ### Session
 
 Tests must run in a **real `loginwindow` GUI session** on the display. The guard
@@ -92,6 +97,7 @@ never touch `test/integration/`.
 | `06_fullscreen_revealed_menu_bar_screenshot.bats` | macOS Tahoe+ — screenshot crop verifies the Hub Bar top strip is visible below the revealed menu bar in Hub fullscreen |
 | `07_right_shift_fullscreen.bats` | Double-tap right Shift toggles AeroSpace fullscreen for the focused window and restores it |
 | `08_terminal_command.bats` | `hub open 1 --workspace ID -- COMMAND` runs in the registered directory and corrals the exact new Terminal window |
+| `09_hotkey_recovery.bats` | Fullscreen gestures work while the bar is stopped, watchdog recovery restores bar IPC, and launchd restarts a crashed helper |
 
 ---
 
@@ -100,6 +106,10 @@ never touch `test/integration/`.
 Tests create workspaces with unique timestamped names (`ittest-<epoch>-<rand>`)
 and remove them in `teardown()` via `hub remove <id> -y`. Fixture repos live in
 `$BATS_TEST_TMPDIR` and are auto-cleaned by Bats.
+
+The hotkey recovery test temporarily stops the Hub Bar and kills the helper.
+Its teardown resumes the original bar if it still exists; launchd restores the
+helper after the crash.
 
 If a test crashes mid-run without cleanup, remove lingering workspaces with:
 
