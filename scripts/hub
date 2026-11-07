@@ -628,7 +628,12 @@ compile_swift() {
     local src="$2"
     local bin="$3"
     shift 3
-    local -a extra_sources=("$@")
+    local -a extra_sources=()
+    local has_extra_sources=false
+    if [[ "$#" -gt 0 ]]; then
+        extra_sources=("$@")
+        has_extra_sources=true
+    fi
 
     if [[ ! -f "$src" ]]; then
         warn "$name source not found — skipping"
@@ -640,9 +645,11 @@ compile_swift() {
     [[ ! -f "$bin" ]] && needs_build=true
     [[ -f "$bin" && "$src" -nt "$bin" ]] && needs_build=true
     local extra
-    for extra in "${extra_sources[@]}"; do
-        [[ -f "$extra" && "$extra" -nt "$bin" ]] && needs_build=true
-    done
+    if [[ "$has_extra_sources" == true ]]; then
+        for extra in "${extra_sources[@]}"; do
+            [[ -f "$extra" && "$extra" -nt "$bin" ]] && needs_build=true
+        done
+    fi
 
     if [[ "$needs_build" != true ]]; then
         info "$name up to date"
@@ -651,7 +658,7 @@ compile_swift() {
 
     mkdir -p "$(dirname "$bin")"
 
-    if [[ ${#extra_sources[@]} -gt 0 ]]; then
+    if [[ "$has_extra_sources" == true ]]; then
         if try_install_prebuilt_swift "$name" "$bin" "$src" "${extra_sources[@]}"; then
             success "$name installed from prebuilt: $bin"
             return
@@ -663,7 +670,7 @@ compile_swift() {
 
     swift_local_build_allowed "$name" || return
 
-    if [[ ${#extra_sources[@]} -gt 0 ]]; then
+    if [[ "$has_extra_sources" == true ]]; then
         # Multi-file Swift: only a file named main.swift may have top-level code.
         # Copy the main source to a temp main.swift so the compiler accepts it.
         local tmp_dir
