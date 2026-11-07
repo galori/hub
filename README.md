@@ -72,7 +72,7 @@ cd ~/workspace/hub
 This will:
 - Check and optionally install dependencies via Homebrew (aerospace, borders)
 - Deploy the AeroSpace config to `~/.aerospace.toml`
-- Compile Swift binaries (Hub Bar, overlay HUD, workspace dialog, and more)
+- Compile Swift binaries and the independent Hub Hotkeys app
 - Install a `hub` shell alias in your shell config
 - Deploy Claude Code slash commands to `~/.claude/commands/`
 
@@ -82,7 +82,16 @@ This will:
 hub up
 ```
 
-Starts AeroSpace, the Hub Bar, and JankyBorders. Hides the macOS Dock and menu bar for a distraction-free tiled workspace.
+Starts AeroSpace, Hub Hotkeys, the Hub Bar, and JankyBorders. Hides the macOS Dock and menu bar for a distraction-free tiled workspace. Hub Hotkeys handles Shift gestures independently and restarts the bar if its UI stops responding.
+
+Grant **Input Monitoring** to `Hub Hotkeys.app` when macOS prompts. If no
+prompt appears, enable it in System Settings → Privacy & Security → Input
+Monitoring. To request access again or inspect listener health:
+
+```sh
+hub hotkeys request-access
+hub hotkeys status
+```
 
 ### Stop the environment
 

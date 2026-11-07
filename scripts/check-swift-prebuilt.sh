@@ -13,7 +13,7 @@ source "$SCRIPT_DIR/lib/swift_tools_manifest.sh"
 
 stale=()
 for entry in "${SWIFT_TOOLS_MANIFEST[@]}"; do
-    IFS='|' read -r key src extra <<<"$entry"
+    IFS='|' read -r key src extras <<<"$entry"
     fp_file="$SWIFT_PREBUILT_DIR/$key.sha256"
     bin_file="$SWIFT_PREBUILT_DIR/$key"
 
@@ -22,9 +22,19 @@ for entry in "${SWIFT_TOOLS_MANIFEST[@]}"; do
         continue
     fi
 
-    extra_path=""
-    [[ -n "$extra" ]] && extra_path="$LIB_DIR/$extra"
-    current="$(swift_source_fingerprint "$LIB_DIR/$src" $extra_path)"
+    extra_sources=()
+    if [[ -n "$extras" ]]; then
+        extra_names=()
+        IFS=',' read -r -a extra_names <<<"$extras"
+        for extra_name in "${extra_names[@]}"; do
+            extra_sources+=("$LIB_DIR/$extra_name")
+        done
+    fi
+    if [[ ${#extra_sources[@]} -gt 0 ]]; then
+        current="$(swift_source_fingerprint "$LIB_DIR/$src" "${extra_sources[@]}")"
+    else
+        current="$(swift_source_fingerprint "$LIB_DIR/$src")"
+    fi
     committed="$(cat "$fp_file")"
     if [[ "$current" != "$committed" ]]; then
         stale+=("$key (source changed since prebuilt was built)")

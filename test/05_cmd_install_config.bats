@@ -183,6 +183,7 @@ JSON
 }
 
 @test "install isolated flags avoid live reloads and shell integration" {
+    make_stub_recording launchctl "" 0
     run env HUB_NONINTERACTIVE=1 "$HUB_SCRIPT" install --no-reload --no-shell-integration --no-launch-services --no-default-browser-change
 
     [[ "$status" -eq 0 ]]
@@ -192,6 +193,7 @@ JSON
     [[ ! -f "$HOME/.claude/commands/hub-new.md" ]]
     [[ "$output" == *"Skipped live service reload"* ]]
     [[ "$output" == *"Skipped shell alias install"* ]]
+    ! grep -Eq '^launchctl (bootstrap|bootout) ' "$STUB_CALLS"
 }
 
 

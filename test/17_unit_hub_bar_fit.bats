@@ -375,7 +375,7 @@ guard !fitStructureMatchesForRefresh(expandFitNoFill, expandFit) else {
 SWIFT
 
     swiftc -D HUB_BAR_TEST -O -o "$COMPILE_OUT/hub_bar_fit" \
-        -framework Cocoa "$THEME_SRC" "$harness"
+        -framework Cocoa "$THEME_SRC" "$LIB_DIR/hotkey_protocol.swift" "$harness"
     "$COMPILE_OUT/hub_bar_fit"
 }
 

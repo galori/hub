@@ -1,6 +1,6 @@
 # Canonical list of Swift tools that ship as prebuilt binaries in
-# lib/prebuilt/. Each entry is "key|src|extra" (paths relative to lib/,
-# extra may be empty). This is the single source of truth for
+# lib/prebuilt/. Each entry is "key|src|extras" (paths relative to lib/,
+# extras is a comma-separated list and may be empty). This is the single source of truth for
 # scripts/build-swift-prebuilt.sh and scripts/check-swift-prebuilt.sh — keep
 # it in sync with the compile_swift/build_http_handler/build_hub_app calls in
 # scripts/hub.
@@ -15,7 +15,8 @@ SWIFT_TOOLS_MANIFEST=(
     "app_switcher|app_switcher.swift|theme.swift"
     "command_palette|command_palette.swift|theme.swift"
     "log_viewer|log_viewer.swift|theme.swift"
-    "hub_bar|hub_bar.swift|theme.swift"
+    "hub_bar|hub_bar.swift|theme.swift,hotkey_protocol.swift"
+    "hub_hotkeyd|hub_hotkeyd.swift|hotkey_protocol.swift,hotkey_gesture.swift,hotkey_recovery_policy.swift"
     "browser_ctl|browser_ctl.swift|"
     "spatial_order|spatial_order.swift|"
     "float_nudge|float_nudge.swift|"
