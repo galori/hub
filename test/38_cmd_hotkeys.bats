@@ -76,17 +76,47 @@ JSON
     plutil -lint "$HUB_HOTKEYS_PLIST" >/dev/null
 }
 
-@test "helper app bundle declares its identity and Input Monitoring purpose" {
+@test "helper app bundle declares its identity, Input Monitoring purpose, and icon" {
     mkdir -p "$(dirname "$HUB_HOTKEYS_BIN")"
     printf 'stub\n' > "$HUB_HOTKEYS_BIN"
     chmod +x "$HUB_HOTKEYS_BIN"
+    local hub_icon="$HUB_APP_PATH/Contents/Resources/Hub.icns"
+    mkdir -p "$(dirname "$hub_icon")"
+    printf 'test Hub icon\n' > "$hub_icon"
     HUB_SKIP_LAUNCH_SERVICES=1
 
     build_hotkeys_app
 
     grep -Fq '<string>sh.hub.hotkeys</string>' "$HUB_HOTKEYS_APP_PATH/Contents/Info.plist"
     grep -Fq '<key>NSInputMonitoringUsageDescription</key>' "$HUB_HOTKEYS_APP_PATH/Contents/Info.plist"
+    [[ "$(plutil -extract CFBundleIconFile raw "$HUB_HOTKEYS_APP_PATH/Contents/Info.plist")" == "Hub" ]]
+    cmp -s "$hub_icon" "$HUB_HOTKEYS_APP_PATH/Contents/Resources/Hub.icns"
     plutil -lint "$HUB_HOTKEYS_APP_PATH/Contents/Info.plist" >/dev/null
+}
+
+@test "install builds Hub.app before copying its icon to Hub Hotkeys.app" {
+    compile_swift() {
+        if [[ "$1" == "hub_hotkeyd" ]]; then
+            mkdir -p "$(dirname "$3")"
+            printf 'stub\n' > "$3"
+            chmod +x "$3"
+        fi
+    }
+    build_http_handler() { :; }
+    build_hub_app() {
+        mkdir -p "$HUB_APP_PATH/Contents/Resources"
+        printf 'generated Hub icon\n' > "$HUB_APP_PATH/Contents/Resources/Hub.icns"
+    }
+    deploy_hotkeys_launch_agent() { :; }
+    pin_hub_dock_icon() { :; }
+    codesign() { :; }
+    HUB_SKIP_LAUNCH_SERVICES=1
+
+    compile_all >/dev/null
+
+    cmp -s "$HUB_APP_PATH/Contents/Resources/Hub.icns" \
+        "$HUB_HOTKEYS_APP_PATH/Contents/Resources/Hub.icns"
+    [[ "$(plutil -extract CFBundleIconFile raw "$HUB_HOTKEYS_APP_PATH/Contents/Info.plist")" == "Hub" ]]
 }
 
 @test "hotkeys restart bootstraps the launch agent under the lifecycle lock" {
