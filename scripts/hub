@@ -713,10 +713,11 @@ compile_all() {
         cp "$REPO_DIR/assets/hub-logo.png" "$HUB_CONFIG_DIR/hub-logo.png"
         success "hub-logo.png deployed"
     fi
-    build_hotkeys_app
-    deploy_hotkeys_launch_agent
     build_http_handler
     build_hub_app
+    # Reuse the icon generated for Hub.app.
+    build_hotkeys_app
+    deploy_hotkeys_launch_agent
     pin_hub_dock_icon
 }
 
@@ -733,11 +734,21 @@ plist_xml_escape() {
 build_hotkeys_app() {
     [[ -x "$HUB_HOTKEYS_BIN" ]] || return 0
     local app="$HUB_HOTKEYS_APP_PATH"
-    local escaped_name escaped_bin plist
+    local escaped_name escaped_bin plist icon icon_key hub_icon
     escaped_name="$(plist_xml_escape "Hub Hotkeys")"
     escaped_bin="$(plist_xml_escape "$HUB_HOTKEYS_EXECUTABLE")"
     plist="$app/Contents/Info.plist"
+    icon="$app/Contents/Resources/Hub.icns"
+    hub_icon="$HUB_APP_PATH/Contents/Resources/Hub.icns"
     mkdir -p "$app/Contents/Resources"
+
+    icon_key=""
+    if [[ -f "$hub_icon" ]] && cp "$hub_icon" "$icon"; then
+        icon_key="    <key>CFBundleIconFile</key>
+    <string>Hub</string>"
+    else
+        rm -f "$icon"
+    fi
 
     cat > "$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -758,6 +769,7 @@ build_hotkeys_app() {
     <string>$escaped_bin</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+${icon_key}
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
