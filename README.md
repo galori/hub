@@ -53,7 +53,7 @@ All keybindings use `Alt` as the modifier (AeroSpace default):
 
 ### Multiple monitors
 
-Each monitor has its own Hub Bar and its own workspaces. A new workspace opens on the monitor you started it from and stays there, even after `hub up`. `Ctrl + Alt + [` / `]` cycle through the workspaces on the current monitor. `hub monitor move-window` and `hub monitor move-workspace` are the CLI forms of `Ctrl + Alt + M` and `Alt + Shift + Tab`.
+Each monitor has its own Hub Bar and its own workspaces. A new workspace opens on the monitor you started it from and returns there when AeroSpace starts. `Ctrl + Alt + [` / `]` cycle through the workspaces on the current monitor. `hub monitor move-window` and `hub monitor move-workspace` are the CLI forms of `Ctrl + Alt + M` and `Alt + Shift + Tab`.
 
 ### Reordering workspaces
 
