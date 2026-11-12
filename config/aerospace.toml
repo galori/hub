@@ -6,6 +6,7 @@ config-version = 2
 # hub: launch Hub Hotkeys, Hub Bar, and jankyborders on startup
 after-startup-command = [
     'exec-and-forget __HUB_SCRIPT__ bar-up',
+    'exec-and-forget __HUB_SCRIPT__ monitor restore',
     'exec-and-forget borders active_color=0xff00ff00 width=10.0 style=round',
 ]
 

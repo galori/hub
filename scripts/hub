@@ -2513,7 +2513,7 @@ Usage: hub monitor <command>
 Commands:
   move-window [next|prev]     Move the focused window to another monitor (Ctrl-Alt-M)
   move-workspace [next|prev]  Move the focused workspace to another monitor and pin it there (Alt-Shift-Tab)
-  restore                     Move pinned workspaces back to their monitors (run by 'hub up')
+  restore                     Move pinned workspaces back to their monitors (run on AeroSpace startup and by 'hub up')
 EOF
 }
 

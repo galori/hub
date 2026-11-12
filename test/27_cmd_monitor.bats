@@ -215,3 +215,8 @@ JSON
     grep -q "^ *alt-shift-tab = 'exec-and-forget __HUB_SCRIPT__ monitor move-workspace next'" \
         "$REPO_DIR/config/aerospace.toml"
 }
+
+@test "aerospace restores pinned workspace monitors on startup" {
+    sed -n '/^after-startup-command = \[/,/^\]/p' "$REPO_DIR/config/aerospace.toml" \
+        | grep -Fq "'exec-and-forget __HUB_SCRIPT__ monitor restore'"
+}
