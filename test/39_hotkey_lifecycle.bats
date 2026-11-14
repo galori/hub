@@ -174,3 +174,15 @@ SH
 @test "delayed fullscreen bar restarts acquire locks from a fresh Hub process" {
     [[ "$(grep -Fc '(sleep 0.8; "$SCRIPT_DIR/hub" bar-restart)' "$REPO_DIR/scripts/hub")" -eq 2 ]]
 }
+
+@test "lifecycle lock reclaims an old lock directory that has no owner file" {
+    mkdir -p "$HUB_LIFECYCLE_LOCK_DIR"
+    printf '2018\n' > "$HUB_LIFECYCLE_LOCK_DIR/owner.sb-36ab01a9-bNljFR"
+    touch -t 202001010000 "$HUB_LIFECYCLE_LOCK_DIR"
+
+    hub_lifecycle_lock_acquire
+
+    [[ "$(cat "$HUB_LIFECYCLE_LOCK_DIR/owner")" == "$$" ]]
+    [[ ! -e "$HUB_LIFECYCLE_LOCK_DIR/owner.sb-36ab01a9-bNljFR" ]]
+    hub_lifecycle_lock_release
+}
