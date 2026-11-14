@@ -4553,6 +4553,11 @@ hub_lifecycle_lock_acquire() {
         if [[ "$owner" =~ ^[0-9]+$ ]] && ! kill -0 "$owner" 2>/dev/null; then
             rm -f "$owner_path"
             rmdir "$HUB_LIFECYCLE_LOCK_DIR" 2>/dev/null || true
+        elif [[ ! -e "$owner_path" ]] && hub_lifecycle_lock_is_old; then
+            # The owner died before it wrote "owner", or a sandbox left only a
+            # temp file (owner.sb-*). Without a PID, use the lock's age.
+            rm -f "$HUB_LIFECYCLE_LOCK_DIR"/owner.*
+            rmdir "$HUB_LIFECYCLE_LOCK_DIR" 2>/dev/null || true
         fi
         attempts=$((attempts + 1))
         if [[ "$attempts" -ge 400 ]]; then
@@ -4562,6 +4567,12 @@ hub_lifecycle_lock_acquire() {
         sleep 0.05
     done
     printf '%s\n' "$$" > "$owner_path"
+}
+
+hub_lifecycle_lock_is_old() {
+    local modified
+    modified="$(stat -f %m "$HUB_LIFECYCLE_LOCK_DIR" 2>/dev/null || stat -c %Y "$HUB_LIFECYCLE_LOCK_DIR" 2>/dev/null)" || return 1
+    [[ "$modified" =~ ^[0-9]+$ ]] && (( $(date +%s) - modified > 2 ))
 }
 
 hub_lifecycle_lock_release() {
